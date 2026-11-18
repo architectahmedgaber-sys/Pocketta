@@ -17,6 +17,9 @@ Your money for the month, on your phone only. Android app (Kotlin, Jetpack Compo
 - **Fingerprint lock** and **backup/restore** to a file.
 - Month start day is up to you. EGP by default, other currencies with your own rate.
 
+## Web version
+The same app for any browser lives in `web/` (plain HTML/CSS/JS, no build step) and is published at https://architectahmedgaber-sys.github.io/Pocketta/ by `.github/workflows/pages.yml` when `web/` changes on main. Data stays in the browser. See `web/README.md`.
+
 ## Build
 The APK is built by GitHub Actions (`.github/workflows/build.yml`). Run the workflow by hand with a version number to publish a release.
 The release key is stored encrypted (`signing/release.jks.enc`). CI unlocks it with the `KEYSTORE_PASSPHRASE` secret, so new versions install over old ones. (The key used for 1.0.0 is retired.)
