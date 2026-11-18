@@ -53,6 +53,32 @@ data class HomeState(
     val salaryExpected: Double,
 )
 
+/** One top-level category: spent so far this cycle and the usual per month (average of the last 3 cycles that had spending, 0 if none). */
+data class CatStat(val name: String, val spentSoFar: Double, val usual: Double) {
+    /** Best guess of what the category costs in a normal month. */
+    fun monthly(dayIndex: Int, cycleLength: Int): Double =
+        if (usual > 0) usual else if (dayIndex > 0) spentSoFar / dayIndex * cycleLength else spentSoFar
+}
+
+data class PlanData(
+    val home: HomeState,
+    val categories: List<CatStat>,
+    val everydaySpent: Double,
+    val dayIndex: Int,
+    /** Bills and subscriptions still to come this cycle that could wait a month. */
+    val postponable: List<app.pocketta.core.Planning.Postponable>,
+) {
+    val emergency: app.pocketta.core.Planning.Emergency?
+        get() = app.pocketta.core.Planning.emergency(
+            home.today, home.cycle, home.budget, everydaySpent, dayIndex, postponable,
+            categories.map { app.pocketta.core.Planning.CategorySpend(it.name, it.spentSoFar) },
+        )
+    val rises: List<app.pocketta.core.Planning.Rise>
+        get() = app.pocketta.core.Planning.priceRises(
+            categories.map { app.pocketta.core.Planning.CategoryTrend(it.name, it.spentSoFar, it.usual) }, dayIndex, home.cycle.lengthDays,
+        )
+}
+
 /** A repeated expense (same note and amount) offered as a one-tap button. */
 data class Suggestion(val note: String, val amount: Double)
 
@@ -416,6 +442,32 @@ class Repo private constructor(private val app: Context) {
             }
         }
         m
+    }
+
+    // ---------- Planning ----------
+
+    suspend fun planData(today: LocalDate = LocalDate.now()): PlanData {
+        val h = home(today)
+        val p = h.prefs
+        val cats = dao.categories().associateBy { it.id }
+        fun top(id: Long?): String? = id?.let { cats[it] }?.let { c -> (c.parentId?.let { cats[it] } ?: c).name }
+        suspend fun totals(from: LocalDate, toExclusive: LocalDate, upTo: LocalDate? = null): Map<String, Double> =
+            dao.txns(from.toEpochDay(), toExclusive.toEpochDay())
+                .filter { it.type == TxType.EXPENSE && !it.spread && (upTo == null || it.epochDay <= upTo.toEpochDay()) }
+                .groupBy { top(it.categoryId) ?: "Other" }.mapValues { e -> e.value.sumOf { it.base } }
+        val now = totals(h.cycle.start, h.cycle.nextStart, today)
+        val past = ArrayList<Map<String, Double>>()
+        var c = h.cycle
+        repeat(3) { c = c.previous(p.cycleStart); past += totals(c.start, c.nextStart) }
+        val withData = past.filter { it.isNotEmpty() }
+        val stats = (now.keys + withData.flatMap { it.keys }).distinct().map { name ->
+            CatStat(name, now[name] ?: 0.0, if (withData.isEmpty()) 0.0 else withData.sumOf { it[name] ?: 0.0 } / withData.size)
+        }.sortedByDescending { maxOf(it.usual, it.spentSoFar) }
+        val everyday = dao.txns(h.cycle.start.toEpochDay(), today.toEpochDay() + 1)
+            .filter { it.type == TxType.EXPENSE && !it.spread && it.source == Source.NONE }.sumOf { it.base }
+        val postponable = h.upcoming.filter { it.kind == "BILL" && !it.incoming && !it.spread && it.due.isAfter(today) && it.due.isBefore(h.cycle.nextStart) }
+            .map { app.pocketta.core.Planning.Postponable(it.title, it.amount, it.due) }
+        return PlanData(h, stats, everyday, h.cycle.dayIndex(today), postponable)
     }
 
     // ---------- Backup ----------

@@ -94,4 +94,68 @@ class CoreTest {
         assertEquals(0.0, Savings.suggestMove(500.0, 0.0, 0.0), 0.0)
         assertEquals(0.0, Savings.suggestMove(500.0, 1000.0, 1000.0), 0.0)
     }
+
+    @Test fun goalMonths() {
+        assertEquals(10, Planning.monthsToGoal(10000.0, 0.0, 1000.0))
+        assertEquals(4, Planning.monthsToGoal(10000.0, 6999.0, 1000.0))
+        assertEquals(0, Planning.monthsToGoal(10000.0, 10000.0, 0.0))
+        assertNull(Planning.monthsToGoal(10000.0, 0.0, 0.0))
+        assertEquals(LocalDate.of(2027, 2, 18), Planning.goalDate(LocalDate.of(2026, 11, 18), 3))
+    }
+
+    @Test fun canAfford() {
+        val ok = Planning.canAfford(100.0, 300.0, 5000.0, 10)
+        assertEquals(Planning.Verdict.YES, ok.verdict)
+        assertEquals(290.0, ok.dailyAfter, 0.001)
+        val tight = Planning.canAfford(2000.0, 300.0, 3000.0, 10)
+        assertEquals(Planning.Verdict.TIGHT, tight.verdict)
+        val no = Planning.canAfford(3500.0, 300.0, 3000.0, 10, goalAmount = 20000.0, goalSaved = 0.0, savingsPerMonth = 1000.0)
+        assertEquals(Planning.Verdict.NO, no.verdict)
+        assertEquals(500.0, no.shortfall, 0.001)
+        assertEquals(1, no.goalDelayMonths)
+        assertEquals(0, ok.goalDelayMonths)
+    }
+
+    @Test fun simulateCut() {
+        val s = Planning.simulateCut(2000.0, 20, 12000.0, 0.0, 1000.0)
+        assertEquals(400.0, s.extraPerMonth, 0.001)
+        assertEquals(12, s.monthsBefore)
+        assertEquals(9, s.monthsAfter)
+        assertEquals(3, s.monthsSooner)
+        assertEquals(0, Planning.simulateCut(2000.0, 20, 0.0, 0.0, 1000.0).monthsSooner)
+    }
+
+    private fun budgetOf(left: Double, forecastDiff: Double, daysLeft: Int) =
+        BudgetResult(budget = 10000.0, spent = 0.0, committed = 0.0, left = left, daysLeft = daysLeft, dailyAllowance = 0.0, leftToday = 0.0, forecastSpend = 0.0, forecastDiff = forecastDiff)
+
+    @Test fun emergency() {
+        val cycle = Cycle(LocalDate.of(2026, 11, 1), LocalDate.of(2026, 12, 1))
+        val today = LocalDate.of(2026, 11, 10)
+        assertNull(Planning.emergency(today, cycle, budgetOf(5000.0, 100.0, 21), 3000.0, 10, emptyList(), emptyList()))
+        val e = Planning.emergency(
+            today, cycle, budgetOf(1500.0, -2000.0, 21), 3000.0, 10,
+            listOf(Planning.Postponable("Netflix", 200.0, LocalDate.of(2026, 11, 20)), Planning.Postponable("Old", 50.0, LocalDate.of(2026, 11, 5))),
+            listOf(Planning.CategorySpend("Food", 1500.0), Planning.CategorySpend("Bills", 900.0), Planning.CategorySpend("Fun", 600.0)),
+        )!!
+        assertEquals(2000.0, e.shortfall, 0.001)
+        assertEquals(LocalDate.of(2026, 11, 15), e.runOutDate)
+        assertEquals(listOf("Netflix"), e.postpone.map { it.name })
+        assertTrue(e.cuts.none { it.name == "Bills" })
+        assertTrue(e.cuts.first().name == "Food")
+    }
+
+    @Test fun priceRises() {
+        val r = Planning.priceRises(
+            listOf(Planning.CategoryTrend("Food", 1500.0, 3000.0), Planning.CategoryTrend("Fun", 100.0, 500.0), Planning.CategoryTrend("Tiny", 90.0, 50.0)),
+            dayIndex = 10, cycleLength = 30,
+        )
+        assertEquals(listOf("Food"), r.map { it.name })
+        assertEquals(50, r.first().percent)
+    }
+
+    @Test fun weekSentences() {
+        val (a, b) = Planning.weekSentences(1200.0, -10, "Food", 5, "EGP")
+        assertEquals("You spent 1,200 EGP this week, 10% less than last week.", a)
+        assertTrue(b.contains("Food"))
+    }
 }

@@ -451,6 +451,37 @@ export function home(today = C.todayEpoch()) {
   };
 }
 
+/** Everything the planning tools need: the home numbers, spending per top-level category now and usually, and bills that could wait. */
+export function planData(today = C.todayEpoch()) {
+  const h = home(today), s = S();
+  const topName = (id) => { const c = byId(data.categories, id); if (!c) return 'Other'; const p = c.parentId ? byId(data.categories, c.parentId) : c; return (p || c).name; };
+  const totals = (from, toExcl, upTo = null) => {
+    const m = {};
+    for (const t of data.txns) {
+      if (t.type !== 'EXPENSE' || t.spread || t.epochDay < from || t.epochDay >= toExcl || (upTo != null && t.epochDay > upTo)) continue;
+      const n = topName(t.categoryId); m[n] = (m[n] || 0) + base(t);
+    }
+    return m;
+  };
+  const now = totals(h.cycle.start, h.cycle.nextStart, today);
+  const past = [];
+  let c = h.cycle;
+  for (let i = 0; i < 3; i++) { c = C.previousCycle(c, s.cycleStart); past.push(totals(c.start, c.nextStart)); }
+  const withData = past.filter((m) => Object.keys(m).length);
+  const names = [...new Set([...Object.keys(now), ...withData.flatMap((m) => Object.keys(m))])];
+  const dayIndex = h.cycle.dayIndex(today);
+  const categories = names.map((name) => {
+    const usual = withData.length ? withData.reduce((a, m) => a + (m[name] || 0), 0) / withData.length : 0;
+    const spentSoFar = now[name] || 0;
+    return { name, spentSoFar, usual, monthly: usual > 0 ? usual : (dayIndex > 0 ? spentSoFar / dayIndex * h.cycle.length : spentSoFar) };
+  }).sort((a, b) => Math.max(b.usual, b.spentSoFar) - Math.max(a.usual, a.spentSoFar));
+  const everyday = data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && !t.source && t.epochDay >= h.cycle.start && t.epochDay <= today).reduce((a, t) => a + base(t), 0);
+  const postponable = h.upcoming.filter((u) => u.kind === 'BILL' && !u.incoming && !u.spread && u.due > today && u.due < h.cycle.nextStart).map((u) => ({ name: u.title, amount: u.amount, due: u.due }));
+  const emergency = C.emergency(today, h.cycle, h.budget, everyday, dayIndex, postponable, categories.map((x) => ({ name: x.name, spent: x.spentSoFar })));
+  const rises = C.priceRises(categories, dayIndex, h.cycle.length);
+  return { home: h, categories, everydaySpent: everyday, dayIndex, postponable, emergency, rises };
+}
+
 /** Current balance of every wallet, in the base currency. */
 export function balances() {
   const m = {};

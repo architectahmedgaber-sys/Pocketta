@@ -330,3 +330,10 @@ p { margin: 0; }
   [dir="rtl"] #app:has(> .tabs) { padding-left: 0; padding-right: 220px; }
   [dir="rtl"] .fab { left: 40px; right: auto; }
 }
+
+/* Plan ahead */
+.warn-t { color: var(--warn); }
+.b { font-weight: 700; }
+.gap8 { margin-top: 10px; }
+.pline { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.pline span:last-child { text-align: right; }
