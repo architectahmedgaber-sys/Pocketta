@@ -10,6 +10,7 @@ import app.pocketta.core.Cycle
 import app.pocketta.core.CycleMath
 import app.pocketta.core.Frequency
 import app.pocketta.core.InstallmentPlan
+import app.pocketta.core.Planning
 import app.pocketta.core.Recurrence
 import app.pocketta.widget.Widgets
 import kotlinx.coroutines.CoroutineScope
@@ -66,16 +67,16 @@ data class PlanData(
     val everydaySpent: Double,
     val dayIndex: Int,
     /** Bills and subscriptions still to come this cycle that could wait a month. */
-    val postponable: List<app.pocketta.core.Planning.Postponable>,
+    val postponable: List<Planning.Postponable>,
 ) {
-    val emergency: app.pocketta.core.Planning.Emergency?
-        get() = app.pocketta.core.Planning.emergency(
+    val emergency: Planning.Emergency?
+        get() = Planning.emergency(
             home.today, home.cycle, home.budget, everydaySpent, dayIndex, postponable,
-            categories.map { app.pocketta.core.Planning.CategorySpend(it.name, it.spentSoFar) },
+            categories.map { Planning.CategorySpend(it.name, it.spentSoFar) },
         )
-    val rises: List<app.pocketta.core.Planning.Rise>
-        get() = app.pocketta.core.Planning.priceRises(
-            categories.map { app.pocketta.core.Planning.CategoryTrend(it.name, it.spentSoFar, it.usual) }, dayIndex, home.cycle.lengthDays,
+    val rises: List<Planning.Rise>
+        get() = Planning.priceRises(
+            categories.map { Planning.CategoryTrend(it.name, it.spentSoFar, it.usual) }, dayIndex, home.cycle.lengthDays,
         )
 }
 
@@ -466,7 +467,7 @@ class Repo private constructor(private val app: Context) {
         val everyday = dao.txns(h.cycle.start.toEpochDay(), today.toEpochDay() + 1)
             .filter { it.type == TxType.EXPENSE && !it.spread && it.source == Source.NONE }.sumOf { it.base }
         val postponable = h.upcoming.filter { it.kind == "BILL" && !it.incoming && !it.spread && it.due.isAfter(today) && it.due.isBefore(h.cycle.nextStart) }
-            .map { app.pocketta.core.Planning.Postponable(it.title, it.amount, it.due) }
+            .map { Planning.Postponable(it.title, it.amount, it.due) }
         return PlanData(h, stats, everyday, h.cycle.dayIndex(today), postponable)
     }
 
