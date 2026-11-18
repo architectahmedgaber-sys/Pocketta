@@ -35,7 +35,17 @@ jobs:
           else V="0.0.${{ github.run_number }}"; fi
           echo "VERSION_NAME=$V" >> "$GITHUB_ENV"
 
+      - name: Unlock the signing key
+        env:
+          KEYSTORE_PASSPHRASE: ${{ secrets.KEYSTORE_PASSPHRASE }}
+        run: |
+          if [ -z "$KEYSTORE_PASSPHRASE" ]; then echo "::error::Add the KEYSTORE_PASSPHRASE secret in Settings > Secrets and variables > Actions"; exit 1; fi
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in signing/release.jks.enc -out signing/release.jks -pass env:KEYSTORE_PASSPHRASE
+
       - name: Unit tests and release build
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSPHRASE }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.KEYSTORE_PASSPHRASE }}
         run: ./gradlew :core:test assembleRelease -PversionName=$VERSION_NAME -PversionCode=${{ github.run_number }} --stacktrace
 
       - name: Name the APK
