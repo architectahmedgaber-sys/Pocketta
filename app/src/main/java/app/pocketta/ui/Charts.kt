@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -88,6 +89,35 @@ fun DaysCard(values: List<Double>, modifier: Modifier = Modifier) {
                 val c = if (v <= 0.0) empty else if (v >= max * 0.85) peak else base
                 drawRoundRect(c, Offset(i * (w + gap), size.height - h), Size(w, h), CornerRadius(4.dp.toPx()))
             }
+        }
+    }
+}
+
+/** This month against last month for the biggest categories: two bars each, longer bar = more money. */
+@Composable
+fun CompareCard(items: List<Triple<String, Double, Double>>, modifier: Modifier = Modifier) {
+    if (items.isEmpty() || items.all { it.third <= 0.0 }) return
+    val max = items.maxOf { maxOf(it.second, it.third) }.coerceAtLeast(1.0)
+    SectionCard(modifier) {
+        Label("This month vs last month")
+        Gap(8)
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                Text("This month", style = MaterialTheme.typography.bodySmall)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outline))
+                Text("Last month", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        for ((name, now, before) in items) {
+            Gap(10)
+            Text(name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+            Gap(4)
+            Progress((now / max).toFloat(), color = if (before > 0 && now > before * 1.2) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+            Gap(3)
+            Progress((before / max).toFloat(), color = MaterialTheme.colorScheme.outline)
         }
     }
 }

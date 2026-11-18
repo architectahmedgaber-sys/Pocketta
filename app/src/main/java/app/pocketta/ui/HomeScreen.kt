@@ -1,6 +1,16 @@
 package app.pocketta.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,8 +69,18 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     val cur = prefs.baseCurrency
     val b = s.budget
     val over = b.leftToday < 0
-    val heroColor = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    val heroText = if (over) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
+    val spentToday = b.dailyAllowance - b.leftToday
+    val todayFrac = if (b.dailyAllowance > 0) (spentToday / b.dailyAllowance).toFloat() else 0f
+    // Green while you are fine, amber when most of today's money is gone, red when you are over.
+    val heroColor = when {
+        over -> MaterialTheme.colorScheme.error
+        todayFrac >= 0.8f -> Color(0xFF9A5B00)
+        else -> MaterialTheme.colorScheme.primary
+    }
+    val heroText = if (over) MaterialTheme.colorScheme.onError else Color.White
+    val target = kotlin.math.abs(b.leftToday).toFloat()
+    val shownAmount = remember { Animatable(0f) }
+    LaunchedEffect(target) { shownAmount.animateTo(target, tween(700)) }
     Box(modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
@@ -90,13 +110,11 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
             SectionCard(container = heroColor) {
                 Text(if (over) "Over today's budget" else "You can spend today", color = heroText, fontWeight = FontWeight.SemiBold)
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text(Money.short(kotlin.math.abs(b.leftToday)), fontSize = 52.sp, fontWeight = FontWeight.ExtraBold, color = heroText, maxLines = 1)
+                    Text(Money.short(shownAmount.value.toDouble()), fontSize = 52.sp, fontWeight = FontWeight.ExtraBold, color = heroText, maxLines = 1)
                     Text(" $cur", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = heroText, modifier = Modifier.padding(bottom = 10.dp))
                 }
                 Gap(8)
-                val spentToday = b.dailyAllowance - b.leftToday
-                val frac = if (b.dailyAllowance > 0) (spentToday / b.dailyAllowance).toFloat() else 0f
-                Progress(frac, color = heroText, track = heroText.copy(alpha = 0.25f))
+                Progress(todayFrac, color = heroText, track = heroText.copy(alpha = 0.25f))
                 Gap(6)
                 Text("Spent ${Money.short(spentToday)} of ${Money.short(b.dailyAllowance)} today", color = heroText, style = MaterialTheme.typography.bodySmall)
             }
@@ -110,10 +128,23 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                     Text("${Money.short(b.left)} left of ${Money.short(b.budget)} $cur", style = MaterialTheme.typography.bodySmall)
                 }
                 Gap(8)
-                Progress(b.spentFraction.toFloat(), color = if (b.left < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                Gap(6)
-                Text("Spent ${Money.short(b.spent)} · still to pay ${Money.short(b.committed)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val spentF = b.spentFraction
+                val commF = b.committedFraction
+                val restF = (1f - spentF - commF).coerceAtLeast(0f)
+                Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))) {
+                    if (spentF > 0f) Box(Modifier.weight(spentF).fillMaxHeight().background(if (b.left < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary))
+                    if (commF > 0f) Box(Modifier.weight(commF).fillMaxHeight().background(Warn))
+                    if (restF > 0f) Box(Modifier.weight(restF).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceVariant))
+                }
+                Gap(8)
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    LegendDot(MaterialTheme.colorScheme.primary, "Spent")
+                    LegendDot(Warn, "Still to pay")
+                    LegendDot(MaterialTheme.colorScheme.outline, "Free")
+                }
             }
+
+            StartGuide(s, nav)
 
             if (s.upcoming.isNotEmpty()) UpcomingCard(repo, s.upcoming.take(3), s, cur)
 
@@ -223,5 +254,54 @@ suspend fun payUpcoming(repo: Repo, u: Upcoming) {
         "INSTALLMENT" -> dao.installment(u.id)?.let { repo.payInstallment(it) }
         "CIRCLE" -> dao.circle(u.id)?.let { repo.payCircle(it) }
         "LOAN" -> dao.loan(u.id)?.let { repo.loanPayment(it, it.remaining) }
+    }
+}
+
+@Composable
+private fun LegendDot(color: Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** First-run guide: three steps that tell a new user what to do and where their numbers go. It hides itself when done. */
+@Composable
+private fun StartGuide(s: HomeState, nav: Nav) {
+    val hasIncome = s.budget.budget > 0 || s.salaryExpected > 0
+    val hasExpense = s.days.any { it.second > 0 }
+    val hasCommit = s.upcoming.isNotEmpty()
+    var hidden by rememberSaveable { mutableStateOf(false) }
+    if (hidden || (hasIncome && hasExpense && hasCommit)) return
+    SectionCard(container = MaterialTheme.colorScheme.primaryContainer) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Start here", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = { hidden = true }) { Text("Hide") }
+        }
+        Text("Three quick steps and Pocketta works for you.", style = MaterialTheme.typography.bodySmall)
+        Gap(8)
+        GuideStep(1, "Put in your salary", "So it can tell you what you can spend each day", hasIncome) { nav.open(Route.Income) }
+        GuideStep(2, "Add what you spent today", "Tap Add expense, type the amount, pick a category", hasExpense) { nav.open(Route.Add()) }
+        GuideStep(3, "Add a bill, installment or gam'eya", "Pocketta reminds you and counts it in your budget", hasCommit) { nav.tab(Route.Commit) }
+    }
+}
+
+@Composable
+private fun GuideStep(n: Int, title: String, hint: String, done: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            Modifier.size(30.dp).clip(CircleShape).background(if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(if (done) "✓" else n.toString(), fontWeight = FontWeight.Bold, color = if (done) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(hint, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }

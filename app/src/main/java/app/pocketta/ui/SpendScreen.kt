@@ -59,6 +59,10 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     val byId = categories.associateBy { it.id }
     fun topOf(id: Long?): Long? = id?.let { byId[it]?.parentId ?: it }
 
+    val prevCycle = cycle.previous(prefs.cycleStart)
+    val prevFlow = remember(cycle.start) { repo.dao.txnsFlow(prevCycle.start.toEpochDay(), prevCycle.nextStart.toEpochDay()) }
+    val prevTxns by prevFlow.collectAsState(initial = emptyList())
+    val prevPerParent = prevTxns.filter { it.type == TxType.EXPENSE }.groupBy { topOf(it.categoryId) }.mapValues { e -> e.value.sumOf { it.base } }
     val expenses = txns.filter { it.type == TxType.EXPENSE }
     val spent = expenses.sumOf { it.base }
     val income = txns.filter { it.type == TxType.INCOME }.sumOf { it.base }
@@ -104,6 +108,8 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                     Gap()
                     val sums = expenses.groupBy { it.epochDay.toLong() }.mapValues { e -> e.value.sumOf { it.base } }
                     DaysCard((cycle.start.toEpochDay() until cycle.nextStart.toEpochDay()).map { d -> sums[d] ?: 0.0 }, Modifier.padding(horizontal = 16.dp))
+                    Gap()
+                    CompareCard(perParent.take(5).map { Triple(byId[it.key]?.name ?: "No category", it.value, prevPerParent[it.key] ?: 0.0) }, Modifier.padding(horizontal = 16.dp))
                     Gap()
                 } }
             }
