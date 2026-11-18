@@ -46,6 +46,7 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             }
         }
         if (p.onboarded && p.morning) runCatching { morningMessage(repo) }
+        if (p.onboarded && p.monthEndReminder) runCatching { monthEndMessage(repo) }
         Widgets.updateAll(applicationContext)
         return Result.success()
     }
@@ -70,6 +71,15 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         }
         Notifier.ratesLine(p, p.lang)?.let { lines += it }
         Notifier.morning(applicationContext, title, if (lines.isEmpty()) null else lines.joinToString("\n"))
+    }
+
+    /** On the last day of the month: if money is left and a savings goal isn't reached, suggest moving it there. */
+    private suspend fun monthEndMessage(repo: Repo) {
+        val s = repo.home()
+        val p = s.prefs
+        if (s.budget.daysLeft != 1) return
+        val amount = app.pocketta.core.Savings.suggestMove(s.budget.left, p.goalAmount, p.goalSaved)
+        if (amount > 0) Notifier.monthEnd(applicationContext, amount, p.goalName, p.baseCurrency, p.lang)
     }
 
     private suspend fun remindDays(repo: Repo, kind: String, id: Long): Int = when (kind) {

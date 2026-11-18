@@ -359,6 +359,7 @@ fun CurrenciesScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                     }) { Text(if (refreshing) "Updating..." else "Update now") }
                 }
             }
+            GoldSection(repo, prefs)
             SectionCard {
                 Label("Your own rates")
                 Text("A rate you type here always wins over the internet one.", style = MaterialTheme.typography.bodySmall)
@@ -428,5 +429,71 @@ fun OnboardingScreen(repo: Repo, onDone: () -> Unit) {
                 }
             }, modifier = Modifier.padding(top = 8.dp)) { Text("Start") }
         }
+    }
+}
+
+/** Gold you bought: grams and the price you paid, with profit or loss against today's price. */
+@Composable
+private fun GoldSection(repo: Repo, prefs: Prefs) {
+    val scope = rememberCoroutineScope()
+    var karat by remember { mutableStateOf("21") }
+    var grams by remember { mutableStateOf("") }
+    var price by remember { mutableStateOf("") }
+    val buys = prefs.goldBuys
+    val summary = app.pocketta.core.Gold.summary(buys, prefs.gold)
+    fun save(list: List<app.pocketta.core.GoldBuy>) { scope.launch { repo.set("goldBuys", app.pocketta.core.Gold.format(list)) } }
+    SectionCard {
+        Label("My gold")
+        Text("Write down gold you bought to see your profit or loss against today's price.", style = MaterialTheme.typography.bodySmall)
+        if (summary != null) {
+            Gap(4)
+            val up = summary.profit >= 0
+            val color = if (up) androidx.compose.ui.graphics.Color(0xFF1F8A4C) else androidx.compose.ui.graphics.Color(0xFFC62828)
+            Text(
+                (if (up) "Profit " else "Loss ") + Money.short(kotlin.math.abs(summary.profit)) + " " + prefs.baseCurrency,
+                fontWeight = FontWeight.Bold, color = color, style = MaterialTheme.typography.titleMedium,
+            )
+            Text((if (up) "+" else "−") + Money.fmt(kotlin.math.abs(summary.percent)) + "%", color = color, style = MaterialTheme.typography.bodySmall)
+            Text(
+                Money.fmt(summary.grams) + " g · Paid " + Money.short(summary.cost) + " · Worth " + Money.short(summary.value) + " " + prefs.baseCurrency,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else if (buys.isNotEmpty()) {
+            Text("Today's gold price isn't downloaded yet.", style = MaterialTheme.typography.bodySmall)
+        }
+        for ((i, b) in buys.withIndex()) {
+            Divider()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Karat ${b.karat} · ${Money.fmt(b.grams)} g", fontWeight = FontWeight.SemiBold)
+                    Text("Bought at ${Money.fmt(b.pricePerGram)} per gram", style = MaterialTheme.typography.bodySmall)
+                    app.pocketta.core.Gold.profit(b, prefs.gold)?.let { pr ->
+                        Text(
+                            (if (pr >= 0) "Profit " else "Loss ") + Money.short(kotlin.math.abs(pr)) + " " + prefs.baseCurrency,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (pr >= 0) androidx.compose.ui.graphics.Color(0xFF1F8A4C) else androidx.compose.ui.graphics.Color(0xFFC62828),
+                        )
+                    }
+                }
+                TextButton(onClick = { save(buys.filterIndexed { j, _ -> j != i }) }) { Text("Remove") }
+            }
+        }
+        Gap(8)
+        Choices(listOf("24", "21", "18"), karat, { "Karat $it" }, { karat = it })
+        Gap(4)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumberField("Grams", grams, { grams = it }, Modifier.weight(1f))
+            NumberField("Price per gram", price, { price = it }, Modifier.weight(1f), suffix = prefs.baseCurrency)
+        }
+        val g = parseNumber(grams)
+        val pr = parseNumber(price)
+        Button(
+            enabled = g != null && g > 0 && pr != null && pr > 0,
+            onClick = {
+                save(buys + app.pocketta.core.GoldBuy(karat, g ?: 0.0, pr ?: 0.0, LocalDate.now().toEpochDay()))
+                grams = ""; price = ""
+            },
+        ) { Text("Add gold") }
+        prefs.gold[karat]?.let { Text("Today's price per gram: ${Money.short(it)} ${prefs.baseCurrency}", style = MaterialTheme.typography.bodySmall) }
     }
 }

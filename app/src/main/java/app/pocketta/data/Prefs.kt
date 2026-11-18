@@ -45,6 +45,10 @@ data class Prefs(
     /** Yesterday's rates and gold, to show an up or down arrow. */
     val prevOnlineRates: Map<String, Double> = emptyMap(),
     val prevGold: Map<String, Double> = emptyMap(),
+    /** Gold you bought, to show profit or loss against today's price. */
+    val goldBuys: List<app.pocketta.core.GoldBuy> = emptyList(),
+    /** At the end of the month, suggest moving what is left into the savings goal. */
+    val monthEndReminder: Boolean = true,
 ) {
     fun rateOf(currency: String): Double =
         if (currency == baseCurrency) 1.0 else rates[currency] ?: (if (autoRates) onlineRates[currency] else null) ?: 1.0
@@ -110,6 +114,8 @@ data class Prefs(
                 goalSaved = d("goalSaved", 0.0),
                 prevOnlineRates = parseRates(m["prevOnlineRates"].orEmpty()),
                 prevGold = parseRates(m["prevGold"].orEmpty()),
+                goldBuys = app.pocketta.core.Gold.parse(m["goldBuys"].orEmpty()),
+                monthEndReminder = b("monthEndReminder", true),
             )
         }
 

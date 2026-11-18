@@ -71,4 +71,27 @@ class CoreTest {
         assertEquals("12.5", Money.fmt(12.5))
         assertEquals("−300", Money.signed(-300.0))
     }
+
+    @Test fun goldProfit() {
+        val buys = listOf(GoldBuy("21", 10.0, 3000.0), GoldBuy("24", 5.0, 3500.0))
+        val round = Gold.parse(Gold.format(buys))
+        assertEquals(buys, round)
+        val s = Gold.summary(buys, mapOf("21" to 3200.0, "24" to 3400.0))!!
+        assertEquals(15.0, s.grams, 0.0001)
+        assertEquals(47500.0, s.cost, 0.0001)
+        assertEquals(49000.0, s.value, 0.0001)
+        assertEquals(1500.0, s.profit, 0.0001)
+        assertEquals(-500.0, Gold.profit(buys[1], mapOf("24" to 3400.0))!!, 0.0001)
+        assertNull(Gold.profit(buys[0], emptyMap()))
+        assertEquals(0, Gold.parse("junk;21,x,3").size)
+    }
+
+    @Test fun savingsSuggestion() {
+        assertEquals(800.0, Savings.suggestMove(800.7, 10000.0, 2000.0), 0.0)
+        assertEquals(300.0, Savings.suggestMove(800.0, 10000.0, 9700.0), 0.0)
+        assertEquals(0.0, Savings.suggestMove(30.0, 10000.0, 0.0), 0.0)
+        assertEquals(0.0, Savings.suggestMove(-5.0, 10000.0, 0.0), 0.0)
+        assertEquals(0.0, Savings.suggestMove(500.0, 0.0, 0.0), 0.0)
+        assertEquals(0.0, Savings.suggestMove(500.0, 1000.0, 1000.0), 0.0)
+    }
 }

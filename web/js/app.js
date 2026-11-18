@@ -1,10 +1,11 @@
 import * as C from './core.js';
 import * as R from './store.js';
 import { shareMonth } from './share.js';
+import { startArabic } from './i18n.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.3.1';
+const VERSION = '1.4.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -188,6 +189,7 @@ function home() {
   html += quickCard();
   html += converterCard();
   html += weekCard(s);
+  html += monthEndCard(s);
   html += goalCard();
   const sp = b.spentFraction, cm = b.committedFraction, rest = Math.max(1 - sp - cm, 0);
   html += card(`<div class="row-flex"><b class="grow">This month</b><span class="small">${money(b.left)} left of ${money(b.budget)} ${esc(cur)}</span></div>
@@ -346,6 +348,17 @@ function goalCard() {
     <div class="grow">${label('Savings goal')}<div class="mid">${esc(s.goalName || 'Savings goal')}</div>
       <div class="small">${frac >= 1 ? 'Goal reached!' : `Saved ${money(s.goalSaved)} of ${money(s.goalAmount)}`}</div>
       <button class="btn text" data-act="goal-add">Add to goal</button></div></div>`);
+}
+/** Last 2 days of the month: offers to move what is left into the savings goal. */
+function monthEndCard(s) {
+  const st = R.S(), b = s.budget;
+  if (st.monthEndReminder === false || b.daysLeft > 2 || st.monthEndDismissed === C.isoOf(s.cycle.end)) return '';
+  const amt = C.suggestMove(b.left, st.goalAmount, st.goalSaved);
+  if (!amt) return '';
+  ui.monthEnd = { amt, key: C.isoOf(s.cycle.end) };
+  return card(`<div class="grow"><b>${b.daysLeft > 1 ? 'The month ends tomorrow. Left:' : 'The month ends today. Left:'} ${money(amt)} ${esc(base())}</b>
+    <div class="small">Move it to your savings goal?</div></div>
+    <div class="btns"><button class="btn filled" data-act="month-move">Move to goal</button><button class="btn text" data-act="month-skip">Not now</button></div>`, 'tonal');
 }
 function goalSheet() {
   sheet({
@@ -976,10 +989,31 @@ function currencyPage() {
       ${s.autoCurrencies.filter((c) => s.onlineRates[c]).map((c) => `<div class="kv"><span>1 ${c}</span><b>${C.fmt(s.onlineRates[c])} ${esc(s.baseCurrency)}${R.isManual(c) ? ` (you set ${C.fmt(s.rates[c])})` : ''}</b></div>`).join('')}
       ${goldRows ? `<div class="label pad-t">Gold, per gram</div>${goldRows}<div class="small">From the world gold price and the dollar rate. Shops may differ a little.</div>` : ''}
       <button class="btn text" data-act="update-rates">Update now</button>` : `<div class="small">Turned off. Only the rates you type below are used.</div>`}`) +
+    goldCard() +
     card(label('Your own rates') + `<div class="small">A rate you type here always wins over the internet one.</div>` +
       rates.map(([c, r]) => `<div class="row-flex line"><span class="grow">1 ${esc(c)} = ${C.fmt(r)} ${esc(s.baseCurrency)}</span><button class="btn text" data-act="edit-rate" data-c="${esc(c)}">Edit</button><button class="btn text" data-act="del-rate" data-c="${esc(c)}">Remove</button></div>`).join('') +
       `<div class="two">${field('code', 'Code (USD)', '')}${numField('rate', 'Rate', null)}</div><button class="btn filled" data-act="save-rate">Save rate</button>`) +
     card(label('Main currency') + `<div class="row-flex">${field('base', 'Code', s.baseCurrency)}<button class="btn text" data-act="save-base">Save</button></div><div class="small">Everything is totalled in this currency. Internet rates are in EGP.</div>`) + `</main>`;
+}
+
+function goldCard() {
+  const s = R.S(), buys = s.goldBuys || [], sum = C.goldSummary(buys, s.gold), cur = esc(s.baseCurrency);
+  const tone = (v) => (v >= 0 ? 'good-t' : 'bad-t');
+  let html = label('My gold') + `<div class="small">Write down gold you bought to see your profit or loss against today's price.</div>`;
+  if (sum) {
+    html += `<div class="mid ${tone(sum.profit)}">${sum.profit >= 0 ? 'Profit' : 'Loss'} ${money(Math.abs(sum.profit))} ${cur}</div>
+      <div class="small ${tone(sum.profit)}"><bdi>${sum.profit >= 0 ? '+' : '−'}${C.fmt(Math.abs(Math.round(sum.percent * 10) / 10))}%</bdi></div>
+      <div class="small">${C.fmt(sum.grams)} g · Paid ${money(sum.cost)} · Worth ${money(sum.value)} ${cur}</div>`;
+  } else if (buys.length) html += `<div class="small">Today's gold price isn't downloaded yet.</div>`;
+  html += buys.map((b, i) => {
+    const pr = C.goldProfit(b, s.gold);
+    return `<div class="row-flex line"><div class="grow"><b>Karat ${esc(b.karat)} · ${C.fmt(b.grams)} g</b><div class="small">Bought at ${C.fmt(b.price)} per gram</div>
+      ${pr == null ? '' : `<div class="small ${tone(pr)}">${pr >= 0 ? 'Profit' : 'Loss'} ${money(Math.abs(pr))} ${cur}</div>`}</div>
+      <button class="btn text" data-act="gold-del" data-i="${i}">Remove</button></div>`;
+  }).join('');
+  html += chips('gkarat', [['24', 'Karat 24'], ['21', 'Karat 21'], ['18', 'Karat 18']], '21') +
+    `<div class="two">${numField('gGrams', 'Grams', null)}${numField('gPrice', 'Price per gram', null, { suffix: s.baseCurrency })}</div><button class="btn filled" data-act="gold-add">Add gold</button>`;
+  return card(html);
 }
 
 // ---------- Settings ----------
@@ -989,11 +1023,12 @@ function settings() {
   const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
   return topbar('Settings') + `<main class="page" id="settings">` +
     card(label('Month') + `<div class="row-flex">${numField('start', 'My month starts on day', s.cycleStart, { int: true })}<button class="btn text" data-act="save-start">Save</button></div>`) +
-    card(label('Look') + `<div class="small">Night mode</div>` + chips('theme', [['AUTO', 'Auto'], ['LIGHT', 'Light'], ['DARK', 'Dark']], s.theme, 'seg')) +
+    card(label('Look') + `<div class="small">Night mode</div>` + chips('theme', [['AUTO', 'Auto'], ['LIGHT', 'Light'], ['DARK', 'Dark']], s.theme, 'seg') + `<div class="small pad-t">Language</div>` + chips('lang', [['EN', 'English'], ['AR', 'العربية']], s.lang || 'EN', 'seg')) +
     card(label('Savings goal') + `<div class="small">Set a goal (Umra, car, wedding...) and watch the ring fill up on Today.</div>` +
       field('goalName', 'Name', s.goalName) + `<div class="two">${numField('goalAmount', 'Goal amount', s.goalAmount, { suffix: base() })}${numField('goalSaved', 'Saved so far', s.goalSaved, { suffix: base() })}</div>` +
       `<button class="btn filled" data-act="save-goal">Save</button>`) +
     card(label('Alerts') + `<label class="switch-row"><span>Tell me when I go over today's budget</span><input type="checkbox" data-act="toggle-alert" ${s.budgetAlert ? 'checked' : ''}></label>
+      <label class="switch-row"><span>At month end, offer to move what's left to my savings goal</span><input type="checkbox" data-act="toggle-monthend" ${s.monthEndReminder !== false ? 'checked' : ''}></label>
       <div class="small">Bills, installments and gam'eya shares that are due soon (by the days you choose on each one) show on Home and as a number on the app icon.</div>`) +
     card(label('Privacy') + (s.pinHash
       ? `<div class="row-flex"><span class="grow">PIN lock is on</span><button class="btn text" data-act="pin-set">Change</button><button class="btn text danger" data-act="pin-off">Turn off</button></div>`
@@ -1011,6 +1046,7 @@ function settings() {
 
 function onboarding() {
   return `<main class="page onboard" id="onb"><h1 class="brand">Pocketta</h1>
+    ${chips('lang', [['EN', 'English'], ['AR', 'العربية']], R.S().lang || 'EN', 'seg')}
     <p>Your money for the month: what you can spend today, your bills, installments, gam'eya and loans. Everything stays on your phone.</p>
     ${numField('salary', 'Monthly salary (optional)', null, { suffix: 'EGP' })}
     ${numField('salaryDay', 'Salary day of the month', 1, { int: true })}
@@ -1105,6 +1141,16 @@ const actions = {
   'qa-chip': (el) => { const g = R.suggestions()[+el.dataset.i]; if (g) quickAdd(g.note, g.amount, 0); },
   'conv-swap': () => { const { from, to } = convCompute(); ui.conv.from = to[0]; ui.conv.to = from[0]; render(); },
   'goal-add': () => goalSheet(),
+  'month-move': () => { const m = ui.monthEnd; if (!m) return; R.S().goalSaved += m.amt; R.S().monthEndDismissed = m.key; R.changed(); toast('Moved to your goal'); },
+  'month-skip': () => { if (ui.monthEnd) R.setSetting('monthEndDismissed', ui.monthEnd.key); },
+  'toggle-monthend': (el) => R.setSetting('monthEndReminder', el.checked),
+  'gold-add': () => {
+    const root = $('#cur');
+    const g = num(root, 'gGrams'), pr = num(root, 'gPrice'), k = chipVal(root, 'gkarat') || '21';
+    if (!(g > 0) || !(pr > 0)) return toast('Type the grams and the price per gram');
+    R.setSetting('goldBuys', [...R.S().goldBuys, { karat: k, grams: g, price: pr, day: C.todayEpoch() }]);
+  },
+  'gold-del': (el) => R.setSetting('goldBuys', R.S().goldBuys.filter((_, i) => i !== +el.dataset.i)),
   'share-month': () => shareMonth(ui.shareData).then((r) => { if (r === 'saved') toast('Picture saved'); }).catch(() => toast("Couldn't make the picture")),
   'toggle-auto': (el) => { R.setSetting('autoRates', el.checked); if (el.checked) R.refreshRates(true); },
   'auto-cur': (el) => { const l = R.S().autoCurrencies; R.setSetting('autoCurrencies', l.includes(el.dataset.c) ? l.filter((x) => x !== el.dataset.c) : [...l, el.dataset.c]); },
@@ -1133,6 +1179,7 @@ const actions = {
     }
     if (group === 'catkind') { ui.catKind = el.dataset.val; render(); }
     if (group === 'theme') { R.setSetting('theme', el.dataset.val); }
+    if (group === 'lang') { R.S().lang = el.dataset.val; R.changed(); setTimeout(() => location.reload(), 250); }
   },
   'save-txn': () => saveTxn(),
   'edit-txn': (el) => go('add', { id: +el.dataset.id }),
@@ -1231,7 +1278,7 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('change', (e) => {
   const a = e.target.dataset?.act;
-  if (a === 'toggle-alert' || a === 'toggle-auto') actions[a](e.target);
+  if (a === 'toggle-alert' || a === 'toggle-auto' || a === 'toggle-monthend') actions[a](e.target);
   if (e.target.id === 'conv-from') { ui.conv.from = e.target.value; convRefresh(); }
   if (e.target.id === 'conv-to') { ui.conv.to = e.target.value; convRefresh(); }
 });
@@ -1264,8 +1311,12 @@ R.onChange(() => { if (cur().r !== 'add') render(); });
 
 (async function main() {
   await R.load();
+  if (R.S().lang === 'AR') startArabic();
   applyTheme();
   ui.locked = !!R.S().pinHash;
+  // Long-press shortcuts on the home-screen icon: ?go=add or ?go=income
+  const goto = new URLSearchParams(location.search).get('go');
+  if (goto && R.S().onboarded && !ui.locked) { ui.stack = [{ r: 'home' }, goto === 'income' ? { r: 'add', type: 'INCOME' } : { r: 'add' }]; history.replaceState(null, '', location.pathname); }
   render();
   R.refreshRates();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
