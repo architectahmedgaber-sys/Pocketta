@@ -1,6 +1,12 @@
 package app.pocketta.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -42,12 +48,32 @@ import java.time.LocalDate
 
 @Composable
 fun MoreScreen(nav: Nav, modifier: Modifier) {
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        ListRow("Income & salary", "Your monthly salary, other income, money set aside", icon = "💰", onClick = { nav.open(Route.Income) })
-        ListRow("Wallets", "Cash, bank, Vodafone Cash, cards and balances", icon = "👛", onClick = { nav.open(Route.Wallets) })
-        ListRow("Categories", "Categories, sub-categories and monthly limits", icon = "🏷️", onClick = { nav.open(Route.Categories) })
-        ListRow("Currencies & gold", "Convert money and gold, today's prices, your own rates", icon = "💱", onClick = { nav.open(Route.Currencies) })
-        ListRow("Settings", "Month start, reminders, fingerprint lock, backup", icon = "⚙️", onClick = { nav.open(Route.Settings) })
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        MoreCard("💰", "Income & salary", "Your monthly salary, other income, money set aside") { nav.open(Route.Income) }
+        MoreCard("👛", "Wallets", "Cash, bank, Vodafone Cash, cards and balances") { nav.open(Route.Wallets) }
+        MoreCard("🏷️", "Categories", "Categories, sub-categories and monthly limits") { nav.open(Route.Categories) }
+        MoreCard("💱", "Currencies & gold", "Convert money and gold, today's prices, your own rates") { nav.open(Route.Currencies) }
+        MoreCard("⚙️", "Settings", "Month start, reminders, fingerprint lock, backup") { nav.open(Route.Settings) }
+    }
+}
+
+@Composable
+private fun MoreCard(emoji: String, title: String, sub: String, onClick: () -> Unit) {
+    SectionCard(onClick = onClick) {
+        Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Box(
+                Modifier.size(60.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) { Text(emoji, fontSize = 28.sp) }
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text("›", fontSize = 28.sp, color = MaterialTheme.colorScheme.outline)
+        }
     }
 }
 

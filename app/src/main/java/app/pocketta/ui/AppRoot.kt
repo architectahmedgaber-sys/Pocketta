@@ -18,6 +18,7 @@ import app.pocketta.data.Repo
 @Composable
 fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Unit) -> Unit) {
     val current = nav.current
+    UpdateDialog(prefs)
     if (current in tabs) {
         Scaffold(
             bottomBar = {
