@@ -48,7 +48,7 @@ fun MoreScreen(nav: Nav, modifier: Modifier) {
         ListRow("Income & salary", "Your monthly salary, other income, money set aside", icon = "💰", onClick = { nav.open(Route.Income) })
         ListRow("Wallets", "Cash, bank, Vodafone Cash, cards and balances", icon = "👛", onClick = { nav.open(Route.Wallets) })
         ListRow("Categories", "Categories, sub-categories and monthly limits", icon = "🏷️", onClick = { nav.open(Route.Categories) })
-        ListRow("Currencies & gold", "Today's dollar, euro and gold prices, or your own rate", icon = "💱", onClick = { nav.open(Route.Currencies) })
+        ListRow("Currencies & gold", "Convert money and gold, today's prices, your own rates", icon = "💱", onClick = { nav.open(Route.Currencies) })
         ListRow("Settings", "Month start, reminders, fingerprint lock, backup", icon = "⚙️", onClick = { nav.open(Route.Settings) })
     }
 }
@@ -276,6 +276,7 @@ fun CurrenciesScreen(repo: Repo, nav: Nav, prefs: Prefs) {
             Modifier.fillMaxSize().padding(pad).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            ConverterCard(prefs)
             SectionCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
