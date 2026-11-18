@@ -72,6 +72,10 @@ const EXTRA = {
   "now": "دلوقتي",
   "# month": "# شهر",
   "# months": "# شهور",
+  // Gam'eya card
+  "Gam'eya": "جمعية", "Your turn": "دورك", "Days to your turn": "أيام لحد دورك", "You collect": "هتقبض",
+  "You collected your turn": "قبضت دورك", "It's your turn! Collect #": "جه دورك! اقبض #",
+  "Installments left": "الأقساط الباقية", "Next installment": "القسط الجاي", "Got my payout": "استلمت المبلغ", "Paid installment": "دفعت القسط",
   'Currency': 'العملة', 'Or pick a day': 'أو اختار يوم', 'English': 'English',
 };
 const hasLetters = /[A-Za-z]/;

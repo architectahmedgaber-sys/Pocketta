@@ -31,6 +31,7 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
                 val remind = remindDays(repo, u.kind, u.id)
                 if (!u.due.isAfter(today.plusDays(remind.toLong()))) Notifier.due(applicationContext, u, today, p.baseCurrency, p.lang)
             }
+            runCatching { gameyaTurns(repo, today, p.baseCurrency, p.lang) }
         }
         runCatching { Online.refreshRates(repo) }
         runCatching { Online.checkUpdate(repo, force = true)?.let { Notifier.update(applicationContext, it.version, p.lang) } }
@@ -80,6 +81,16 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         if (s.budget.daysLeft != 1) return
         val amount = app.pocketta.core.Savings.suggestMove(s.budget.left, p.goalAmount, p.goalSaved)
         if (amount > 0) Notifier.monthEnd(applicationContext, amount, p.goalName, p.baseCurrency, p.lang)
+    }
+
+    /** A reminder the day before your turn in a gam'eya and again on the day, until you mark the payout received. */
+    private suspend fun gameyaTurns(repo: Repo, today: LocalDate, currency: String, lang: String) {
+        for (c in repo.dao.circles()) {
+            if (c.payoutReceived) continue
+            val circle = app.pocketta.core.Circle(c.share, c.months, c.myTurn, c.paid, LocalDate.ofEpochDay(c.firstDue))
+            val s = app.pocketta.core.Circles.status(circle, false, today)
+            if (s.daysToTurn in -3..1) Notifier.gameyaTurn(applicationContext, c.id, c.name, s.payout, s.daysToTurn, currency, lang)
+        }
     }
 
     private suspend fun remindDays(repo: Repo, kind: String, id: Long): Int = when (kind) {

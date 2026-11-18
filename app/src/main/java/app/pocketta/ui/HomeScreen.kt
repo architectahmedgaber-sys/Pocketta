@@ -131,6 +131,7 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
             ConverterCard(prefs)
 
             PlanEntryCard(repo, nav, prefs)
+            GameyaCard(repo, prefs)
             WeekCard(repo, s)
             GoalCard(repo, prefs)
 

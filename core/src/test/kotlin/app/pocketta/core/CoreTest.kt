@@ -158,4 +158,17 @@ class CoreTest {
         assertEquals("You spent 1,200 EGP this week, 10% less than last week.", a)
         assertTrue(b.contains("Food"))
     }
+
+    @Test fun circleStatus() {
+        val c = Circle(share = 500.0, months = 10, myTurn = 4, paid = 2, firstDue = LocalDate.of(2026, 10, 5))
+        val st = Circles.status(c, false, LocalDate.of(2026, 11, 18))
+        assertEquals(8, st.installmentsLeft)
+        assertEquals(5000.0, st.payout, 0.001)
+        assertEquals(LocalDate.of(2027, 1, 5), st.payoutDate)
+        assertEquals(48, st.daysToTurn)
+        assertTrue(!st.collectNow && !st.finished)
+        assertTrue(Circles.status(c, false, LocalDate.of(2027, 1, 5)).collectNow)
+        val done = Circle(500.0, 10, 4, 10, LocalDate.of(2026, 10, 5))
+        assertTrue(Circles.status(done, true, LocalDate.of(2027, 9, 1)).finished)
+    }
 }

@@ -42,6 +42,7 @@ class ActionReceiver : BroadcastReceiver() {
                     "BILL" -> dao.bill(id)?.let { if (action == ACTION_SKIP) repo.skipBill(it) else repo.payBill(it) }
                     "INSTALLMENT" -> dao.installment(id)?.let { repo.payInstallment(it) }
                     "CIRCLE" -> dao.circle(id)?.let { repo.payCircle(it) }
+                    "PAYOUT" -> dao.circle(id)?.let { repo.receivePayout(it) }
                     "LOAN" -> dao.loan(id)?.let { repo.loanPayment(it, it.remaining) }
                 }
                 NotificationManagerCompat.from(context).cancel(notif)

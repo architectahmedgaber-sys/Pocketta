@@ -445,5 +445,9 @@ object ArabicWords {
         "Still missing after this" to "لسه ناقص بعد كده",
         "Think about extra income or moving money from savings" to "فكّر في دخل إضافي أو انقل من المدخرات",
         "now" to "دلوقتي", "# month" to "# شهر", "# months" to "# شهور",
+        // Gam'eya card
+        "Your turn" to "دورك", "Days to your turn" to "أيام لحد دورك", "You collect" to "هتقبض",
+        "You collected your turn" to "قبضت دورك", "It's your turn! Collect #" to "جه دورك! اقبض #",
+        "Installments left" to "الأقساط الباقية", "Next installment" to "القسط الجاي", "Got my payout" to "استلمت المبلغ", "Paid installment" to "دفعت القسط",
     )
 }
