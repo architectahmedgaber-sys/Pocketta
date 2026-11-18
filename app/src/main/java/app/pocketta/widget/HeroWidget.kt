@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.ImageProvider
 import androidx.glance.LocalSize
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -21,6 +22,7 @@ import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
+import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
@@ -30,6 +32,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import app.pocketta.R
 import app.pocketta.core.Money
 import app.pocketta.data.HomeState
 import app.pocketta.i18n.Tr
@@ -37,7 +40,7 @@ import app.pocketta.notify.Notifier
 
 /**
  * The "card" widget: the same big coloured number as the Today screen (green, amber when most of today is spent,
- * red when over), with the dollar and gold under it.
+ * red when over), with a progress bar and the dollar and gold under it.
  */
 class HeroWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
@@ -48,59 +51,60 @@ class HeroWidget : GlanceAppWidget() {
     }
 }
 
+/** Green, amber or red card background for today's status. */
+fun heroBackground(s: HomeState): Int {
+    val b = s.budget
+    val frac = if (b.dailyAllowance > 0) ((b.dailyAllowance - b.leftToday) / b.dailyAllowance).toFloat() else 1f
+    return when {
+        b.leftToday < 0 -> R.drawable.w_bg_red
+        frac >= 0.8f -> R.drawable.w_bg_amber
+        else -> R.drawable.w_bg_green
+    }
+}
+
 @Composable
 private fun HeroContent(context: Context, s: HomeState?) {
     val size = LocalSize.current
     val compact = size.height < 100.dp
-    val white = ColorProvider(Color.White)
-    val soft = ColorProvider(Color.White.copy(alpha = 0.75f))
     val lang = WidgetLang.lang
-    var bg = Color(0xFF1F6B4F)
-    var frac = 0f
-    var over = false
-    if (s != null) {
-        val b = s.budget
-        over = b.leftToday < 0
-        frac = if (b.dailyAllowance > 0) ((b.dailyAllowance - b.leftToday) / b.dailyAllowance).toFloat().coerceIn(0f, 1f) else 1f
-        bg = when {
-            over -> Color(0xFFB3261E)
-            frac >= 0.8f -> Color(0xFF9A5B00)
-            else -> Color(0xFF1F6B4F)
-        }
-    }
+    val bg = if (s != null) heroBackground(s) else R.drawable.w_bg_green
     Box(
-        modifier = GlanceModifier.fillMaxSize().appWidgetBackground().cornerRadius(24.dp)
-            .background(ColorProvider(bg)).clickable(openApp(context)).padding(if (compact) 10.dp else 16.dp),
+        modifier = GlanceModifier.fillMaxSize().appWidgetBackground()
+            .background(ImageProvider(bg)).clickable(openApp(context)).padding(if (compact) 12.dp else 18.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         if (s == null) {
             Text(Tr.t("Tap to set up Pocketta", lang), style = TextStyle(color = white, fontSize = 14.sp, fontWeight = FontWeight.Medium))
         } else {
             val b = s.budget
+            val over = b.leftToday < 0
+            val frac = if (b.dailyAllowance > 0) ((b.dailyAllowance - b.leftToday) / b.dailyAllowance).toFloat().coerceIn(0f, 1f) else 1f
             val amount = (if (over) "−" else "") + Money.short(kotlin.math.abs(b.leftToday))
             Column(modifier = GlanceModifier.fillMaxWidth()) {
                 Text(
                     Tr.t(if (over) "Over today's budget" else "You can spend today", lang),
-                    maxLines = 1, style = TextStyle(color = soft, fontSize = 12.sp),
+                    maxLines = 1, style = TextStyle(color = whiteSoft, fontSize = 12.sp),
                 )
                 Text(
                     amount + " " + s.prefs.baseCurrency,
-                    maxLines = 1, style = TextStyle(color = white, fontSize = if (compact) 26.sp else 36.sp, fontWeight = FontWeight.Bold),
+                    maxLines = 1, style = TextStyle(color = white, fontSize = if (compact) 28.sp else 38.sp, fontWeight = FontWeight.Bold),
                 )
-                Spacer(GlanceModifier.height(8.dp))
+                Spacer(GlanceModifier.height(if (compact) 6.dp else 10.dp))
                 LinearProgressIndicator(
                     progress = frac,
-                    modifier = GlanceModifier.fillMaxWidth().height(6.dp).cornerRadius(3.dp),
+                    modifier = GlanceModifier.fillMaxWidth().height(8.dp).cornerRadius(4.dp),
                     color = white,
                     backgroundColor = ColorProvider(Color.White.copy(alpha = 0.3f)),
                 )
                 if (!compact) {
-                    Spacer(GlanceModifier.height(8.dp))
+                    Spacer(GlanceModifier.height(10.dp))
                     val rates = Notifier.ratesLine(s.prefs, lang)
-                    Text(
-                        rates ?: Tr.t("${b.daysLeft} days left in this month", lang),
-                        maxLines = 1, style = TextStyle(color = soft, fontSize = 12.sp),
-                    )
+                    Row(modifier = GlanceModifier.fillMaxWidth()) {
+                        Text(
+                            rates ?: Tr.t("${b.daysLeft} days left in this month", lang),
+                            maxLines = 1, style = TextStyle(color = whiteSoft, fontSize = 12.sp),
+                        )
+                    }
                 }
             }
         }

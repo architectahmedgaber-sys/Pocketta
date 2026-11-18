@@ -114,7 +114,7 @@ class MainActivity : FragmentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
-            ACTION_ADD -> nav.open(Route.Add(type = TxType.EXPENSE))
+            ACTION_ADD -> nav.open(Route.Add(type = TxType.EXPENSE, category = intent?.getLongExtra(EXTRA_CATEGORY, 0L) ?: 0L))
             ACTION_ADD_INCOME -> nav.open(Route.Add(type = TxType.INCOME))
             ACTION_BILLS -> nav.tab(Route.Commit)
             ACTION_SETTINGS, ACTION_UPDATE -> { nav.tab(Route.Home); nav.open(Route.Settings) }
@@ -165,5 +165,6 @@ class MainActivity : FragmentActivity() {
         const val ACTION_BILLS = "app.pocketta.BILLS"
         const val ACTION_SETTINGS = "app.pocketta.SETTINGS"
         const val ACTION_UPDATE = "app.pocketta.UPDATE"
+        const val EXTRA_CATEGORY = "app.pocketta.CATEGORY"
     }
 }

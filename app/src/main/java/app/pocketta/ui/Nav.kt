@@ -10,7 +10,7 @@ sealed interface Route {
     data object Spend : Route
     data object Commit : Route
     data object More : Route
-    data class Add(val txnId: Long = 0, val type: String = TxType.EXPENSE) : Route
+    data class Add(val txnId: Long = 0, val type: String = TxType.EXPENSE, val category: Long = 0) : Route
     data object Income : Route
     data object Wallets : Route
     data object Categories : Route
