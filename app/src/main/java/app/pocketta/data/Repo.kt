@@ -378,7 +378,7 @@ class Repo private constructor(private val app: Context) {
     suspend fun exportTo(uri: Uri) = withContext(Dispatchers.IO) {
         db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").use { it.moveToFirst() }
         val f = app.getDatabasePath(AppDb.NAME)
-        val out = app.contentResolver.openOutputStream(uri) ?: error("Can't write to that file")
+        val out = app.contentResolver.openOutputStream(uri, "wt") ?: error("Can't write to that file")
         out.use { o -> f.inputStream().use { it.copyTo(o) } }
     }
 
@@ -396,6 +396,24 @@ class Repo private constructor(private val app: Context) {
         tmp.copyTo(target, overwrite = true)
         tmp.delete()
         true
+    }
+
+    /** Saves a backup to the file the user picked, when it's due (or always when [force]). */
+    suspend fun autoBackupIfDue(force: Boolean = false): Boolean {
+        val p = prefs()
+        if (p.backupUri.isEmpty() || (!force && p.autoBackup == "OFF")) return false
+        val every = if (p.autoBackup == "WEEKLY") 7 * 86_400_000L else 86_400_000L - 3_600_000L
+        if (!force && System.currentTimeMillis() - p.lastBackup < every) return false
+        return runCatching {
+            exportTo(Uri.parse(p.backupUri))
+            dao.put(SettingRow("lastBackup", System.currentTimeMillis().toString()))
+            changed()
+        }.isSuccess
+    }
+
+    suspend fun markBackedUp() {
+        dao.put(SettingRow("lastBackup", System.currentTimeMillis().toString()))
+        changed()
     }
 
     companion object {

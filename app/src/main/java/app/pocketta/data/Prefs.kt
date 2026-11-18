@@ -16,9 +16,32 @@ data class Prefs(
     val rates: Map<String, Double> = emptyMap(),
     val lastCategory: Long = 0,
     val lastWallet: Long = 0,
+    /** OFF, DAILY or WEEKLY */
+    val autoBackup: String = "OFF",
+    val backupUri: String = "",
+    val lastBackup: Long = 0,
+    val backupReminder: Boolean = true,
+    /** Use the daily rates from the internet (your own rates still win). */
+    val autoRates: Boolean = true,
+    /** Currencies picked from the online list, e.g. USD, EUR. */
+    val autoCurrencies: List<String> = listOf("USD", "EUR", "SAR"),
+    val onlineRates: Map<String, Double> = emptyMap(),
+    /** Gold price per gram in the base currency, by karat ("24", "21", "18"). */
+    val gold: Map<String, Double> = emptyMap(),
+    val ratesUpdated: String = "",
+    val ratesFetchedAt: Long = 0,
+    val updateCheckedAt: Long = 0,
+    val updateVersion: String = "",
+    val updateUrl: String = "",
 ) {
-    fun rateOf(currency: String): Double = if (currency == baseCurrency) 1.0 else rates[currency] ?: 1.0
-    val currencies: List<String> get() = listOf(baseCurrency) + rates.keys.sorted()
+    fun rateOf(currency: String): Double =
+        if (currency == baseCurrency) 1.0 else rates[currency] ?: (if (autoRates) onlineRates[currency] else null) ?: 1.0
+
+    fun isManual(currency: String): Boolean = rates.containsKey(currency)
+
+    val currencies: List<String>
+        get() = (listOf(baseCurrency) + rates.keys.sorted() +
+            (if (autoRates) autoCurrencies.filter { onlineRates.containsKey(it) } else emptyList())).distinct()
 
     companion object {
         fun from(rows: List<SettingRow>): Prefs {
@@ -41,6 +64,19 @@ data class Prefs(
                 rates = parseRates(m["rates"].orEmpty()),
                 lastCategory = l("lastCategory", 0),
                 lastWallet = l("lastWallet", 0),
+                autoBackup = m["autoBackup"] ?: "OFF",
+                backupUri = m["backupUri"].orEmpty(),
+                lastBackup = l("lastBackup", 0),
+                backupReminder = b("backupReminder", true),
+                autoRates = b("autoRates", true),
+                autoCurrencies = m["autoCurrencies"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() } ?: listOf("USD", "EUR", "SAR"),
+                onlineRates = parseRates(m["onlineRates"].orEmpty()),
+                gold = parseRates(m["gold"].orEmpty()),
+                ratesUpdated = m["ratesUpdated"].orEmpty(),
+                ratesFetchedAt = l("ratesFetchedAt", 0),
+                updateCheckedAt = l("updateCheckedAt", 0),
+                updateVersion = m["updateVersion"].orEmpty(),
+                updateUrl = m["updateUrl"].orEmpty(),
             )
         }
 

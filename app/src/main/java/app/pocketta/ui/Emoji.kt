@@ -1,0 +1,66 @@
+package app.pocketta.ui
+
+/** A friendly icon for a category, wallet, bill or person, picked from words in its name. */
+object Emoji {
+    private val map: List<Pair<List<String>, String>> = listOf(
+        listOf("grocer", "supermarket", "بقال") to "🛒",
+        listOf("eating", "restaurant", "burger", "pizza", "koshary", "كشري", "مطعم") to "🍔",
+        listOf("delivery", "talabat", "elmenus", "طلبات") to "🛵",
+        listOf("coffee", "cafe", "قهوة") to "☕",
+        listOf("food", "أكل", "اكل") to "🍽️",
+        listOf("uber", "careem", "didi", "taxi", "أوبر") to "🚕",
+        listOf("microbus", "metro", "bus", "train", "مترو", "ميكروباص") to "🚌",
+        listOf("fuel", "benzin", "petrol", "بنزين") to "⛽",
+        listOf("parking", "جراج") to "🅿️",
+        listOf("car service", "mechanic", "تصليح") to "🔧",
+        listOf("transport", "مواصلات", " car ") to "🚗",
+        listOf(" rent", "إيجار", "ايجار") to "🔑",
+        listOf("maintenance", "repair", "صيانة") to "🛠️",
+        listOf("cleaning", "تنظيف") to "🧽",
+        listOf("furniture", "home stuff", "عفش") to "🛋️",
+        listOf("home", "house", "بيت") to "🏠",
+        listOf("electric", "كهربا") to "⚡",
+        listOf("water", "مياه", "مية") to "💧",
+        listOf("gas", "غاز") to "🔥",
+        listOf("internet", "wifi", "we ", "انترنت", "نت") to "🌐",
+        listOf("mobile", "phone", "vodafone", "orange", "etisalat", "موبايل") to "📱",
+        listOf("netflix", "shahid", "watch it", "osn", "youtube", "spotify", "anghami") to "🎬",
+        listOf("gym", "جيم") to "🏋️",
+        listOf("subscription", "اشتراك") to "🔁",
+        listOf("bill", "فاتورة", "فواتير") to "🧾",
+        listOf("doctor", "دكتور") to "🩺",
+        listOf("pharmacy", "medicine", "صيدلية", "دوا") to "💊",
+        listOf("lab", "تحاليل") to "🧪",
+        listOf("health", "صحة") to "❤️",
+        listOf("clothes", "هدوم") to "👕",
+        listOf("electronics", "laptop", "لابتوب") to "💻",
+        listOf("fridge", "ثلاجة", "washing", "غسالة", "tv", "تلفزيون") to "🧊",
+        listOf("shopping", "mall") to "🛍️",
+        listOf("family", "عيلة", "kids", "عيال") to "👨‍👩‍👧",
+        listOf("education", "school", "course", "مدرسة", "دروس") to "📚",
+        listOf("trip", "travel", "سفر", "رحلة") to "✈️",
+        listOf("game", "playstation") to "🎮",
+        listOf("outing", "خروج") to "🎡",
+        listOf("fun", "entertain") to "🎉",
+        listOf("personal", "barber", "salon", "حلاق") to "💇",
+        listOf("gift", "هدية") to "🎁",
+        listOf("charity", "zakat", "صدقة", "زكاة") to "🤲",
+        listOf("installment", "قسط", "أقساط", "valu", "aman", "contact", "souhoola", "halan", "sympl") to "📆",
+        listOf("gam'eya", "gameya", "circle", "جمعية") to "🤝",
+        listOf("borrow", "سلفة") to "🙏",
+        listOf("repaid", "paid back") to "💵",
+        listOf("loan") to "💸",
+        listOf("salary", "مرتب", "payroll") to "💼",
+        listOf("side work", "freelance") to "🧑‍💻",
+        listOf("cash", "كاش") to "💵",
+        listOf("bank", "بنك", "cib", "nbe", "banque misr", "qnb") to "🏦",
+        listOf("instapay", "wallet") to "📲",
+        listOf("card", "visa", "كارت") to "💳",
+        listOf("other", "تاني") to "📦",
+    )
+
+    fun of(name: String): String? {
+        val n = " " + name.lowercase() + " "
+        return map.firstOrNull { (keys, _) -> keys.any { n.contains(it) } }?.second
+    }
+}

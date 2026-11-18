@@ -24,6 +24,9 @@ object Notifier {
     const val CH_DUE = "due"
     const val CH_BUDGET = "budget"
     private const val ID_BUDGET = 5
+    private const val ID_UPDATE = 6
+    private const val ID_BACKUP = 7
+    const val CH_APP = "app"
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -35,6 +38,11 @@ object Notifier {
         nm.createNotificationChannel(
             NotificationChannel(CH_BUDGET, "Budget alerts", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "When you go over today's allowance"
+            }
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CH_APP, "Updates and backups", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "New versions of Pocketta and backup reminders"
             }
         )
     }
@@ -71,6 +79,33 @@ object Notifier {
         b.addAction(0, label, ActionReceiver.pending(context, ActionReceiver.ACTION_PAID, u.kind, u.id, id))
         if (u.kind == "BILL") b.addAction(0, "Skip this time", ActionReceiver.pending(context, ActionReceiver.ACTION_SKIP, u.kind, u.id, id))
         NotificationManagerCompat.from(context).notify(id, b.build())
+    }
+
+    @SuppressLint("MissingPermission")
+    fun update(context: Context, version: String) {
+        if (!canPost(context)) return
+        val n = NotificationCompat.Builder(context, CH_APP)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle("Pocketta $version is ready")
+            .setContentText("Tap to update. Your data stays as it is.")
+            .setContentIntent(openApp(context, MainActivity.ACTION_UPDATE))
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(ID_UPDATE, n)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun backupReminder(context: Context, days: Long) {
+        if (!canPost(context)) return
+        val text = if (days > 365) "You haven't saved a backup yet." else "Your last backup was $days days ago."
+        val n = NotificationCompat.Builder(context, CH_APP)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle("Back up your money data")
+            .setContentText("$text Turn on auto backup in Settings.")
+            .setContentIntent(openApp(context, MainActivity.ACTION_SETTINGS))
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(ID_BACKUP, n)
     }
 
     @SuppressLint("MissingPermission")

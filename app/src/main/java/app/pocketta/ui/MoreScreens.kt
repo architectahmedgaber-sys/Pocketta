@@ -45,11 +45,11 @@ import java.time.LocalDate
 fun MoreScreen(nav: Nav, modifier: Modifier) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text("More", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(16.dp))
-        ListRow("Income & salary", "Your monthly salary, other income, money set aside", icon = "I", onClick = { nav.open(Route.Income) })
-        ListRow("Wallets", "Cash, bank, Vodafone Cash, cards and balances", icon = "W", onClick = { nav.open(Route.Wallets) })
-        ListRow("Categories", "Categories, sub-categories and monthly limits", icon = "C", onClick = { nav.open(Route.Categories) })
-        ListRow("Currencies", "Dollar, euro... with your own rate", icon = "$", onClick = { nav.open(Route.Currencies) })
-        ListRow("Settings", "Month start, reminders, fingerprint lock, backup", icon = "S", onClick = { nav.open(Route.Settings) })
+        ListRow("Income & salary", "Your monthly salary, other income, money set aside", icon = "💰", onClick = { nav.open(Route.Income) })
+        ListRow("Wallets", "Cash, bank, Vodafone Cash, cards and balances", icon = "👛", onClick = { nav.open(Route.Wallets) })
+        ListRow("Categories", "Categories, sub-categories and monthly limits", icon = "🏷️", onClick = { nav.open(Route.Categories) })
+        ListRow("Currencies & gold", "Today's dollar, euro and gold prices, or your own rate", icon = "💱", onClick = { nav.open(Route.Currencies) })
+        ListRow("Settings", "Month start, reminders, fingerprint lock, backup", icon = "⚙️", onClick = { nav.open(Route.Settings) })
     }
 }
 
@@ -262,36 +262,89 @@ fun CategoriesScreen(repo: Repo, nav: Nav) {
 
 // ---------------- Currencies ----------------
 
+private val knownCurrencies = listOf("USD", "EUR", "SAR", "AED", "KWD", "GBP", "QAR", "TRY", "JOD", "OMR", "BHD", "CHF", "CAD", "AUD", "CNY", "JPY")
+
 @Composable
 fun CurrenciesScreen(repo: Repo, nav: Nav, prefs: Prefs) {
     val scope = rememberCoroutineScope()
     var code by remember { mutableStateOf("") }
     var rate by remember { mutableStateOf("") }
     var base by remember { mutableStateOf(prefs.baseCurrency) }
-    Scaffold(topBar = { BackBar("Currencies", { nav.back() }) }) { pad ->
+    var refreshing by remember { mutableStateOf(false) }
+    Scaffold(topBar = { BackBar("Currencies & gold", { nav.back() }) }) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SectionCard {
-                Label("Main currency")
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextInput("Code", base, { base = it.uppercase().take(4) }, Modifier.weight(1f))
-                    TextButton(onClick = { scope.launch { if (base.isNotBlank()) repo.set("baseCurrency", base.trim()) } }) { Text("Save") }
+                    Column(Modifier.weight(1f)) {
+                        Text("Today's rates from the internet", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (prefs.ratesUpdated.isNotEmpty()) "Updated ${prefs.ratesUpdated.take(10)}" else "Not downloaded yet",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    androidx.compose.material3.Switch(checked = prefs.autoRates, onCheckedChange = { v -> scope.launch { repo.set("autoRates", v) } })
                 }
-                Text("Everything is totalled in this currency.", style = MaterialTheme.typography.bodySmall)
-            }
-            Label("Other currencies")
-            if (prefs.rates.isEmpty()) Text("None yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            for ((c, r) in prefs.rates.toSortedMap()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("1 $c = ${Money.fmt(r)} ${prefs.baseCurrency}", Modifier.weight(1f))
-                    TextButton(onClick = { code = c; rate = numText(r) }) { Text("Edit") }
-                    TextButton(onClick = { scope.launch { repo.set("rates", Prefs.formatRates(prefs.rates - c)) } }) { Text("Remove") }
+                if (prefs.autoRates) {
+                    Gap(8)
+                    Text("Show these in the app", style = MaterialTheme.typography.labelLarge)
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (c in knownCurrencies) {
+                            val on = c in prefs.autoCurrencies
+                            androidx.compose.material3.FilterChip(
+                                selected = on,
+                                onClick = {
+                                    val next = if (on) prefs.autoCurrencies - c else prefs.autoCurrencies + c
+                                    scope.launch { repo.set("autoCurrencies", next.joinToString(",")) }
+                                },
+                                label = { Text(c) },
+                            )
+                        }
+                    }
+                    Gap(8)
+                    for (c in prefs.autoCurrencies) {
+                        prefs.onlineRates[c]?.let { r ->
+                            Row {
+                                Text("1 $c", Modifier.weight(1f))
+                                Text(
+                                    "${Money.fmt(r)} ${prefs.baseCurrency}" + if (prefs.isManual(c)) " (you set ${Money.fmt(prefs.rates[c] ?: 0.0)})" else "",
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
+                    if (prefs.gold.isNotEmpty()) {
+                        Gap(8)
+                        Text("Gold, per gram", style = MaterialTheme.typography.labelLarge)
+                        for (k in listOf("24", "21", "18")) {
+                            prefs.gold[k]?.let { g ->
+                                Row {
+                                    Text("Karat $k", Modifier.weight(1f))
+                                    Text("${Money.short(g)} ${prefs.baseCurrency}", fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                        Text("From the world gold price and the dollar rate. Shops may differ a little.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    TextButton(enabled = !refreshing, onClick = {
+                        refreshing = true
+                        scope.launch { app.pocketta.data.Online.refreshRates(repo, force = true); refreshing = false }
+                    }) { Text(if (refreshing) "Updating..." else "Update now") }
                 }
             }
             SectionCard {
-                Label("Add or update a rate")
+                Label("Your own rates")
+                Text("A rate you type here always wins over the internet one.", style = MaterialTheme.typography.bodySmall)
+                for ((c, r) in prefs.rates.toSortedMap()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("1 $c = ${Money.fmt(r)} ${prefs.baseCurrency}", Modifier.weight(1f))
+                        TextButton(onClick = { code = c; rate = numText(r) }) { Text("Edit") }
+                        TextButton(onClick = { scope.launch { repo.set("rates", Prefs.formatRates(prefs.rates - c)) } }) { Text("Remove") }
+                    }
+                }
+                Gap(4)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextInput("Code (USD)", code, { code = it.uppercase().take(4) }, Modifier.weight(1f))
                     NumberField("Rate", rate, { rate = it }, Modifier.weight(1f))
@@ -304,7 +357,14 @@ fun CurrenciesScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                         code = ""; rate = ""
                     },
                 ) { Text("Save rate") }
-                Text("Rates are yours to set and are saved with each record when you add it.", style = MaterialTheme.typography.bodySmall)
+            }
+            SectionCard {
+                Label("Main currency")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextInput("Code", base, { base = it.uppercase().take(4) }, Modifier.weight(1f))
+                    TextButton(onClick = { scope.launch { if (base.isNotBlank()) repo.set("baseCurrency", base.trim()) } }) { Text("Save") }
+                }
+                Text("Everything is totalled in this currency. Internet rates are in EGP.", style = MaterialTheme.typography.bodySmall)
             }
         }
     }

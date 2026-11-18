@@ -6,6 +6,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import app.pocketta.data.Online
 import app.pocketta.data.Repo
 import app.pocketta.notify.Notifier
 import app.pocketta.widget.Widgets
@@ -26,6 +27,19 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             for (u in items) {
                 val remind = remindDays(repo, u.kind, u.id)
                 if (!u.due.isAfter(today.plusDays(remind.toLong()))) Notifier.due(applicationContext, u, today, p.baseCurrency)
+            }
+        }
+        runCatching { Online.refreshRates(repo) }
+        runCatching { Online.checkUpdate(repo, force = true)?.let { Notifier.update(applicationContext, it.version) } }
+        if (p.onboarded) {
+            runCatching { repo.autoBackupIfDue() }
+            val fresh = repo.prefs()
+            if (fresh.backupReminder && fresh.autoBackup == "OFF") {
+                val since = if (fresh.lastBackup > 0) fresh.lastBackup
+                else applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0).firstInstallTime
+                val days = (System.currentTimeMillis() - since) / 86_400_000L
+                // Remind once a week while there's no recent backup.
+                if (days >= 7 && days % 7 == 0L) Notifier.backupReminder(applicationContext, if (fresh.lastBackup > 0) days else 999)
             }
         }
         Widgets.updateAll(applicationContext)

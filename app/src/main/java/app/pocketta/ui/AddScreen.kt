@@ -1,6 +1,24 @@
 package app.pocketta.ui
 
 import android.content.Context
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,8 +50,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -77,7 +93,6 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
     var person by remember { mutableStateOf("") }
     var dueDate by remember { mutableStateOf<LocalDate?>(null) }
     var loaded by remember { mutableStateOf(route.txnId == 0L) }
-    val focus = remember { FocusRequester() }
 
     // Load the transaction being edited, or pick sensible defaults for a new one.
     LaunchedEffect(route.txnId, wallets.isNotEmpty(), categories.isNotEmpty()) {
@@ -105,11 +120,12 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
             }
         }
     }
-    LaunchedEffect(loaded) { if (loaded && route.txnId == 0L) runCatching { focus.requestFocus() } }
 
-    val quick = QuickText.parse(input)
-    val amount = quick.amount
-    val note = noteField.ifBlank { quick.note }
+    // Typing "koshary 60" in the note works too: the number becomes the amount when the keypad is empty.
+    val quick = QuickText.parse(noteField)
+    val typedAmount = parseNumber(input)?.takeIf { it > 0 }
+    val amount = typedAmount ?: quick.amount?.takeIf { it > 0 }
+    val note = if (typedAmount == null && quick.amount != null) quick.note else noteField.trim()
 
     // Guess the category from the words typed ("koshary" -> Food).
     LaunchedEffect(quick.note, type) {
@@ -159,6 +175,13 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
         type == TxType.TRANSFER -> "Move money"
         else -> "Add expense"
     }
+    fun press(k: String) {
+        input = when (k) {
+            "⌫" -> input.dropLast(1)
+            "." -> if (input.contains('.')) input else if (input.isEmpty()) "0." else "$input."
+            else -> if (input == "0") k else if (input.substringAfter('.', "").length >= 2 && input.contains('.')) input else (input + k).take(10)
+        }
+    }
     Scaffold(
         topBar = {
             BackBar(title, { nav.back() }) {
@@ -170,91 +193,184 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
             }
         },
     ) { pad ->
-        Column(
-            Modifier.fillMaxSize().padding(pad).imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (editing?.source.let { it != null && it != Source.NONE }) {
-                Text("This was recorded from a bill, installment, circle or loan.", style = MaterialTheme.typography.bodySmall)
-            }
-            Choices(
-                listOf(TxType.EXPENSE, TxType.INCOME, TxType.TRANSFER), type,
-                { when (it) { TxType.EXPENSE -> "Expense"; TxType.INCOME -> "Income"; else -> "Transfer" } },
-                { if (it != type) { type = it; categoryId = null; parentId = null; pickedByHand = false } },
-            )
-            Column(Modifier.fillMaxWidth()) {
-                Label("Amount")
-                Text(
-                    (amount?.let { Money.fmt(it) } ?: "0") + " $currency",
-                    fontSize = 40.sp, fontWeight = FontWeight.Bold,
-                    color = if (amount == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                )
-                if (quick.note.isNotBlank() && noteField.isBlank()) Text("Note: ${quick.note}", style = MaterialTheme.typography.bodyMedium)
-            }
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                label = { Text(if (type == TxType.EXPENSE) "Amount, or quick: koshary 60" else "Amount") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, capitalization = KeyboardCapitalization.None),
-                keyboardActions = KeyboardActions(onDone = { save() }),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
-            )
-            if (type != TxType.TRANSFER) {
-                Label("Category")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (c in parents) {
-                        FilterChip(
-                            selected = parentId == c.id,
-                            onClick = { parentId = c.id; categoryId = c.id; pickedByHand = true },
-                            label = { Text(c.name) },
-                        )
+        Column(Modifier.fillMaxSize().padding(pad).imePadding()) {
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                if (editing?.source.let { it != null && it != Source.NONE }) {
+                    Text("This was recorded from a bill, installment, gam'eya or loan.", style = MaterialTheme.typography.bodySmall)
+                }
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    val types = listOf(TxType.EXPENSE to "Expense", TxType.INCOME to "Income", TxType.TRANSFER to "Transfer")
+                    types.forEachIndexed { i, (t, label) ->
+                        SegmentedButton(
+                            selected = type == t,
+                            onClick = { if (t != type) { type = t; categoryId = null; parentId = null; pickedByHand = false } },
+                            shape = SegmentedButtonDefaults.itemShape(i, types.size),
+                        ) { Text(label) }
                     }
                 }
-                if (subs.isNotEmpty()) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for (c in subs) {
-                            FilterChip(
-                                selected = categoryId == c.id,
-                                onClick = { categoryId = if (categoryId == c.id) parentId else c.id; pickedByHand = true },
-                                label = { Text(c.name) },
-                            )
+                // Amount, big and centered, with the currency next to it.
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
+                        .background(if (type == TxType.INCOME) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer)
+                        .padding(vertical = 18.dp, horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            amount?.let { Money.fmt(it) } ?: "0",
+                            fontSize = 46.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                            color = if (amount == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Text(" $currency", fontSize = 18.sp, modifier = Modifier.padding(bottom = 8.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                    if (currency != prefs.baseCurrency && amount != null) {
+                        Text("= ${Money.fmt(amount * prefs.rateOf(currency))} ${prefs.baseCurrency}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (prefs.currencies.size > 1) {
+                        Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            for (c in prefs.currencies) {
+                                FilterChip(selected = currency == c, onClick = { currency = c }, label = { Text(c) })
+                            }
                         }
                     }
                 }
-            }
-            if (isBorrowed) {
-                TextInput("Borrowed from", person, { person = it })
-                DateField("Pay back by (optional)", dueDate, { dueDate = it }, allowClear = true)
-                Text("This also goes to Owe → Loans as money you owe.", style = MaterialTheme.typography.bodySmall)
-            }
-            Label(if (type == TxType.TRANSFER) "From" else "Wallet")
-            Choices(wallets.map { it.id }, walletId, { id -> wallets.firstOrNull { it.id == id }?.name ?: "" }, { walletId = it })
-            if (type == TxType.TRANSFER) {
-                Label("To")
-                Choices(wallets.map { it.id }, toWalletId, { id -> wallets.firstOrNull { it.id == id }?.name ?: "" }, { toWalletId = it })
-            }
-            if (prefs.currencies.size > 1) {
-                Label("Currency")
-                Choices(prefs.currencies, currency, { it }, { currency = it })
-                if (currency != prefs.baseCurrency && amount != null) {
-                    Text("= ${Money.fmt(amount * prefs.rateOf(currency))} ${prefs.baseCurrency}", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(
+                    value = noteField,
+                    onValueChange = {
+                        noteField = it
+                    },
+                    placeholder = { Text(if (type == TxType.EXPENSE) "What was it? e.g. koshary 60" else "Note (optional)") },
+                    singleLine = true,
+                    shape = FieldShape,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, capitalization = KeyboardCapitalization.Sentences),
+                    keyboardActions = KeyboardActions(onDone = { save() }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (type != TxType.TRANSFER) {
+                    Label("Category")
+                    CategoryGrid(parents, parentId) { c -> parentId = c.id; categoryId = c.id; pickedByHand = true }
+                    if (subs.isNotEmpty()) {
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            for (c in subs) {
+                                FilterChip(
+                                    selected = categoryId == c.id,
+                                    onClick = { categoryId = if (categoryId == c.id) parentId else c.id; pickedByHand = true },
+                                    label = { Text((Emoji.of(c.name)?.plus(" ") ?: "") + c.name) },
+                                )
+                            }
+                        }
+                    }
                 }
+                if (isBorrowed) {
+                    FieldGroup("Who lent you the money") {
+                        TextInput("Borrowed from", person, { person = it })
+                        DateField("Pay back by (optional)", dueDate, { dueDate = it }, allowClear = true)
+                        Text("This also goes to Owe → Loans as money you owe.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Label(if (type == TxType.TRANSFER) "From" else "Wallet")
+                WalletRow(wallets.map { it.id to it.name }, walletId) { walletId = it }
+                if (type == TxType.TRANSFER) {
+                    Label("To")
+                    WalletRow(wallets.map { it.id to it.name }, toWalletId) { toWalletId = it }
+                }
+                val today = LocalDate.now()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilterChip(selected = date == today, onClick = { date = today }, label = { Text("Today") })
+                    FilterChip(selected = date == today.minusDays(1), onClick = { date = today.minusDays(1) }, label = { Text("Yesterday") })
+                    var pick by remember { mutableStateOf(false) }
+                    FilterChip(
+                        selected = date != today && date != today.minusDays(1),
+                        onClick = { pick = true },
+                        label = { Text(if (date != today && date != today.minusDays(1)) date.format(dayFmt) else "Other day") },
+                    )
+                    if (pick) DayPicker(date, { date = it; pick = false }, { pick = false })
+                }
+                Gap(4)
             }
-            Label("Date")
-            val today = LocalDate.now()
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = date == today, onClick = { date = today }, label = { Text("Today") })
-                FilterChip(selected = date == today.minusDays(1), onClick = { date = today.minusDays(1) }, label = { Text("Yesterday") })
-            }
-            DateField("Or pick a day", date, { if (it != null) date = it })
-            TextInput("Note (optional)", noteField, { noteField = it })
-            Button(onClick = { save() }, enabled = canSave, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                Text("Save")
-            }
-            Gap(24)
+            Keypad(::press)
+            Button(
+                onClick = { save() }, enabled = canSave,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).height(54.dp),
+                shape = RoundedCornerShape(18.dp),
+            ) { Text(if (editing != null) "Save changes" else "Save", fontSize = 17.sp) }
         }
     }
+}
+
+@Composable
+private fun CategoryGrid(items: List<Category>, selected: Long?, onPick: (Category) -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val perRow = if (maxWidth > 500.dp) 6 else 4
+        val gap = 8.dp
+        val w = (maxWidth - gap * (perRow - 1)) / perRow
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(gap), verticalArrangement = Arrangement.spacedBy(gap)) {
+            for (c in items) {
+                val on = c.id == selected
+                Column(
+                    Modifier.width(w).clip(RoundedCornerShape(16.dp))
+                        .background(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
+                        .clickable { onPick(c) }.padding(vertical = 10.dp, horizontal = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(Emoji.of(c.name) ?: c.name.take(1).uppercase(), fontSize = 24.sp)
+                    Text(
+                        c.name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        color = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WalletRow(wallets: List<Pair<Long, String>>, selected: Long, onPick: (Long) -> Unit) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for ((id, name) in wallets) {
+            FilterChip(
+                selected = id == selected, onClick = { onPick(id) },
+                label = { Text((Emoji.of(name)?.plus(" ") ?: "") + name) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun Keypad(onKey: (String) -> Unit) {
+    val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "⌫")
+    Column(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        for (row in keys.chunked(3)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (k in row) {
+                    Box(
+                        Modifier.weight(1f).height(50.dp).clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest).clickable { onKey(k) },
+                        contentAlignment = Alignment.Center,
+                    ) { Text(k, fontSize = 22.sp, fontWeight = FontWeight.Medium) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DayPicker(date: LocalDate, onPick: (LocalDate) -> Unit, onDismiss: () -> Unit) {
+    val state = rememberDatePickerState(initialSelectedDateMillis = date.toEpochDay() * 86_400_000L)
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { state.selectedDateMillis?.let { onPick(LocalDate.ofEpochDay(Math.floorDiv(it, 86_400_000L))) } ?: onDismiss() }) { Text("OK") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    ) { DatePicker(state = state) }
 }
 
 private suspend fun checkOverBudget(context: Context, repo: Repo, prefs: Prefs) {

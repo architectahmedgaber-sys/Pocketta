@@ -1,0 +1,29 @@
+name: Daily rates
+
+# Once a day: currency rates in EGP and the gold price, published as rates.json on the "rates" branch.
+# The app reads https://raw.githubusercontent.com/<repo>/rates/rates.json
+on:
+  schedule:
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch rates
+        run: python3 scripts/rates.py
+      - name: Publish to the rates branch
+        run: |
+          mkdir /tmp/out && cp rates.json /tmp/out/
+          cd /tmp/out
+          git init -q -b rates
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rates.json
+          git commit -qm "Rates $(date -u +%F)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" rates

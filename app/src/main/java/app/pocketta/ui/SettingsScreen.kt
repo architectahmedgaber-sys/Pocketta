@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -20,6 +21,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,8 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.pocketta.BuildConfig
+import app.pocketta.data.Online
 import app.pocketta.data.Prefs
 import app.pocketta.data.Repo
 import app.pocketta.work.DailyWorker
@@ -47,7 +51,19 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) scope.launch {
             val ok = runCatching { repo.exportTo(uri) }.isSuccess
+            if (ok) repo.markBackedUp()
             Toast.makeText(context, if (ok) "Backup saved" else "Couldn't save the backup", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val autoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) scope.launch {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            }
+            repo.set("backupUri", uri.toString())
+            if (prefs.autoBackup == "OFF") repo.set("autoBackup", "DAILY")
+            val ok = repo.autoBackupIfDue(force = true)
+            Toast.makeText(context, if (ok) "Backup saved. It will update by itself." else "Couldn't save the backup", Toast.LENGTH_SHORT).show()
         }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> confirmRestore = uri }
@@ -85,21 +101,48 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
             }
             SectionCard {
                 Label("Backup")
-                Text("Everything is on this phone only. Save a backup file (to Drive, WhatsApp to yourself, or anywhere) and restore it on a new phone.", style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { exportLauncher.launch("pocketta-backup-${LocalDate.now()}.db") }) { Text("Save backup") }
-                    OutlinedButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) { Text("Restore") }
+                Text(
+                    "Everything is on this phone only. Pick a backup file once (Google Drive works) and Pocketta keeps it up to date by itself.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Gap(8)
+                Text(
+                    if (prefs.lastBackup > 0) "Last backup: " + java.time.Instant.ofEpochMilli(prefs.lastBackup).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().format(backupFmt)
+                    else "No backup yet",
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (prefs.lastBackup == 0L || System.currentTimeMillis() - prefs.lastBackup > 7 * 86_400_000L) MaterialTheme.colorScheme.error else Good,
+                )
+                Gap(8)
+                Text("Automatic backup", style = MaterialTheme.typography.labelLarge)
+                Choices(listOf("OFF", "DAILY", "WEEKLY"), prefs.autoBackup, { when (it) { "DAILY" -> "Every day"; "WEEKLY" -> "Every week"; else -> "Off" } }, { v ->
+                    scope.launch { repo.set("autoBackup", v) }
+                    if (v != "OFF" && prefs.backupUri.isEmpty()) autoLauncher.launch("pocketta-backup.db")
+                })
+                if (prefs.backupUri.isNotEmpty()) {
+                    Text("Saving to: " + (Uri.parse(prefs.backupUri).lastPathSegment ?: "your file"), style = MaterialTheme.typography.bodySmall)
                 }
-                Text("Android also backs the app up to your Google account by itself.", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { autoLauncher.launch("pocketta-backup.db") }) { Text(if (prefs.backupUri.isEmpty()) "Choose backup file" else "Change file") }
+                    if (prefs.backupUri.isNotEmpty()) {
+                        OutlinedButton(onClick = {
+                            scope.launch {
+                                val ok = repo.autoBackupIfDue(force = true)
+                                Toast.makeText(context, if (ok) "Backup saved" else "Couldn't save. Choose the file again.", Toast.LENGTH_SHORT).show()
+                            }
+                        }) { Text("Back up now") }
+                    }
+                }
+                Toggle("Remind me when there's no recent backup", prefs.backupReminder) { v -> scope.launch { repo.set("backupReminder", v) } }
+                Gap(4)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { exportLauncher.launch("pocketta-backup-${LocalDate.now()}.db") }) { Text("Save a copy") }
+                    TextButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) { Text("Restore a backup") }
+                }
             }
             SectionCard {
-                Label("About")
+                Label("Updates")
                 Text("Pocketta ${BuildConfig.VERSION_NAME}")
-                TextButton(onClick = {
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/${BuildConfig.GITHUB_REPO}/releases/latest")))
-                    }
-                }) { Text("Check for updates") }
+                UpdateBox(repo)
             }
         }
     }
@@ -123,6 +166,53 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
             onDismiss = { confirmRestore = null },
         )
     }
+}
+
+private val backupFmt = java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d · h:mm a", java.util.Locale.US)
+
+/** Checks for a new version, then downloads it and opens the installer. */
+@Composable
+fun UpdateBox(repo: Repo) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var status by remember { mutableStateOf("") }
+    var release by remember { mutableStateOf<Online.Release?>(null) }
+    var progress by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(Unit) { release = Online.checkUpdate(repo) }
+    val r = release
+    if (r != null) {
+        Text("Version ${r.version} is ready", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+        val p = progress
+        if (p != null) {
+            Progress(p)
+            Text("Downloading ${(p * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+        } else {
+            Button(onClick = {
+                if (Online.canInstall(context)) {
+                    progress = 0f
+                    scope.launch {
+                        val ok = Online.downloadAndInstall(context, r) { progress = it }
+                        progress = null
+                        if (!ok) status = "Download failed. Try again, or open the releases page."
+                    }
+                } else {
+                    status = "Allow Pocketta to install updates, then tap Update again."
+                }
+            }) { Text("Update now") }
+        }
+    } else {
+        TextButton(onClick = {
+            status = "Checking..."
+            scope.launch {
+                release = Online.checkUpdate(repo, force = true)
+                status = if (release == null) "You have the latest version." else ""
+            }
+        }) { Text("Check for updates") }
+    }
+    if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodySmall)
+    TextButton(onClick = {
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Online.RELEASES_PAGE))) }
+    }) { Text("Open the releases page") }
 }
 
 @Composable

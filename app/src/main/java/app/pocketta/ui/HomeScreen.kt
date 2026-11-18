@@ -38,7 +38,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.pocketta.core.Budget
 import app.pocketta.core.Money
+import app.pocketta.BuildConfig
 import app.pocketta.data.HomeState
+import app.pocketta.data.Online
 import app.pocketta.data.Prefs
 import app.pocketta.data.Repo
 import app.pocketta.data.Upcoming
@@ -60,6 +62,12 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(s.cycle.end.format(monthFmt), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
                 Pill("${s.cycle.start.format(dayFmt)} → ${s.cycle.end.format(dayFmt)}")
+            }
+            if (prefs.updateVersion.isNotEmpty() && prefs.updateUrl.isNotEmpty() && Online.isNewer(prefs.updateVersion, BuildConfig.VERSION_NAME)) {
+                SectionCard(container = MaterialTheme.colorScheme.tertiaryContainer, onClick = { nav.open(Route.Settings) }) {
+                    Text("Pocketta ${prefs.updateVersion} is ready", fontWeight = FontWeight.SemiBold)
+                    Text("Tap to update. Your data stays as it is.", style = MaterialTheme.typography.bodySmall)
+                }
             }
             BudgetRing(s, cur)
             if (b.budget <= 0 && s.salaryExpected <= 0) {

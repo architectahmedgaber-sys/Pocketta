@@ -42,6 +42,8 @@ class MainActivity : FragmentActivity() {
     val nav = Nav()
     private var unlocked by mutableStateOf(false)
     private var promptShowing = false
+    /** Mirrors the lock setting so onResume can ask for the fingerprint. */
+    private var lockOn = false
 
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -56,6 +58,7 @@ class MainActivity : FragmentActivity() {
                     val prefsFlow = remember { repo.prefsFlow() }
                     val prefs by prefsFlow.collectAsState(initial = null as Prefs?)
                     val p = prefs
+                    lockOn = p?.lock == true && p.onboarded
                     when {
                         p == null -> Box(Modifier.fillMaxSize())
                         !p.onboarded -> OnboardingScreen(repo) { askForNotifications() }
@@ -67,7 +70,7 @@ class MainActivity : FragmentActivity() {
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
                                 Text("Pocketta is locked", style = MaterialTheme.typography.titleLarge)
-                                Button(onClick = { unlock() }) { Text("Unlock") }
+                                Button(onClick = { promptShowing = false; unlock() }) { Text("Unlock") }
                             }
                         }
                         else -> {
@@ -85,6 +88,12 @@ class MainActivity : FragmentActivity() {
         handleIntent(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Ask for the fingerprint every time the app comes back while locked.
+        if (lockOn && !unlocked) window.decorView.post { if (!unlocked) unlock() }
+    }
+
     override fun onStop() {
         super.onStop()
         // Lock again when the app goes to the background (not when a picker or the fingerprint prompt opens on top).
@@ -96,6 +105,7 @@ class MainActivity : FragmentActivity() {
             ACTION_ADD -> nav.open(Route.Add(type = TxType.EXPENSE))
             ACTION_ADD_INCOME -> nav.open(Route.Add(type = TxType.INCOME))
             ACTION_BILLS -> nav.tab(Route.Bills)
+            ACTION_SETTINGS, ACTION_UPDATE -> { nav.tab(Route.More); nav.open(Route.Settings) }
         }
     }
 
@@ -113,6 +123,7 @@ class MainActivity : FragmentActivity() {
             return
         }
         if (promptShowing) return
+        if (lifecycle.currentState < androidx.lifecycle.Lifecycle.State.RESUMED) return
         promptShowing = true
         val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
@@ -122,6 +133,10 @@ class MainActivity : FragmentActivity() {
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                 promptShowing = false
+            }
+
+            override fun onAuthenticationFailed() {
+                // A wrong finger: the prompt stays open and lets the user try again.
             }
         })
         prompt.authenticate(
@@ -136,5 +151,7 @@ class MainActivity : FragmentActivity() {
         const val ACTION_ADD = "app.pocketta.ADD"
         const val ACTION_ADD_INCOME = "app.pocketta.ADD_INCOME"
         const val ACTION_BILLS = "app.pocketta.BILLS"
+        const val ACTION_SETTINGS = "app.pocketta.SETTINGS"
+        const val ACTION_UPDATE = "app.pocketta.UPDATE"
     }
 }

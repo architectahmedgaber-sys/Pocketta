@@ -1,6 +1,7 @@
 package app.pocketta.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
@@ -48,6 +53,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,6 +62,8 @@ import app.pocketta.core.QuickText
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+val FieldShape = RoundedCornerShape(14.dp)
 
 val dayFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 val dayYearFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)
@@ -112,11 +120,17 @@ fun Pill(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable
-fun Initial(text: String, color: Color = MaterialTheme.colorScheme.primary) {
+fun Initial(text: String, color: Color = MaterialTheme.colorScheme.primary, size: Int = 40) {
+    val emoji = Emoji.of(text)
     Box(
-        Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
+        Modifier.size(size.dp).clip(RoundedCornerShape((size * 0.32f).dp)).background(MaterialTheme.colorScheme.secondaryContainer),
         contentAlignment = Alignment.Center,
-    ) { Text(text.trim().take(1).uppercase().ifEmpty { "•" }, color = color, fontWeight = FontWeight.Bold) }
+    ) {
+        val raw = text.trim()
+        if (emoji != null) Text(emoji, fontSize = (size * 0.48f).sp)
+        else if (raw.isNotEmpty() && !raw[0].isLetterOrDigit() && raw.length <= 8) Text(raw, fontSize = (size * 0.48f).sp)
+        else Text(text.trim().take(1).uppercase().ifEmpty { "•" }, color = color, fontWeight = FontWeight.Bold, fontSize = (size * 0.4f).sp)
+    }
 }
 
 @Composable
@@ -159,13 +173,18 @@ fun NumberField(label: String, value: String, onChange: (String) -> Unit, modifi
         value = value, onValueChange = onChange, label = { Text(label) }, singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number),
         suffix = suffix?.let { { Text(it) } },
+        shape = FieldShape,
         modifier = modifier.fillMaxWidth(),
     )
 }
 
 @Composable
 fun TextInput(label: String, value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
-    OutlinedTextField(value = value, onValueChange = onChange, label = { Text(label) }, singleLine = true, modifier = modifier.fillMaxWidth())
+    OutlinedTextField(
+        value = value, onValueChange = onChange, label = { Text(label) }, singleLine = true,
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+        shape = FieldShape, modifier = modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
@@ -178,12 +197,17 @@ fun <T> Choices(options: List<T>, selected: T?, label: (T) -> String, onSelect: 
 @Composable
 fun DateField(label: String, date: LocalDate?, onChange: (LocalDate?) -> Unit, modifier: Modifier = Modifier, allowClear: Boolean = false) {
     var open by remember { mutableStateOf(false) }
-    Column(modifier) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = { open = true }) { Text(date?.format(dayYearFmt) ?: "Pick a date") }
-            if (allowClear && date != null) TextButton(onClick = { onChange(null) }) { Text("Clear") }
+    Row(
+        modifier.fillMaxWidth().clip(FieldShape).border(1.dp, MaterialTheme.colorScheme.outline, FieldShape)
+            .clickable { open = true }.padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(date?.format(dayYearFmt) ?: "Not set", style = MaterialTheme.typography.bodyLarge)
         }
+        if (allowClear && date != null) TextButton(onClick = { onChange(null) }) { Text("Clear") }
+        else Text("📅", fontSize = 18.sp)
     }
     if (open) {
         val state = rememberDatePickerState(initialSelectedDateMillis = (date ?: LocalDate.now()).toEpochDay() * 86_400_000L)
@@ -200,7 +224,7 @@ fun DateField(label: String, date: LocalDate?, onChange: (LocalDate?) -> Unit, m
     }
 }
 
-/** A dialog with a scrolling form, Save, Cancel and an optional Delete. */
+/** A bottom sheet with a form: title, fields, then Save (and Delete when editing). */
 @Composable
 fun FormDialog(
     title: String,
@@ -212,22 +236,35 @@ fun FormDialog(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
-        },
-        confirmButton = { TextButton(onClick = onSave, enabled = saveEnabled) { Text(saveLabel) } },
-        dismissButton = {
-            Row {
-                if (onDelete != null) TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+        Column(
+            Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(title.ifBlank { "Edit" }, style = MaterialTheme.typography.headlineSmall)
+            content()
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (onDelete != null) {
+                    TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }
+                Spacer(Modifier.weight(1f))
                 TextButton(onClick = onDismiss) { Text("Cancel") }
+                Button(onClick = onSave, enabled = saveEnabled, modifier = Modifier.padding(start = 8.dp)) { Text(saveLabel) }
             }
-        },
-    )
+        }
+    }
     if (confirmDelete && onDelete != null) {
         ConfirmDialog("Delete \"$title\"?", "This can't be undone.", "Delete", onConfirm = { confirmDelete = false; onDelete() }, onDismiss = { confirmDelete = false })
+    }
+}
+
+/** A titled group of fields inside a form. */
+@Composable
+fun FieldGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        content()
     }
 }
 
