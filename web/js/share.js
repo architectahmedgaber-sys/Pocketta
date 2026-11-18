@@ -1,3 +1,4 @@
+import { tr } from './i18n.js';
 // Draws "my month" as a picture and shares it (or saves it when the phone cannot share files).
 const W = 1080, H = 1500;
 const PALETTE = ['#8DD5B3', '#FFC857', '#7CB7FF', '#FF9E7A', '#D6A2E8'];
@@ -12,7 +13,7 @@ function draw(d) {
   c.fillStyle = g; c.fillRect(0, 0, W, H);
   const m = 90, font = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
   const t = (s, x, y, size, { bold = false, color = '#fff', alpha = 1, align = 'left' } = {}) => {
-    c.font = `${bold ? '700 ' : ''}${size}px ${font}`; c.fillStyle = color; c.globalAlpha = alpha; c.textAlign = align; c.fillText(s, x, y); c.globalAlpha = 1;
+    c.font = `${bold ? '700 ' : ''}${size}px ${font}`; c.fillStyle = color; c.globalAlpha = alpha; c.textAlign = align; c.fillText(tr(s), x, y); c.globalAlpha = 1;
   };
   t('Pocketta', m, 130, 40, { bold: true, alpha: 0.8 });
   t(d.month, m, 250, 84, { bold: true });

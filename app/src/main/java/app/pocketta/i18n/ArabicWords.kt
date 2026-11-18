@@ -408,5 +408,13 @@ object ArabicWords {
         "Gam'eya payout" to "قبض جمعية", "Loan repaid" to "سلفة اتردّت", "Side work" to "شغل جانبي", "Gift" to "هدية",
         "Other income" to "دخل تاني", "Bank account" to "حساب بنكي", "Vodafone Cash" to "فودافون كاش",
         "Card" to "كارت",
+        "My gold" to "دهبي",
+        "Write down gold you bought to see your profit or loss against today's price." to "سجّل الدهب اللي اشتريته وشوف ربحك أو خسارتك مقارنة بسعر النهارده.",
+        "Today's gold price isn't downloaded yet." to "سعر الدهب النهارده لسه ما اتحمّلش.",
+        "Profit #" to "ربح #", "Loss #" to "خسارة #", "# g" to "# جرام", "Paid #" to "دفعت #", "Worth #" to "تساوي #",
+        "Bought at # per gram" to "اشتريته بـ # للجرام",
+        "Grams" to "جرامات", "Price per gram" to "سعر الجرام", "Add gold" to "ضيف دهب",
+        "Today's price per gram:" to "سعر الجرام النهارده:",
+        "At month end, offer to move what's left to my savings goal" to "في آخر الشهر، اقترح أحط الباقي في هدف الادخار",
     )
 }

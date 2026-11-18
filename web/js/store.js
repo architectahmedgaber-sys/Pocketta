@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS = {
   savingsPerMonth: 0, budgetAlert: true, rates: {}, lastCategory: 0, lastWallet: 0, pinHash: '', pinSalt: '', overAlert: '',
   // 1.3: look, savings goal, today's rates from the internet (your own rates still win)
   theme: 'AUTO', goalName: '', goalAmount: 0, goalSaved: 0,
+  lang: 'EN', goldBuys: [], monthEndReminder: true, monthEndDismissed: '',
   autoRates: true, autoCurrencies: ['USD', 'EUR', 'SAR'], onlineRates: {}, prevOnlineRates: {}, gold: {}, prevGold: {}, ratesUpdated: '', ratesFetchedAt: 0,
 };
 

@@ -194,3 +194,21 @@ export function parseNumber(s) {
   const v = Number(t);
   return Number.isFinite(v) ? v : null;
 }
+
+// ---------- Gold you bought, and the end-of-month savings suggestion ----------
+
+/** Profit or loss of one purchase {karat, grams, price} against today's price per gram (prices = {'21': 3200}), or null when unknown. */
+export const goldProfit = (b, prices) => prices[b.karat] ? b.grams * prices[b.karat] - b.grams * b.price : null;
+/** Totals over every purchase whose karat has a price today, or null when none has. */
+export function goldSummary(buys, prices) {
+  const p = buys.filter((b) => prices[b.karat]);
+  if (!p.length) return null;
+  const grams = p.reduce((a, b) => a + b.grams, 0), cost = p.reduce((a, b) => a + b.grams * b.price, 0), value = p.reduce((a, b) => a + b.grams * prices[b.karat], 0);
+  return { grams, cost, value, profit: value - cost, percent: cost > 0 ? (value - cost) / cost * 100 : 0 };
+}
+/** Whole pounds worth moving into the goal at month end (never more than the goal still needs); 0 = do not suggest. */
+export function suggestMove(left, goalAmount, goalSaved, minimum = 50) {
+  if (!(goalAmount > 0) || goalSaved >= goalAmount) return 0;
+  const amount = Math.floor(Math.min(left, goalAmount - goalSaved));
+  return amount >= minimum || (amount > 0 && goalAmount - goalSaved <= amount) ? amount : 0;
+}

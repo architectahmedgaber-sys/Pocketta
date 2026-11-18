@@ -31,6 +31,7 @@ object Notifier {
     const val CH_APP = "app"
     const val CH_MORNING = "morning"
     private const val ID_MORNING = 8
+    private const val ID_MONTH_END = 9
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -143,6 +144,23 @@ object Notifier {
         }
         p.gold["21"]?.let { parts += Tr.t("Gold", lang) + " 21 " + Money.fmt(it) + arrow(p.goldChange("21")) }
         return if (parts.isEmpty()) null else parts.joinToString(" · ")
+    }
+
+    /** Last day of the month: offers to move what is left into the savings goal with one tap. */
+    @SuppressLint("MissingPermission")
+    fun monthEnd(context: Context, amount: Double, goalName: String, currency: String, lang: String = Tr.EN) {
+        if (!canPost(context)) return
+        val ar = lang == Tr.AR
+        val goal = goalName.ifBlank { if (ar) "هدف الادخار" else "your savings goal" }
+        val n = NotificationCompat.Builder(context, CH_BUDGET)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle(if (ar) "الشهر خلصان وفاضلك ${Money.short(amount)} $currency" else "The month ends today and you have ${Money.short(amount)} $currency left")
+            .setContentText(if (ar) "تحب تحطها في $goal؟" else "Move it to $goal?")
+            .setContentIntent(openApp(context))
+            .addAction(0, if (ar) "حطها في الهدف" else "Move to goal", ActionReceiver.goalPending(context, amount, ID_MONTH_END))
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(ID_MONTH_END, n)
     }
 
     @SuppressLint("MissingPermission")
