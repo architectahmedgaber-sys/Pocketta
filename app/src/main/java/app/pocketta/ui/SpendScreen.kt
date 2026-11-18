@@ -100,6 +100,15 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
             } }
             if (perParent.isNotEmpty()) {
                 item { Column {
+                    DonutCard(perParent.map { (byId[it.key]?.name ?: "No category") to it.value }, spent, Modifier.padding(horizontal = 16.dp))
+                    Gap()
+                    val sums = expenses.groupBy { it.epochDay.toLong() }.mapValues { e -> e.value.sumOf { it.base } }
+                    DaysCard((cycle.start.toEpochDay() until cycle.nextStart.toEpochDay()).map { d -> sums[d] ?: 0.0 }, Modifier.padding(horizontal = 16.dp))
+                    Gap()
+                } }
+            }
+            if (perParent.isNotEmpty()) {
+                item { Column {
                     SectionCard(Modifier.padding(horizontal = 16.dp)) {
                         Label("By category · tap to filter")
                         Gap(8)

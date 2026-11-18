@@ -1,0 +1,93 @@
+package app.pocketta.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+
+val chartPalette = listOf(
+    Color(0xFF1F6B4F), Color(0xFFC2571A), Color(0xFF2B5FB0), Color(0xFF8E3B8C),
+    Color(0xFFE8A33D), Color(0xFF00687A), Color(0xFFB3261E), Color(0xFF6D7B74),
+)
+
+/** A coloured ring that shows at a glance which categories take the biggest share, no numbers needed. */
+@Composable
+fun DonutCard(items: List<Pair<String, Double>>, total: Double, modifier: Modifier = Modifier) {
+    if (total <= 0.0) return
+    val shown = items.take(7) + (if (items.size > 7) listOf("Other" to items.drop(7).sumOf { it.second }) else emptyList())
+    SectionCard(modifier) {
+        Label("Where it went")
+        Gap(10)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Box(Modifier.size(150.dp), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val stroke = 26.dp.toPx()
+                    val inset = stroke / 2
+                    val topLeft = Offset(inset, inset)
+                    val arcSize = Size(size.width - stroke, size.height - stroke)
+                    var start = -90f
+                    shown.forEachIndexed { i, item ->
+                        val sweep = (item.second / total * 360.0).toFloat()
+                        drawArc(chartPalette[i % chartPalette.size], start, (sweep - 1.5f).coerceAtLeast(0.5f), false, topLeft, arcSize, style = Stroke(stroke))
+                        start += sweep
+                    }
+                }
+                Text("Spent", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                shown.forEachIndexed { i, item ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(chartPalette[i % chartPalette.size]))
+                        Text(item.first, Modifier.weight(1f), maxLines = 1, style = MaterialTheme.typography.bodyMedium)
+                        Text("${(item.second / total * 100).toInt()}%", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One bar per day of the month: tall bars are the expensive days. */
+@Composable
+fun DaysCard(values: List<Double>, modifier: Modifier = Modifier) {
+    if (values.none { it > 0.0 }) return
+    val max = values.max()
+    val base = MaterialTheme.colorScheme.primary
+    val peak = MaterialTheme.colorScheme.error
+    val empty = MaterialTheme.colorScheme.surfaceVariant
+    SectionCard(modifier) {
+        Label("Which days cost the most")
+        Gap(10)
+        Canvas(Modifier.fillMaxWidth().height(90.dp)) {
+            val n = values.size
+            val gap = 3.dp.toPx()
+            val w = ((size.width - gap * (n - 1)) / n).coerceAtLeast(1f)
+            values.forEachIndexed { i, v ->
+                val h = if (v <= 0.0) 3.dp.toPx() else (v / max * size.height).toFloat().coerceAtLeast(3.dp.toPx())
+                val c = if (v <= 0.0) empty else if (v >= max * 0.85) peak else base
+                drawRoundRect(c, Offset(i * (w + gap), size.height - h), Size(w, h), CornerRadius(4.dp.toPx()))
+            }
+        }
+    }
+}
