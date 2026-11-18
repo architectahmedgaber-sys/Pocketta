@@ -23,7 +23,7 @@ const DEFAULT_SETTINGS = {
   // 1.3: look, savings goal, today's rates from the internet (your own rates still win)
   theme: 'AUTO', goalName: '', goalAmount: 0, goalSaved: 0,
   lang: 'EN', goldBuys: [], monthEndReminder: true, monthEndDismissed: '',
-  autoRates: true, autoCurrencies: ['USD', 'EUR', 'SAR'], onlineRates: {}, prevOnlineRates: {}, gold: {}, prevGold: {}, ratesUpdated: '', ratesFetchedAt: 0,
+  wealthHistory: [], autoRates: true, autoCurrencies: ['USD', 'EUR', 'SAR'], onlineRates: {}, prevOnlineRates: {}, gold: {}, prevGold: {}, ratesUpdated: '', ratesFetchedAt: 0,
 };
 
 function empty() {
@@ -497,4 +497,26 @@ export function balances() {
 /** Items to remind about today: due within each item's reminder window, or late. */
 export function dueSoon(today = C.todayEpoch()) {
   return upcoming(today + 31).filter((u) => u.due - today <= (u.remind ?? 1));
+}
+
+/** What you own: wallets, gold you bought at today's price, and how it looks in dollars and gold. */
+export function wealth() {
+  const s = S();
+  const bal = balances();
+  const cash = wallets().reduce((a, w) => a + (bal[w.id] || 0), 0);
+  const gs = C.goldSummary(s.goldBuys || [], s.gold || {});
+  const gold = gs ? gs.value : 0;
+  const total = cash + gold;
+  const usd = s.rates.USD || s.onlineRates.USD;
+  return { cash, gold, total, dollars: usd > 0 ? total / usd : null, goldGrams: s.gold && s.gold['21'] > 0 ? total / s.gold['21'] : null, history: s.wealthHistory || [] };
+}
+/** Saves today's total once a day (a later call the same day replaces it). */
+export function recordWealth(today = C.todayEpoch()) {
+  if (!S().onboarded) return;
+  const w = wealth();
+  const old = S().wealthHistory || [];
+  const next = C.recordWealth(old, today, w.total);
+  if (JSON.stringify(next) === JSON.stringify(old)) return;
+  data.settings.wealthHistory = next;
+  persist();
 }

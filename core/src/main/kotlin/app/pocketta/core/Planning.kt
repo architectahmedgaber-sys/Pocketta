@@ -197,3 +197,29 @@ object Planning {
         return first to second
     }
 }
+
+/** One saved total of everything you own, so the wealth view can show how it moved. */
+data class WealthPoint(val epochDay: Long, val total: Double)
+
+object WealthLog {
+    /** Stored in one text setting: "day=total" parts joined by ";". Bad parts are skipped. */
+    fun parse(s: String): List<WealthPoint> = s.split(';').mapNotNull {
+        val p = it.split('=')
+        val d = p.getOrNull(0)?.toLongOrNull()
+        val v = p.getOrNull(1)?.toDoubleOrNull()
+        if (p.size == 2 && d != null && v != null) WealthPoint(d, v) else null
+    }.sortedBy { it.epochDay }
+
+    fun format(list: List<WealthPoint>): String = list.joinToString(";") { "${it.epochDay}=${Math.round(it.total * 100) / 100.0}" }
+
+    /** Adds today's total (replacing one already saved for today) and keeps the newest [max] points. */
+    fun record(list: List<WealthPoint>, day: Long, total: Double, max: Int = 400): List<WealthPoint> =
+        (list.filter { it.epochDay != day } + WealthPoint(day, total)).sortedBy { it.epochDay }.takeLast(max)
+
+    /** Change since the newest point that is at least [days] days old, or null when the history is too short. */
+    fun changeSince(list: List<WealthPoint>, today: Long, days: Int): Double? {
+        val last = list.lastOrNull() ?: return null
+        val old = list.lastOrNull { it.epochDay <= today - days } ?: return null
+        return last.total - old.total
+    }
+}

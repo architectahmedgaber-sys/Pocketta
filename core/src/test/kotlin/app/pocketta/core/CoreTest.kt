@@ -171,4 +171,17 @@ class CoreTest {
         val done = Circle(500.0, 10, 4, 10, LocalDate.of(2026, 10, 5))
         assertTrue(Circles.status(done, true, LocalDate.of(2027, 9, 1)).finished)
     }
+
+    @Test fun wealthLog() {
+        val a = WealthLog.record(emptyList(), 100, 5000.0)
+        val b = WealthLog.record(a, 130, 6500.0)
+        val c = WealthLog.record(b, 130, 6600.0)
+        assertEquals(2, c.size)
+        assertEquals(6600.0, c.last().total, 0.001)
+        assertEquals(c, WealthLog.parse(WealthLog.format(c)))
+        assertEquals(1600.0, WealthLog.changeSince(c, 130, 30)!!, 0.001)
+        assertNull(WealthLog.changeSince(c, 130, 90))
+        assertEquals(2000.0, Planning.inDollars(100000.0, 50.0)!!, 0.001)
+        assertNull(Planning.inDollars(1000.0, null))
+    }
 }

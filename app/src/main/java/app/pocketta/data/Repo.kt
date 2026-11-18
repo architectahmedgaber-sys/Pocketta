@@ -10,7 +10,10 @@ import app.pocketta.core.Cycle
 import app.pocketta.core.CycleMath
 import app.pocketta.core.Frequency
 import app.pocketta.core.InstallmentPlan
+import app.pocketta.core.Gold
 import app.pocketta.core.Planning
+import app.pocketta.core.WealthLog
+import app.pocketta.core.WealthPoint
 import app.pocketta.core.Recurrence
 import app.pocketta.widget.Widgets
 import kotlinx.coroutines.CoroutineScope
@@ -79,6 +82,16 @@ data class PlanData(
             categories.map { Planning.CategoryTrend(it.name, it.spentSoFar, it.usual) }, dayIndex, home.cycle.lengthDays,
         )
 }
+
+data class WealthView(
+    val cash: Double,
+    val gold: Double,
+    val total: Double,
+    val dollars: Double?,
+    /** Gold-equivalent grams (21k) of the total, null when the gold price isn't known. */
+    val goldGrams: Double?,
+    val history: List<WealthPoint>,
+)
 
 /** A repeated expense (same note and amount) offered as a one-tap button. */
 data class Suggestion(val note: String, val amount: Double)
@@ -469,6 +482,49 @@ class Repo private constructor(private val app: Context) {
         val postponable = h.upcoming.filter { it.kind == "BILL" && !it.incoming && !it.spread && it.due.isAfter(today) && it.due.isBefore(h.cycle.nextStart) }
             .map { Planning.Postponable(it.title, it.amount, it.due) }
         return PlanData(h, stats, everyday, h.cycle.dayIndex(today), postponable)
+    }
+
+    // ---------- Wealth ----------
+
+    /** Money in all wallets, in the base currency. */
+    suspend fun walletTotal(p: Prefs): Double {
+        var total = dao.wallets().filter { !it.archived }.sumOf { it.opening * p.rateOf(it.currency) }
+        val active = dao.wallets().filter { !it.archived }.map { it.id }.toSet()
+        for (t in dao.allTxns()) when (t.type) {
+            TxType.EXPENSE -> if (t.walletId in active) total -= t.base
+            TxType.INCOME -> if (t.walletId in active) total += t.base
+            TxType.TRANSFER -> {
+                if (t.walletId in active) total -= t.base
+                if (t.toWalletId in active) total += t.base
+            }
+        }
+        return total
+    }
+
+    /** What you own: wallets, gold you bought at today's price, and how it looks in dollars and gold. */
+    suspend fun wealth(): WealthView {
+        val p = prefs()
+        val cash = walletTotal(p)
+        val gold = Gold.summary(p.goldBuys, p.gold)?.value ?: 0.0
+        val total = cash + gold
+        val usdRate = p.rates["USD"] ?: p.onlineRates["USD"]
+        return WealthView(
+            cash = cash, gold = gold, total = total,
+            dollars = Planning.inDollars(total, usdRate),
+            goldGrams = Planning.inGoldGrams(total, p.gold["21"]),
+            history = p.wealthHistory,
+        )
+    }
+
+    /** Saves today's total once a day (a later call the same day replaces it). */
+    suspend fun recordWealth(today: LocalDate = LocalDate.now()) {
+        val p = prefs()
+        if (!p.onboarded) return
+        val w = wealth()
+        val next = WealthLog.record(p.wealthHistory, today.toEpochDay(), w.total)
+        if (next == p.wealthHistory) return
+        dao.put(SettingRow("wealthHistory", WealthLog.format(next)))
+        _version.value = _version.value + 1
     }
 
     // ---------- Backup ----------

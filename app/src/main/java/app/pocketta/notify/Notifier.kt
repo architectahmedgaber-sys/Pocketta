@@ -32,6 +32,7 @@ object Notifier {
     const val CH_MORNING = "morning"
     private const val ID_MORNING = 8
     private const val ID_MONTH_END = 9
+    private const val ID_PRICE_RISE = 10
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -184,6 +185,20 @@ object Notifier {
             .setAutoCancel(true)
             .build()
         NotificationManagerCompat.from(context).notify(id, n)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun priceRise(context: Context, category: String, percent: Int, lang: String = Tr.EN) {
+        if (!canPost(context)) return
+        val ar = lang == Tr.AR
+        val n = NotificationCompat.Builder(context, CH_BUDGET)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle(if (ar) "${Tr.t(category, lang)} طالع $percent% عن المعتاد" else "$category is up $percent% on your usual")
+            .setContentText(if (ar) "بالمعدل ده، مقارنة بمتوسط آخر 3 شهور" else "At this pace, compared with your last 3 months")
+            .setContentIntent(openApp(context))
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(ID_PRICE_RISE, n)
     }
 
     @SuppressLint("MissingPermission")

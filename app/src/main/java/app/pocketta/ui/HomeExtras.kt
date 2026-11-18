@@ -162,8 +162,10 @@ fun WeekCard(repo: Repo, s: HomeState) {
             }
         }
         Gap(6)
-        if (d.topCategory != null) Text(tr("Most spent on") + ": " + tr(d.topCategory), style = MaterialTheme.typography.bodyMedium)
-        if (d.daysUnder > 0) Text("${d.daysUnder} days under your daily budget", style = MaterialTheme.typography.bodyMedium)
+        val pct = if (d.previous > 0) ((d.spent - d.previous) / d.previous * 100).toInt() else null
+        val (first, second) = app.pocketta.core.Planning.weekSentences(d.spent, pct, d.topCategory, d.daysUnder, cur)
+        Text(first, style = MaterialTheme.typography.bodyMedium)
+        Text(second, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

@@ -76,6 +76,23 @@ const EXTRA = {
   "Gam'eya": "جمعية", "Your turn": "دورك", "Days to your turn": "أيام لحد دورك", "You collect": "هتقبض",
   "You collected your turn": "قبضت دورك", "It's your turn! Collect #": "جه دورك! اقبض #",
   "Installments left": "الأقساط الباقية", "Next installment": "القسط الجاي", "Got my payout": "استلمت المبلغ", "Paid installment": "دفعت القسط",
+  // Wealth, price rises, weekly summary
+  "Everything I own": "كل اللي أملكه",
+  "Total": "الإجمالي",
+  "In wallets": "في المحافظ",
+  "Gold I bought, at today's price": "الدهب اللي اشتريته بسعر النهارده",
+  "In dollars": "بالدولار",
+  "In gold (21k)": "بالدهب (عيار 21)",
+  "Turn on today's rates in Currencies & gold to see dollars and gold": "شغّل أسعار النهارده من العملات والدهب عشان تشوف بالدولار والدهب",
+  "Over time": "على مدار الوقت",
+  "Last 7 days": "آخر 7 أيام",
+  "Last 30 days": "آخر 30 يوم",
+  "Last 90 days": "آخر 90 يوم",
+  "Come back in a few days. Pocketta saves your total once a day and draws the line here.": "ارجع بعد كام يوم. Pocketta بيحفظ إجماليك مرة في اليوم وبيرسم الخط هنا.",
+  "Wallets and gold in one number, in dollars and gold, and how it changed": "المحافظ والدهب في رقم واحد، بالدولار والدهب، وإزاي اتغيّر",
+  "Prices are rising": "الأسعار بتزيد",
+  "At this pace, compared with your average of the last 3 months": "بالمعدل ده، مقارنة بمتوسط آخر 3 شهور",
+  "Keep going, next week is a fresh start.": "كمّل، والأسبوع الجاي بداية جديدة.",
   'Currency': 'العملة', 'Or pick a day': 'أو اختار يوم', 'English': 'English',
 };
 const hasLetters = /[A-Za-z]/;
@@ -84,7 +101,17 @@ const currencyTail = /^(.*\S) ([A-Z]{3})$/;
 const monthsRe = new RegExp('\\b(' + Object.keys(MONTHS).join('|') + ')\\b', 'g');
 const monthDay = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b/g;
 const daysRe = /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|AM|PM)\b/g;
-const rules = RULES.map(([re, to]) => [new RegExp('^' + re + '$'), to]);
+const EXTRA_RULES = [
+  ["You spent (\\S+) (\\S+) this week\\.", "صرفت @1 @2 الأسبوع ده."],
+  ["You spent (\\S+) (\\S+) this week, (\\d+)% more than last week\\.", "صرفت @1 @2 الأسبوع ده، أكتر بـ @3% من الأسبوع اللي فات."],
+  ["You spent (\\S+) (\\S+) this week, (\\d+)% less than last week\\.", "صرفت @1 @2 الأسبوع ده، أقل بـ @3% من الأسبوع اللي فات."],
+  ["You spent (\\S+) (\\S+) this week, the same as last week\\.", "صرفت @1 @2 الأسبوع ده، زي الأسبوع اللي فات بالظبط."],
+  ["Most of it went to (.+), and you stayed under your daily budget on (\\d+) days\\.", "أغلبه راح على @1، وفضلت تحت ميزانيتك اليومية في @2 أيام."],
+  ["Most of it went to (.+), and (\\d+) days were under your daily budget\\.", "أغلبه راح على @1، و@2 أيام كانوا تحت ميزانيتك اليومية."],
+  ["Most of it went to (.+)\\.", "أغلبه راح على @1."],
+  ["▲ (\\d+)% vs your usual", "▲ @1% عن المعتاد"],
+];
+const rules = [...RULES, ...EXTRA_RULES].map(([re, to]) => [new RegExp('^' + re + '$'), to]);
 const cache = new Map();
 let on = false;
 
