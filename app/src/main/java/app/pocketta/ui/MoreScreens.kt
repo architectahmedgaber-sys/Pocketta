@@ -18,7 +18,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -384,6 +383,7 @@ fun OnboardingScreen(repo: Repo, onDone: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text("Pocketta", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Choices(listOf("EN", "AR"), LocalLang.current, { if (it == "AR") "العربية" else "English" }, { v -> scope.launch { repo.set("lang", v) } })
             Text("Your money for the month: what you can spend today, your bills, installments, gam'eya and loans. Everything stays on your phone.")
             NumberField("Monthly salary (optional)", salary, { salary = it }, suffix = "EGP")
             NumberField("Salary day of the month", salaryDay, { salaryDay = it }, decimal = false)

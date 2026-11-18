@@ -6,7 +6,11 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.SideEffect
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import app.pocketta.ui.LocalDark
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -17,7 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import app.pocketta.ui.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,16 +52,24 @@ class MainActivity : FragmentActivity() {
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleIntent(intent)
         val repo = Repo.get(this)
         setContent {
-            PockettaTheme {
+            val prefsFlow = remember { repo.prefsFlow() }
+            val prefs by prefsFlow.collectAsState(initial = null as Prefs?)
+            val p = prefs
+            PockettaTheme(mode = p?.theme ?: "AUTO", lang = p?.lang ?: "EN") {
+                val dark = LocalDark.current
+                SideEffect {
+                    // Status and navigation bar icons follow the theme picked in Settings, not only the phone's.
+                    val bars = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                    enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+                }
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-                    val prefsFlow = remember { repo.prefsFlow() }
-                    val prefs by prefsFlow.collectAsState(initial = null as Prefs?)
-                    val p = prefs
                     lockOn = p?.lock == true && p.onboarded
                     when {
                         p == null -> Box(Modifier.fillMaxSize())

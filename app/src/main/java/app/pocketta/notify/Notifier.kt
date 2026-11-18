@@ -14,6 +14,8 @@ import androidx.core.content.ContextCompat
 import app.pocketta.MainActivity
 import app.pocketta.R
 import app.pocketta.core.Money
+import app.pocketta.data.Prefs
+import app.pocketta.i18n.Tr
 import app.pocketta.data.Upcoming
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -27,6 +29,8 @@ object Notifier {
     private const val ID_UPDATE = 6
     private const val ID_BACKUP = 7
     const val CH_APP = "app"
+    const val CH_MORNING = "morning"
+    private const val ID_MORNING = 8
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -38,6 +42,11 @@ object Notifier {
         nm.createNotificationChannel(
             NotificationChannel(CH_BUDGET, "Budget alerts", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "When you go over today's allowance"
+            }
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CH_MORNING, "Morning message", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Today's number, the dollar and gold, every morning"
             }
         )
         nm.createNotificationChannel(
@@ -59,7 +68,7 @@ object Notifier {
     fun notificationId(u: Upcoming): Int = (u.kind.hashCode() * 31 + u.id.toInt()) and 0x7fffffff
 
     @SuppressLint("MissingPermission")
-    fun due(context: Context, u: Upcoming, today: LocalDate, currency: String) {
+    fun due(context: Context, u: Upcoming, today: LocalDate, currency: String, lang: String = Tr.EN) {
         if (!canPost(context)) return
         val days = ChronoUnit.DAYS.between(today, u.due)
         val whenText = when {
@@ -71,23 +80,23 @@ object Notifier {
         val id = notificationId(u)
         val b = NotificationCompat.Builder(context, CH_DUE)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle("${u.title} $whenText")
-            .setContentText("${Money.fmt(u.amount)} $currency · ${u.subtitle}")
+            .setContentTitle("${u.title} ${Tr.t(whenText, lang)}")
+            .setContentText("${Money.fmt(u.amount)} $currency · ${Tr.t(u.subtitle, lang)}")
             .setContentIntent(openApp(context, MainActivity.ACTION_BILLS))
             .setAutoCancel(true)
-        val label = if (u.kind == "LOAN") (if (u.incoming) "Got it back" else "Paid back") else "Mark paid"
+        val label = Tr.t(if (u.kind == "LOAN") (if (u.incoming) "Got it back" else "Paid back") else "Mark paid", lang)
         b.addAction(0, label, ActionReceiver.pending(context, ActionReceiver.ACTION_PAID, u.kind, u.id, id))
-        if (u.kind == "BILL") b.addAction(0, "Skip this time", ActionReceiver.pending(context, ActionReceiver.ACTION_SKIP, u.kind, u.id, id))
+        if (u.kind == "BILL") b.addAction(0, Tr.t("Skip this time", lang), ActionReceiver.pending(context, ActionReceiver.ACTION_SKIP, u.kind, u.id, id))
         NotificationManagerCompat.from(context).notify(id, b.build())
     }
 
     @SuppressLint("MissingPermission")
-    fun update(context: Context, version: String) {
+    fun update(context: Context, version: String, lang: String = Tr.EN) {
         if (!canPost(context)) return
         val n = NotificationCompat.Builder(context, CH_APP)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle("Pocketta $version is ready")
-            .setContentText("Tap to update. Your data stays as it is.")
+            .setContentTitle(Tr.t("Pocketta $version is ready", lang))
+            .setContentText(Tr.t("Tap to update. Your data stays as it is.", lang))
             .setContentIntent(openApp(context, MainActivity.ACTION_UPDATE))
             .setAutoCancel(true)
             .build()
@@ -95,13 +104,14 @@ object Notifier {
     }
 
     @SuppressLint("MissingPermission")
-    fun backupReminder(context: Context, days: Long) {
+    fun backupReminder(context: Context, days: Long, lang: String = Tr.EN) {
         if (!canPost(context)) return
-        val text = if (days > 365) "You haven't saved a backup yet." else "Your last backup was $days days ago."
+        val text = if (lang == Tr.AR) (if (days > 365) "لسه معملتش نسخة احتياطية." else "آخر نسخة احتياطية كانت من $days يوم.")
+        else if (days > 365) "You haven't saved a backup yet." else "Your last backup was $days days ago."
         val n = NotificationCompat.Builder(context, CH_APP)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle("Back up your money data")
-            .setContentText("$text Turn on auto backup in Settings.")
+            .setContentTitle(Tr.t("Back up your money data", lang))
+            .setContentText(text + (if (lang == Tr.AR) " فعّل النسخ التلقائي من الإعدادات." else " Turn on auto backup in Settings."))
             .setContentIntent(openApp(context, MainActivity.ACTION_SETTINGS))
             .setAutoCancel(true)
             .build()
@@ -109,15 +119,41 @@ object Notifier {
     }
 
     @SuppressLint("MissingPermission")
-    fun overBudget(context: Context, over: Double, tomorrow: Double, currency: String) {
+    fun overBudget(context: Context, over: Double, tomorrow: Double, currency: String, lang: String = Tr.EN) {
         if (!canPost(context)) return
         val n = NotificationCompat.Builder(context, CH_BUDGET)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle("You're over today's budget by ${Money.fmt(over)} $currency")
-            .setContentText("Tomorrow's allowance drops to ${Money.fmt(tomorrow)} $currency")
+            .setContentTitle(if (lang == Tr.AR) "عدّيت ميزانية النهارده بـ ${Money.fmt(over)} $currency" else "You're over today's budget by ${Money.fmt(over)} $currency")
+            .setContentText(if (lang == Tr.AR) "مصروف بكرة هيقل لـ ${Money.fmt(tomorrow)} $currency" else "Tomorrow's allowance drops to ${Money.fmt(tomorrow)} $currency")
             .setContentIntent(openApp(context))
             .setAutoCancel(true)
             .build()
         NotificationManagerCompat.from(context).notify(ID_BUDGET, n)
+    }
+
+    /** The dollar and gold with an arrow for up or down since yesterday, e.g. "Dollar 49.85 ▲ · Gold 21 4,200 ▼". */
+    fun ratesLine(p: Prefs, lang: String): String? {
+        fun arrow(ch: Double?): String {
+            if (ch == null || kotlin.math.abs(ch) < 0.0005) return ""
+            return if (ch > 0) " ▲" else " ▼"
+        }
+        val parts = ArrayList<String>()
+        (p.rates["USD"] ?: p.onlineRates["USD"])?.let {
+            parts += Tr.t("Dollar", lang) + " " + Money.fmt(it) + (if (p.rates.containsKey("USD")) "" else arrow(p.rateChange("USD")))
+        }
+        p.gold["21"]?.let { parts += Tr.t("Gold", lang) + " 21 " + Money.fmt(it) + arrow(p.goldChange("21")) }
+        return if (parts.isEmpty()) null else parts.joinToString(" · ")
+    }
+
+    @SuppressLint("MissingPermission")
+    fun morning(context: Context, title: String, text: String?) {
+        if (!canPost(context)) return
+        val b = NotificationCompat.Builder(context, CH_MORNING)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle(title)
+            .setContentIntent(openApp(context))
+            .setAutoCancel(true)
+        if (text != null) b.setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        NotificationManagerCompat.from(context).notify(ID_MORNING, b.build())
     }
 }

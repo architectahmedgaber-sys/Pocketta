@@ -38,7 +38,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
@@ -104,7 +103,7 @@ fun SectionCard(
 
 @Composable
 fun Label(text: String, modifier: Modifier = Modifier) = Text(
-    text.uppercase(), modifier = modifier, style = MaterialTheme.typography.labelSmall,
+    tr(text).uppercase(), modifier = modifier, style = MaterialTheme.typography.labelSmall,
     color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = 0.8.sp,
 )
 

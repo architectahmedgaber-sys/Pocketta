@@ -19,7 +19,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
+import app.pocketta.share.SummaryImage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,6 +50,7 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     var filterParent by remember { mutableStateOf<Long?>(null) }
     var search by remember { mutableStateOf("") }
     val today = LocalDate.now()
+    val context = LocalContext.current
     var cycle = CycleMath.cycleFor(today, prefs.cycleStart)
     repeat(offset) { cycle = cycle.previous(prefs.cycleStart) }
     val txFlow = remember(cycle.start) { repo.dao.txnsFlow(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay()) }
@@ -87,6 +90,22 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                     IconButton(onClick = { if (offset > 0) offset-- }, enabled = offset > 0) {
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next month")
                     }
+                    if (spent > 0) {
+                        TextButton(onClick = {
+                            SummaryImage.share(
+                                context,
+                                SummaryImage.Data(
+                                    month = cycle.end.format(monthFmt) + " " + cycle.end.year,
+                                    currency = prefs.baseCurrency,
+                                    spent = spent,
+                                    income = income,
+                                    previousSpent = prevTxns.filter { it.type == TxType.EXPENSE }.sumOf { it.base },
+                                    categories = perParent.map { SummaryImage.Slice(byId[it.key]?.name ?: "No category", it.value) },
+                                ),
+                                prefs.lang,
+                            )
+                        }) { Text("Share") }
+                    }
                 }
             }
             item { Column {
@@ -104,7 +123,7 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
             } }
             if (perParent.isNotEmpty()) {
                 item { Column {
-                    DonutCard(perParent.map { (byId[it.key]?.name ?: "No category") to it.value }, spent, Modifier.padding(horizontal = 16.dp))
+                    DonutCard(perParent.map { DonutItem(byId[it.key]?.name ?: "No category", it.value, byId[it.key]?.monthlyLimit ?: 0.0) }, spent, Modifier.padding(horizontal = 16.dp))
                     Gap()
                     val sums = expenses.groupBy { it.epochDay.toLong() }.mapValues { e -> e.value.sumOf { it.base } }
                     DaysCard((cycle.start.toEpochDay() until cycle.nextStart.toEpochDay()).map { d -> sums[d] ?: 0.0 }, Modifier.padding(horizontal = 16.dp))

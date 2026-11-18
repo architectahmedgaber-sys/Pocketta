@@ -10,6 +10,9 @@ import app.pocketta.data.Online
 import app.pocketta.data.Repo
 import app.pocketta.notify.Notifier
 import app.pocketta.widget.Widgets
+import app.pocketta.core.Money
+import app.pocketta.i18n.Tr
+import java.time.DayOfWeek
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -26,11 +29,11 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             val items = repo.upcoming(p, today.plusDays(15))
             for (u in items) {
                 val remind = remindDays(repo, u.kind, u.id)
-                if (!u.due.isAfter(today.plusDays(remind.toLong()))) Notifier.due(applicationContext, u, today, p.baseCurrency)
+                if (!u.due.isAfter(today.plusDays(remind.toLong()))) Notifier.due(applicationContext, u, today, p.baseCurrency, p.lang)
             }
         }
         runCatching { Online.refreshRates(repo) }
-        runCatching { Online.checkUpdate(repo, force = true)?.let { Notifier.update(applicationContext, it.version) } }
+        runCatching { Online.checkUpdate(repo, force = true)?.let { Notifier.update(applicationContext, it.version, p.lang) } }
         if (p.onboarded) {
             runCatching { repo.autoBackupIfDue() }
             val fresh = repo.prefs()
@@ -39,11 +42,34 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
                 else applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0).firstInstallTime
                 val days = (System.currentTimeMillis() - since) / 86_400_000L
                 // Remind once a week while there's no recent backup.
-                if (days >= 7 && days % 7 == 0L) Notifier.backupReminder(applicationContext, if (fresh.lastBackup > 0) days else 999)
+                if (days >= 7 && days % 7 == 0L) Notifier.backupReminder(applicationContext, if (fresh.lastBackup > 0) days else 999, fresh.lang)
             }
         }
+        if (p.onboarded && p.morning) runCatching { morningMessage(repo) }
         Widgets.updateAll(applicationContext)
         return Result.success()
+    }
+
+    /** "You can spend 250 EGP today", with the dollar and gold underneath (and the week's total on Friday). */
+    private suspend fun morningMessage(repo: Repo) {
+        val s = repo.home()
+        val p = s.prefs
+        val b = s.budget
+        if (b.budget <= 0 && s.salaryExpected <= 0) return
+        val ar = p.lang == Tr.AR
+        val amount = Money.short(kotlin.math.abs(b.dailyAllowance))
+        val title = when {
+            b.dailyAllowance < 0 -> if (ar) "ميزانية النهارده سالب (${amount} ${p.baseCurrency})" else "Today's budget is negative ($amount ${p.baseCurrency})"
+            ar -> "تقدر تصرف $amount ${p.baseCurrency} النهارده"
+            else -> "You can spend $amount ${p.baseCurrency} today"
+        }
+        val lines = ArrayList<String>()
+        if (s.today.dayOfWeek == DayOfWeek.FRIDAY) {
+            val w = repo.week(s.today, s.dayReference)
+            if (w.spent > 0) lines += (if (ar) "أسبوعك: صرفت " else "Your week: spent ") + Money.short(w.spent) + " " + p.baseCurrency
+        }
+        Notifier.ratesLine(p, p.lang)?.let { lines += it }
+        Notifier.morning(applicationContext, title, if (lines.isEmpty()) null else lines.joinToString("\n"))
     }
 
     private suspend fun remindDays(repo: Repo, kind: String, id: Long): Int = when (kind) {

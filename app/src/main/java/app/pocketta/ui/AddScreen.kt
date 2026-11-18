@@ -39,8 +39,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -343,7 +345,8 @@ private fun WalletRow(wallets: List<Pair<Long, String>>, selected: Long, onPick:
 @Composable
 private fun Keypad(onKey: (String) -> Unit) {
     val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "⌫")
-    Column(
+    // The digits keep their usual places even when the app is in Arabic (right to left).
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) { Column(
         Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -358,7 +361,7 @@ private fun Keypad(onKey: (String) -> Unit) {
                 }
             }
         }
-    }
+    } }
 }
 
 @Composable
@@ -373,7 +376,7 @@ fun DayPicker(date: LocalDate, onPick: (LocalDate) -> Unit, onDismiss: () -> Uni
     ) { DatePicker(state = state) }
 }
 
-private suspend fun checkOverBudget(context: Context, repo: Repo, prefs: Prefs) {
+suspend fun checkOverBudget(context: Context, repo: Repo, prefs: Prefs) {
     if (!prefs.budgetAlert) return
     val h = repo.home()
     val b = h.budget
@@ -383,7 +386,7 @@ private suspend fun checkOverBudget(context: Context, repo: Repo, prefs: Prefs) 
     if (repo.dao.settings().firstOrNull { it.key == key }?.value == today) return
     repo.set(key, today)
     val tomorrow = if (b.daysLeft > 1) b.left / (b.daysLeft - 1) else 0.0
-    Notifier.overBudget(context, -b.leftToday, tomorrow, prefs.baseCurrency)
+    Notifier.overBudget(context, -b.leftToday, tomorrow, prefs.baseCurrency, prefs.lang)
 }
 
 fun categoryLabel(categories: List<Category>, id: Long?): String {

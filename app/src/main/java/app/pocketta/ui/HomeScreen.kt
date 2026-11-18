@@ -29,7 +29,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +45,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,6 +65,8 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     val version by repo.version.collectAsState()
     var state by remember { mutableStateOf<HomeState?>(null) }
     var details by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val dark = LocalDark.current
     LaunchedEffect(version, prefs) { state = repo.home() }
     val s = state ?: return
     val cur = prefs.baseCurrency
@@ -73,11 +76,11 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     val todayFrac = if (b.dailyAllowance > 0) (spentToday / b.dailyAllowance).toFloat() else 0f
     // Green while you are fine, amber when most of today's money is gone, red when you are over.
     val heroColor = when {
-        over -> MaterialTheme.colorScheme.error
-        todayFrac >= 0.8f -> Color(0xFF9A5B00)
-        else -> MaterialTheme.colorScheme.primary
+        over -> HeroRed
+        todayFrac >= 0.8f -> HeroAmber
+        else -> HeroGreen
     }
-    val heroText = if (over) MaterialTheme.colorScheme.onError else Color.White
+    val heroText = Color.White
     val target = kotlin.math.abs(b.leftToday).toFloat()
     val shownAmount = remember { Animatable(0f) }
     LaunchedEffect(target) { shownAmount.animateTo(target, tween(700)) }
@@ -90,6 +93,9 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                 Column(Modifier.weight(1f)) {
                     Text(s.cycle.end.format(monthFmt), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("${b.daysLeft} days left in this month", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = { scope.launch { repo.set("theme", if (dark) "LIGHT" else "DARK") } }) {
+                    Text(if (dark) "☀️" else "🌙", fontSize = 20.sp)
                 }
                 IconButton(onClick = { nav.open(Route.More) }) { Icon(Icons.Filled.Settings, contentDescription = "Settings and more") }
             }
@@ -119,8 +125,13 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                 Text("Spent ${Money.short(spentToday)} of ${Money.short(b.dailyAllowance)} today", color = heroText, style = MaterialTheme.typography.bodySmall)
             }
 
+            QuickAddCard(repo, prefs)
+
             // The converter lives on the first page so there is a reason to open the app every day.
             ConverterCard(prefs)
+
+            WeekCard(repo, s)
+            GoalCard(repo, prefs)
 
             SectionCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -224,6 +235,7 @@ private fun DayBars(s: HomeState) {
 @Composable
 private fun UpcomingCard(repo: Repo, items: List<Upcoming>, s: HomeState, cur: String) {
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
     SectionCard {
         Label("Coming up")
         for (u in items) {
@@ -239,7 +251,7 @@ private fun UpcomingCard(repo: Repo, items: List<Upcoming>, s: HomeState, cur: S
                 }
                 Text((if (u.incoming) "+" else "") + Money.short(u.amount), fontWeight = FontWeight.Bold, color = if (u.incoming) Good else MaterialTheme.colorScheme.onSurface)
                 if (!u.due.isAfter(s.today.plusDays(3))) {
-                    TextButton(onClick = { scope.launch { payUpcoming(repo, u) } }) { Text(if (u.incoming) "Got it" else "Paid") }
+                    TextButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); scope.launch { payUpcoming(repo, u) } }) { Text(if (u.incoming) "Got it" else "Paid") }
                 }
             }
         }

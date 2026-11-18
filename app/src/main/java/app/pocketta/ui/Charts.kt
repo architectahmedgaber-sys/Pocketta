@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,17 +25,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.pocketta.core.Budget
+import app.pocketta.core.Money
 
 val chartPalette = listOf(
     Color(0xFF1F6B4F), Color(0xFFC2571A), Color(0xFF2B5FB0), Color(0xFF8E3B8C),
     Color(0xFFE8A33D), Color(0xFF00687A), Color(0xFFB3261E), Color(0xFF6D7B74),
 )
 
+/** One slice of the donut. [limit] > 0 adds a small bar under the name that fills towards the category's monthly limit. */
+data class DonutItem(val name: String, val value: Double, val limit: Double = 0.0)
+
 /** A coloured ring that shows at a glance which categories take the biggest share, no numbers needed. */
 @Composable
-fun DonutCard(items: List<Pair<String, Double>>, total: Double, modifier: Modifier = Modifier) {
+fun DonutCard(items: List<DonutItem>, total: Double, modifier: Modifier = Modifier) {
     if (total <= 0.0) return
-    val shown = items.take(7) + (if (items.size > 7) listOf("Other" to items.drop(7).sumOf { it.second }) else emptyList())
+    val shown = items.take(7) + (if (items.size > 7) listOf(DonutItem("Other", items.drop(7).sumOf { it.value })) else emptyList())
     SectionCard(modifier) {
         Label("Where it went")
         Gap(10)
@@ -49,7 +53,7 @@ fun DonutCard(items: List<Pair<String, Double>>, total: Double, modifier: Modifi
                     val arcSize = Size(size.width - stroke, size.height - stroke)
                     var start = -90f
                     shown.forEachIndexed { i, item ->
-                        val sweep = (item.second / total * 360.0).toFloat()
+                        val sweep = (item.value / total * 360.0).toFloat()
                         drawArc(chartPalette[i % chartPalette.size], start, (sweep - 1.5f).coerceAtLeast(0.5f), false, topLeft, arcSize, style = Stroke(stroke))
                         start += sweep
                     }
@@ -58,10 +62,25 @@ fun DonutCard(items: List<Pair<String, Double>>, total: Double, modifier: Modifi
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 shown.forEachIndexed { i, item ->
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(chartPalette[i % chartPalette.size]))
-                        Text(item.first, Modifier.weight(1f), maxLines = 1, style = MaterialTheme.typography.bodyMedium)
-                        Text("${(item.second / total * 100).toInt()}%", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.size(10.dp).clip(CircleShape).background(chartPalette[i % chartPalette.size]))
+                            Text(item.name, Modifier.weight(1f), maxLines = 1, style = MaterialTheme.typography.bodyMedium)
+                            Text("${(item.value / total * 100).toInt()}%", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        if (item.limit > 0) {
+                            val level = Budget.level(item.value, item.limit)
+                            val c = when (level) {
+                                Budget.Level.OVER -> MaterialTheme.colorScheme.error
+                                Budget.Level.NEAR -> Warn
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+                            Progress((item.value / item.limit).toFloat(), c, Modifier.padding(top = 3.dp))
+                            Text(
+                                Money.short(item.value) + " / " + Money.short(item.limit),
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }

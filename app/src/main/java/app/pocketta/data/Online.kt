@@ -50,12 +50,27 @@ object Online {
             val gold = HashMap<String, Double>()
             j.optJSONObject("gold")?.let { g -> for (k in g.keys()) g.optDouble(k).takeIf { !it.isNaN() && it > 0 }?.let { gold[k] = it } }
             if (m.isEmpty()) error("empty")
+            // Yesterday's prices, for the up/down arrows: the file carries them, else keep what we had before the day changed.
+            val prev = j.optJSONObject("previous")
+            if (prev != null) {
+                repo.dao.put(SettingRow("prevOnlineRates", Prefs.formatRates(readMap(prev.optJSONObject("rates")))))
+                repo.dao.put(SettingRow("prevGold", Prefs.formatRates(readMap(prev.optJSONObject("gold")))))
+            } else if (p.onlineRates.isNotEmpty() && p.ratesUpdated.take(10) != j.optString("updated").take(10)) {
+                repo.dao.put(SettingRow("prevOnlineRates", Prefs.formatRates(p.onlineRates)))
+                repo.dao.put(SettingRow("prevGold", Prefs.formatRates(p.gold)))
+            }
             repo.dao.put(SettingRow("onlineRates", Prefs.formatRates(m)))
             repo.dao.put(SettingRow("gold", Prefs.formatRates(gold)))
             repo.dao.put(SettingRow("ratesUpdated", j.optString("updated")))
             repo.dao.put(SettingRow("ratesFetchedAt", System.currentTimeMillis().toString()))
             repo.changed()
         }.isSuccess
+    }
+
+    private fun readMap(o: JSONObject?): Map<String, Double> {
+        val out = HashMap<String, Double>()
+        if (o != null) for (k in o.keys()) o.optDouble(k).takeIf { !it.isNaN() && it > 0 }?.let { out[k.uppercase()] = it }
+        return out
     }
 
     data class Release(val version: String, val apkUrl: String)
