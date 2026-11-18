@@ -56,6 +56,8 @@ data class Prefs(
     val wealthHistory: List<WealthPoint> = emptyList(),
     /** The last price-rise alert sent, "cycleStartDay:category", so each one is sent once. */
     val riseAlerted: String = "",
+    /** The newest version a notification was already shown for, so each release notifies once. */
+    val updateNotified: String = "",
 ) {
     fun rateOf(currency: String): Double =
         if (currency == baseCurrency) 1.0 else rates[currency] ?: (if (autoRates) onlineRates[currency] else null) ?: 1.0
@@ -125,6 +127,7 @@ data class Prefs(
                 monthEndReminder = b("monthEndReminder", true),
                 wealthHistory = WealthLog.parse(m["wealthHistory"].orEmpty()),
                 riseAlerted = m["riseAlerted"].orEmpty(),
+                updateNotified = m["updateNotified"].orEmpty(),
             )
         }
 

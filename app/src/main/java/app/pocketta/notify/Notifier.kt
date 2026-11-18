@@ -29,6 +29,8 @@ object Notifier {
     private const val ID_UPDATE = 6
     private const val ID_BACKUP = 7
     const val CH_APP = "app"
+    /** New versions of Pocketta. Its own channel with normal importance so the notification is actually seen. */
+    const val CH_UPDATE = "update"
     const val CH_MORNING = "morning"
     private const val ID_MORNING = 8
     private const val ID_MONTH_END = 9
@@ -49,6 +51,11 @@ object Notifier {
         nm.createNotificationChannel(
             NotificationChannel(CH_MORNING, "Morning message", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "Today's number, the dollar and gold, every morning"
+            }
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CH_UPDATE, "New versions", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "When a new version of Pocketta is ready to install"
             }
         )
         nm.createNotificationChannel(
@@ -95,7 +102,7 @@ object Notifier {
     @SuppressLint("MissingPermission")
     fun update(context: Context, version: String, lang: String = Tr.EN) {
         if (!canPost(context)) return
-        val n = NotificationCompat.Builder(context, CH_APP)
+        val n = NotificationCompat.Builder(context, CH_UPDATE)
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle(Tr.t("Pocketta $version is ready", lang))
             .setContentText(Tr.t("Tap to update. Your data stays as it is.", lang))

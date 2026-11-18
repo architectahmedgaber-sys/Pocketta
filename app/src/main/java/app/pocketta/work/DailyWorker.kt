@@ -34,7 +34,7 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             runCatching { gameyaTurns(repo, today, p.baseCurrency, p.lang) }
         }
         runCatching { Online.refreshRates(repo) }
-        runCatching { Online.checkUpdate(repo, force = true)?.let { Notifier.update(applicationContext, it.version, p.lang) } }
+        runCatching { Online.checkUpdate(repo, force = true) }
         if (p.onboarded) {
             runCatching { repo.autoBackupIfDue() }
             val fresh = repo.prefs()
