@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Pocketta</string>
+    <string name="widget_today">Today\'s allowance</string>
+    <string name="widget_today_desc">How much you can spend today</string>
+    <string name="widget_add">Add expense</string>
+    <string name="widget_add_desc">One tap to log an expense</string>
+    <string name="widget_month">This month</string>
+    <string name="widget_month_desc">What\'s left of this month\'s budget</string>
+    <string name="widget_upcoming">Next up</string>
+    <string name="widget_upcoming_desc">Upcoming bills, installments and circle shares</string>
+    <string name="tile_label">Add expense</string>
+    <string name="shortcut_add">Add expense</string>
+    <string name="shortcut_income">Add income</string>
+</resources>

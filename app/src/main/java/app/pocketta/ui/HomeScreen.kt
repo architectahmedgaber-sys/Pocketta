@@ -1,0 +1,217 @@
+package app.pocketta.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import app.pocketta.core.Budget
+import app.pocketta.core.Money
+import app.pocketta.data.HomeState
+import app.pocketta.data.Prefs
+import app.pocketta.data.Repo
+import app.pocketta.data.Upcoming
+import kotlinx.coroutines.launch
+
+@Composable
+fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
+    val version by repo.version.collectAsState()
+    var state by remember { mutableStateOf<HomeState?>(null) }
+    LaunchedEffect(version, prefs) { state = repo.home() }
+    val s = state ?: return
+    val cur = prefs.baseCurrency
+    val b = s.budget
+    Box(modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(s.cycle.end.format(monthFmt), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                Pill("${s.cycle.start.format(dayFmt)} → ${s.cycle.end.format(dayFmt)}")
+            }
+            BudgetRing(s, cur)
+            if (b.budget <= 0 && s.salaryExpected <= 0) {
+                SectionCard(onClick = { nav.open(Route.Income) }) {
+                    Text("Add your salary or income to see your budget", fontWeight = FontWeight.SemiBold)
+                    Text("More → Income & salary", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            SectionCard(container = if (b.leftToday < 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Label(if (b.leftToday < 0) "Over today's budget" else "Today you can spend")
+                        Big(Money.short(kotlin.math.abs(b.leftToday)) + " $cur")
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("spent today", style = MaterialTheme.typography.bodySmall)
+                        Text(Money.short(b.dailyAllowance - b.leftToday), fontWeight = FontWeight.Bold)
+                        Text("daily ${Money.short(b.dailyAllowance)}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            SectionCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Label("Month-end forecast")
+                        Text("${Money.short(b.forecastSpend)} $cur", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    }
+                    if (b.forecastDiff >= 0) Pill("${Money.short(b.forecastDiff)} under", Good)
+                    else Pill("${Money.short(-b.forecastDiff)} over", MaterialTheme.colorScheme.error)
+                }
+            }
+            if (s.days.isNotEmpty()) {
+                SectionCard {
+                    Label("This month, day by day")
+                    Gap(8)
+                    DayBars(s)
+                }
+            }
+            if (s.upcoming.isNotEmpty()) UpcomingCard(repo, s.upcoming.take(6), s, cur)
+            SectionCard {
+                Label("How the budget is made")
+                Gap(6)
+                Line("Income received", Money.short(s.income))
+                if (s.salaryExpected > 0) Line("Salary still coming", Money.short(s.salaryExpected))
+                if (s.setAside > 0) Line("Set aside (yearly bills, savings)", "−" + Money.short(s.setAside))
+                Line("Spent so far", "−" + Money.short(b.spent))
+                Line("Still to pay this month", "−" + Money.short(b.committed))
+                Line("Left", Money.short(b.left), bold = true)
+            }
+            Gap(64)
+        }
+        ExtendedFloatingActionButton(
+            onClick = { nav.open(Route.Add()) },
+            icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+            text = { Text("Add") },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        )
+    }
+}
+
+@Composable
+private fun Line(label: String, value: String, bold: Boolean = false) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Text(value, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal)
+    }
+}
+
+@Composable
+private fun BudgetRing(s: HomeState, cur: String) {
+    val b = s.budget
+    val primary = MaterialTheme.colorScheme.primary
+    val tertiary = MaterialTheme.colorScheme.tertiary
+    val track = MaterialTheme.colorScheme.surfaceVariant
+    val error = MaterialTheme.colorScheme.error
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(190.dp)) {
+            val stroke = 16.dp.toPx()
+            val inset = stroke / 2
+            val arcSize = Size(size.width - stroke, size.height - stroke)
+            val tl = Offset(inset, inset)
+            drawArc(track, 0f, 360f, false, tl, arcSize, style = Stroke(stroke))
+            val spent = b.spentFraction * 360f
+            val committed = b.committedFraction * 360f
+            if (committed > 0f) drawArc(tertiary, -90f + spent, committed, false, tl, arcSize, style = Stroke(stroke))
+            if (spent > 0f) drawArc(if (b.left < 0) error else primary, -90f, spent, false, tl, arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Label("Left")
+            Big(Money.short(b.left), if (b.left < 0) error else MaterialTheme.colorScheme.onSurface, 30)
+            Text("of ${Money.short(b.budget)} $cur", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${b.daysLeft} days left", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun DayBars(s: HomeState) {
+    val days = s.days.takeLast(31)
+    val max = (days.maxOfOrNull { it.second } ?: 0.0).coerceAtLeast(s.dayReference).coerceAtLeast(1.0)
+    val ok = MaterialTheme.colorScheme.primary
+    val near = Warn
+    val over = MaterialTheme.colorScheme.error
+    val empty = MaterialTheme.colorScheme.surfaceVariant
+    Canvas(Modifier.fillMaxWidth().height(64.dp)) {
+        val n = days.size
+        val gap = 3.dp.toPx()
+        val w = ((size.width - gap * (n - 1)) / n).coerceAtLeast(1f)
+        days.forEachIndexed { i, (_, v) ->
+            val h = if (v <= 0) 3.dp.toPx() else (v / max * size.height).toFloat().coerceAtLeast(3.dp.toPx())
+            val c = if (v <= 0) empty else when (Budget.level(v, s.dayReference)) {
+                Budget.Level.OVER -> over
+                Budget.Level.NEAR -> near
+                else -> ok
+            }
+            drawRoundRect(c, Offset(i * (w + gap), size.height - h), Size(w, h), CornerRadius(4.dp.toPx()))
+        }
+    }
+}
+
+@Composable
+private fun UpcomingCard(repo: Repo, items: List<Upcoming>, s: HomeState, cur: String) {
+    val scope = rememberCoroutineScope()
+    SectionCard {
+        Label("Coming up")
+        for (u in items) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(u.title, maxLines = 1)
+                    val late = u.due.isBefore(s.today)
+                    Text(
+                        if (late) "Late · ${u.due.format(dayFmt)}" else u.due.format(dayFmt),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (late) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text((if (u.incoming) "+" else "") + Money.short(u.amount), fontWeight = FontWeight.Bold, color = if (u.incoming) Good else MaterialTheme.colorScheme.onSurface)
+                if (!u.due.isAfter(s.today.plusDays(3))) {
+                    TextButton(onClick = { scope.launch { payUpcoming(repo, u) } }) { Text(if (u.incoming) "Got it" else "Paid") }
+                }
+            }
+        }
+        Text("Amounts in $cur", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+suspend fun payUpcoming(repo: Repo, u: Upcoming) {
+    val dao = repo.dao
+    when (u.kind) {
+        "BILL" -> dao.bill(u.id)?.let { repo.payBill(it) }
+        "INSTALLMENT" -> dao.installment(u.id)?.let { repo.payInstallment(it) }
+        "CIRCLE" -> dao.circle(u.id)?.let { repo.payCircle(it) }
+        "LOAN" -> dao.loan(u.id)?.let { repo.loanPayment(it, it.remaining) }
+    }
+}

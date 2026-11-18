@@ -1,0 +1,59 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Publish a release with this version (e.g. 1.0.0). Leave empty for a test build."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Pick version
+        run: |
+          R="${{ github.event.inputs.release_version }}"
+          if [[ -n "$R" ]]; then V="${R#v}"; echo "RELEASE=true" >> "$GITHUB_ENV";
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; echo "RELEASE=true" >> "$GITHUB_ENV";
+          else V="0.0.${{ github.run_number }}"; fi
+          echo "VERSION_NAME=$V" >> "$GITHUB_ENV"
+
+      - name: Unit tests and release build
+        run: ./gradlew :core:test assembleRelease -PversionName=$VERSION_NAME -PversionCode=${{ github.run_number }} --stacktrace
+
+      - name: Name the APK
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk "pocketta-$VERSION_NAME.apk"
+          ls -lh "pocketta-$VERSION_NAME.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocketta-${{ env.VERSION_NAME }}
+          path: pocketta-${{ env.VERSION_NAME }}.apk
+
+      - name: Publish release
+        if: env.RELEASE == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION_NAME }}
+          name: Pocketta ${{ env.VERSION_NAME }}
+          target_commitish: ${{ github.sha }}
+          files: pocketta-${{ env.VERSION_NAME }}.apk
+          generate_release_notes: true

@@ -1,0 +1,140 @@
+package app.pocketta
+
+import android.Manifest
+import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import app.pocketta.data.Prefs
+import app.pocketta.data.Repo
+import app.pocketta.data.TxType
+import app.pocketta.notify.Notifier
+import app.pocketta.ui.AppRoot
+import app.pocketta.ui.Nav
+import app.pocketta.ui.OnboardingScreen
+import app.pocketta.ui.PockettaTheme
+import app.pocketta.ui.Route
+
+class MainActivity : FragmentActivity() {
+    val nav = Nav()
+    private var unlocked by mutableStateOf(false)
+    private var promptShowing = false
+
+    private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        handleIntent(intent)
+        val repo = Repo.get(this)
+        setContent {
+            PockettaTheme {
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+                    val prefsFlow = remember { repo.prefsFlow() }
+                    val prefs by prefsFlow.collectAsState(initial = null as Prefs?)
+                    val p = prefs
+                    when {
+                        p == null -> Box(Modifier.fillMaxSize())
+                        !p.onboarded -> OnboardingScreen(repo) { askForNotifications() }
+                        p.lock && !unlocked -> {
+                            LaunchedEffect(Unit) { unlock() }
+                            Column(
+                                Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text("Pocketta is locked", style = MaterialTheme.typography.titleLarge)
+                                Button(onClick = { unlock() }) { Text("Unlock") }
+                            }
+                        }
+                        else -> {
+                            BackHandler(enabled = nav.canGoBack) { nav.back() }
+                            AppRoot(repo, nav, p, authenticate = { title, ok -> authenticate(title, ok) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Lock again when the app goes to the background (not when a picker or the fingerprint prompt opens on top).
+        if (!isChangingConfigurations && !promptShowing) unlocked = false
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        when (intent?.action) {
+            ACTION_ADD -> nav.open(Route.Add(type = TxType.EXPENSE))
+            ACTION_ADD_INCOME -> nav.open(Route.Add(type = TxType.INCOME))
+            ACTION_BILLS -> nav.tab(Route.Bills)
+        }
+    }
+
+    private fun askForNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 && !Notifier.canPost(this)) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun unlock() = authenticate("Unlock Pocketta") { unlocked = true }
+
+    /** Fingerprint, face or the screen lock. If the phone has no lock set, it just continues. */
+    fun authenticate(title: String, onSuccess: () -> Unit) {
+        val auth = BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        if (BiometricManager.from(this).canAuthenticate(auth) != BiometricManager.BIOMETRIC_SUCCESS) {
+            onSuccess()
+            return
+        }
+        if (promptShowing) return
+        promptShowing = true
+        val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                promptShowing = false
+                onSuccess()
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                promptShowing = false
+            }
+        })
+        prompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle(title)
+                .setAllowedAuthenticators(auth)
+                .build()
+        )
+    }
+
+    companion object {
+        const val ACTION_ADD = "app.pocketta.ADD"
+        const val ACTION_ADD_INCOME = "app.pocketta.ADD_INCOME"
+        const val ACTION_BILLS = "app.pocketta.BILLS"
+    }
+}
