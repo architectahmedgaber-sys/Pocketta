@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.launch
 import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -104,6 +105,10 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         // Ask for the fingerprint every time the app comes back while locked.
         if (lockOn && !unlocked) window.decorView.post { if (!unlocked) unlock() }
+        // Look for a new version every time the app comes to the front (at most every 10 minutes), not only when the process starts.
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            runCatching { app.pocketta.data.Online.checkUpdate(app.pocketta.data.Repo.get(applicationContext)) }
+        }
     }
 
     override fun onStop() {

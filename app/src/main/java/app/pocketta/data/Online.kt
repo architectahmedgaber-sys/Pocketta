@@ -78,7 +78,7 @@ object Online {
     /** Checks GitHub for a newer version. Remembers the answer so the app can show a banner. */
     suspend fun checkUpdate(repo: Repo, force: Boolean = false): Release? = withContext(Dispatchers.IO) {
         val p = repo.prefs()
-        if (!force && System.currentTimeMillis() - p.updateCheckedAt < 12 * 3_600_000L) {
+        if (!force && System.currentTimeMillis() - p.updateCheckedAt < 10 * 60_000L) {
             return@withContext if (p.updateVersion.isNotEmpty() && isNewer(p.updateVersion, BuildConfig.VERSION_NAME)) Release(p.updateVersion, p.updateUrl) else null
         }
         val r = runCatching {
