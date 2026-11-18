@@ -116,8 +116,9 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
         } else if (walletId == 0L) {
             walletId = wallets.firstOrNull { it.id == prefs.lastWallet }?.id ?: wallets.first().id
             toWalletId = wallets.firstOrNull { it.id != walletId }?.id ?: walletId
-            if (type == TxType.EXPENSE && prefs.lastCategory != 0L) {
-                val c = categories.firstOrNull { it.id == prefs.lastCategory && !it.archived }
+            val wanted = if (route.category != 0L) route.category else prefs.lastCategory
+            if (type == TxType.EXPENSE && wanted != 0L) {
+                val c = categories.firstOrNull { it.id == wanted && !it.archived }
                 if (c != null) { categoryId = c.id; parentId = c.parentId ?: c.id }
             }
         }

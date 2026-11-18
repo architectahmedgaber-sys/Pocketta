@@ -60,6 +60,55 @@
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_upcoming" />
         </receiver>
 
+        <receiver android:name=".widget.WeekWidgetReceiver" android:exported="true" android:label="@string/widget_week">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_week" />
+        </receiver>
+        <receiver android:name=".widget.GoalWidgetReceiver" android:exported="true" android:label="@string/widget_goal">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_goal" />
+        </receiver>
+        <receiver android:name=".widget.NextDueWidgetReceiver" android:exported="true" android:label="@string/widget_nextdue">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_nextdue" />
+        </receiver>
+        <receiver android:name=".widget.CircleWidgetReceiver" android:exported="true" android:label="@string/widget_circle">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_circle" />
+        </receiver>
+        <receiver android:name=".widget.RatesWidgetReceiver" android:exported="true" android:label="@string/widget_rates">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_rates" />
+        </receiver>
+        <receiver android:name=".widget.DebtsWidgetReceiver" android:exported="true" android:label="@string/widget_debts">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_debts" />
+        </receiver>
+        <receiver android:name=".widget.TopCategoryWidgetReceiver" android:exported="true" android:label="@string/widget_topcat">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_topcat" />
+        </receiver>
+        <receiver android:name=".widget.SalaryWidgetReceiver" android:exported="true" android:label="@string/widget_salary">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_salary" />
+        </receiver>
+        <receiver android:name=".widget.CategoryLimitWidgetReceiver" android:exported="true" android:label="@string/widget_catlimit">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_catlimit" />
+        </receiver>
+        <receiver android:name=".widget.RecentWidgetReceiver" android:exported="true" android:label="@string/widget_recent">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_recent" />
+        </receiver>
+        <receiver android:name=".widget.QuickCatsWidgetReceiver" android:exported="true" android:label="@string/widget_quickcats">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_quickcats" />
+        </receiver>
+        <receiver android:name=".widget.StreakWidgetReceiver" android:exported="true" android:label="@string/widget_streak">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_streak" />
+        </receiver>
+
         <service
             android:name=".tile.AddTileService"
             android:exported="true"
