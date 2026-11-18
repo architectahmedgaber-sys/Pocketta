@@ -58,6 +58,11 @@ data class Prefs(
     val riseAlerted: String = "",
     /** The newest version a notification was already shown for, so each release notifies once. */
     val updateNotified: String = "",
+    /** Switches for each kind of notification (all on by default). */
+    val notifyDue: Boolean = true,
+    val notifyGameya: Boolean = true,
+    val notifyRise: Boolean = true,
+    val notifyUpdate: Boolean = true,
 ) {
     fun rateOf(currency: String): Double =
         if (currency == baseCurrency) 1.0 else rates[currency] ?: (if (autoRates) onlineRates[currency] else null) ?: 1.0
@@ -128,6 +133,10 @@ data class Prefs(
                 wealthHistory = WealthLog.parse(m["wealthHistory"].orEmpty()),
                 riseAlerted = m["riseAlerted"].orEmpty(),
                 updateNotified = m["updateNotified"].orEmpty(),
+                notifyDue = b("notifyDue", true),
+                notifyGameya = b("notifyGameya", true),
+                notifyRise = b("notifyRise", true),
+                notifyUpdate = b("notifyUpdate", true),
             )
         }
 

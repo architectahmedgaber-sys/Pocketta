@@ -29,9 +29,10 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             val items = repo.upcoming(p, today.plusDays(15))
             for (u in items) {
                 val remind = remindDays(repo, u.kind, u.id)
-                if (!u.due.isAfter(today.plusDays(remind.toLong()))) Notifier.due(applicationContext, u, today, p.baseCurrency, p.lang)
+                val wanted = if (u.kind == "CIRCLE") p.notifyGameya else p.notifyDue
+                if (wanted && !u.due.isAfter(today.plusDays(remind.toLong()))) Notifier.due(applicationContext, u, today, p.baseCurrency, p.lang)
             }
-            runCatching { gameyaTurns(repo, today, p.baseCurrency, p.lang) }
+            if (p.notifyGameya) runCatching { gameyaTurns(repo, today, p.baseCurrency, p.lang) }
         }
         runCatching { Online.refreshRates(repo) }
         runCatching { Online.checkUpdate(repo, force = true) }
@@ -48,7 +49,7 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         }
         if (p.onboarded && p.morning) runCatching { morningMessage(repo) }
         if (p.onboarded && p.monthEndReminder) runCatching { monthEndMessage(repo) }
-        if (p.onboarded) runCatching { priceRiseAlert(repo) }
+        if (p.onboarded && p.notifyRise) runCatching { priceRiseAlert(repo) }
         Widgets.updateAll(applicationContext)
         return Result.success()
     }

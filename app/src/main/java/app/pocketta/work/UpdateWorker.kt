@@ -18,7 +18,7 @@ class UpdateWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     override suspend fun doWork(): Result {
         val repo = Repo.get(applicationContext)
         val p = repo.prefs()
-        if (!p.onboarded) return Result.success()
+        if (!p.onboarded || !p.notifyUpdate) return Result.success()
         val r = runCatching { Online.checkUpdate(repo, force = true) }.getOrNull()
         if (r != null && p.updateNotified != r.version && Notifier.canPost(applicationContext)) {
             Notifier.update(applicationContext, r.version, p.lang)
