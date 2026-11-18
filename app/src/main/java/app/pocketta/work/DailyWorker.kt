@@ -48,6 +48,7 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         }
         if (p.onboarded && p.morning) runCatching { morningMessage(repo) }
         if (p.onboarded && p.monthEndReminder) runCatching { monthEndMessage(repo) }
+        if (p.onboarded) runCatching { priceRiseAlert(repo) }
         Widgets.updateAll(applicationContext)
         return Result.success()
     }
@@ -68,7 +69,11 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         val lines = ArrayList<String>()
         if (s.today.dayOfWeek == DayOfWeek.FRIDAY) {
             val w = repo.week(s.today, s.dayReference)
-            if (w.spent > 0) lines += (if (ar) "أسبوعك: صرفت " else "Your week: spent ") + Money.short(w.spent) + " " + p.baseCurrency
+            if (w.spent > 0) {
+                val pct = if (w.previous > 0) ((w.spent - w.previous) / w.previous * 100).toInt() else null
+                val (first, second) = app.pocketta.core.Planning.weekSentences(w.spent, pct, w.topCategory, w.daysUnder, p.baseCurrency)
+                lines += Tr.t(first, p.lang) + " " + Tr.t(second, p.lang)
+            }
         }
         Notifier.ratesLine(p, p.lang)?.let { lines += it }
         Notifier.morning(applicationContext, title, if (lines.isEmpty()) null else lines.joinToString("\n"))
@@ -81,6 +86,17 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         if (s.budget.daysLeft != 1) return
         val amount = app.pocketta.core.Savings.suggestMove(s.budget.left, p.goalAmount, p.goalSaved)
         if (amount > 0) Notifier.monthEnd(applicationContext, amount, p.goalName, p.baseCurrency, p.lang)
+    }
+
+    /** Once per month and category: spending in a category is running 20% or more above your 3-month average. */
+    private suspend fun priceRiseAlert(repo: Repo) {
+        val d = repo.planData()
+        val top = d.rises.firstOrNull() ?: return
+        val key = d.home.cycle.start.toEpochDay().toString() + ":" + top.name
+        val p = d.home.prefs
+        if (p.riseAlerted == key) return
+        Notifier.priceRise(applicationContext, top.name, top.percent, p.lang)
+        repo.set("riseAlerted", key)
     }
 
     /** A reminder the day before your turn in a gam'eya and again on the day, until you mark the payout received. */

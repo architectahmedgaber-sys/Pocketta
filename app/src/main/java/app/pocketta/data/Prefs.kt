@@ -1,5 +1,8 @@
 package app.pocketta.data
 
+import app.pocketta.core.WealthLog
+import app.pocketta.core.WealthPoint
+
 /** App settings, stored as rows in the database so one backup file holds everything. */
 data class Prefs(
     val onboarded: Boolean = false,
@@ -49,6 +52,10 @@ data class Prefs(
     val goldBuys: List<app.pocketta.core.GoldBuy> = emptyList(),
     /** At the end of the month, suggest moving what is left into the savings goal. */
     val monthEndReminder: Boolean = true,
+    /** Total of everything you own, saved once a day, for the wealth view. */
+    val wealthHistory: List<WealthPoint> = emptyList(),
+    /** The last price-rise alert sent, "cycleStartDay:category", so each one is sent once. */
+    val riseAlerted: String = "",
 ) {
     fun rateOf(currency: String): Double =
         if (currency == baseCurrency) 1.0 else rates[currency] ?: (if (autoRates) onlineRates[currency] else null) ?: 1.0
@@ -116,6 +123,8 @@ data class Prefs(
                 prevGold = parseRates(m["prevGold"].orEmpty()),
                 goldBuys = app.pocketta.core.Gold.parse(m["goldBuys"].orEmpty()),
                 monthEndReminder = b("monthEndReminder", true),
+                wealthHistory = WealthLog.parse(m["wealthHistory"].orEmpty()),
+                riseAlerted = m["riseAlerted"].orEmpty(),
             )
         }
 

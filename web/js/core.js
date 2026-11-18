@@ -289,3 +289,16 @@ export function weekSentences(spent, pct, topCategory, daysUnder, currency) {
     : topCategory ? `Most of it went to ${topCategory}.` : 'Keep going, next week is a fresh start.';
   return [first, second];
 }
+
+// ---------- Wealth over time ----------
+
+/** history = [[epochDay, total], ...]. Adds today's total (replacing today's) and keeps the newest [max]. */
+export function recordWealth(history, day, total, max = 400) {
+  return [...history.filter((p) => p[0] !== day), [day, Math.round(total * 100) / 100]].sort((a, b) => a[0] - b[0]).slice(-max);
+}
+/** Change since the newest point at least [days] days old, or null when the history is too short. */
+export function wealthChange(history, today, days) {
+  const last = history[history.length - 1];
+  const old = [...history].reverse().find((p) => p[0] <= today - days);
+  return last && old ? last[1] - old[1] : null;
+}

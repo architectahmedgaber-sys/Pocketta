@@ -17,6 +17,7 @@ sealed interface Route {
     data object Currencies : Route
     data object Settings : Route
     data object Plan : Route
+    data object Wealth : Route
 }
 
 val tabs = listOf(Route.Home, Route.Spend, Route.Commit)

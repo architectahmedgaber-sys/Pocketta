@@ -40,6 +40,14 @@ object ArabicWords {
         Regex("""due (.+)""") to "مستحق @1",
         Regex("""was due (.+)""") to "كان مستحق @1",
         Regex("""You collect (\S+) in (.+)""") to "هتقبض @1 في @2",
+        Regex("""You spent (\S+) (\S+) this week\.""") to "صرفت @1 @2 الأسبوع ده.",
+        Regex("""You spent (\S+) (\S+) this week, (\d+)% more than last week\.""") to "صرفت @1 @2 الأسبوع ده، أكتر بـ @3% من الأسبوع اللي فات.",
+        Regex("""You spent (\S+) (\S+) this week, (\d+)% less than last week\.""") to "صرفت @1 @2 الأسبوع ده، أقل بـ @3% من الأسبوع اللي فات.",
+        Regex("""You spent (\S+) (\S+) this week, the same as last week\.""") to "صرفت @1 @2 الأسبوع ده، زي الأسبوع اللي فات بالظبط.",
+        Regex("""Most of it went to (.+), and you stayed under your daily budget on (\d+) days\.""") to "أغلبه راح على @1، وفضلت تحت ميزانيتك اليومية في @2 أيام.",
+        Regex("""Most of it went to (.+), and (\d+) days were under your daily budget\.""") to "أغلبه راح على @1، و@2 أيام كانوا تحت ميزانيتك اليومية.",
+        Regex("""Most of it went to (.+)\.""") to "أغلبه راح على @1.",
+        Regex("""▲ (\d+)% vs your usual""") to "▲ @1% عن المعتاد",
     )
 
     val dict: Map<String, String> = mapOf(
@@ -449,5 +457,14 @@ object ArabicWords {
         "Your turn" to "دورك", "Days to your turn" to "أيام لحد دورك", "You collect" to "هتقبض",
         "You collected your turn" to "قبضت دورك", "It's your turn! Collect #" to "جه دورك! اقبض #",
         "Installments left" to "الأقساط الباقية", "Next installment" to "القسط الجاي", "Got my payout" to "استلمت المبلغ", "Paid installment" to "دفعت القسط",
+        // Wealth, price rises, weekly summary
+        "Everything I own" to "كل اللي أملكه", "Total" to "الإجمالي", "In wallets" to "في المحافظ",
+        "Gold I bought, at today's price" to "الدهب اللي اشتريته بسعر النهارده", "In dollars" to "بالدولار", "In gold (21k)" to "بالدهب (عيار 21)",
+        "Turn on today's rates in Currencies & gold to see dollars and gold" to "شغّل أسعار النهارده من العملات والدهب عشان تشوف بالدولار والدهب",
+        "Over time" to "على مدار الوقت", "Last 7 days" to "آخر 7 أيام", "Last 30 days" to "آخر 30 يوم", "Last 90 days" to "آخر 90 يوم",
+        "Come back in a few days. Pocketta saves your total once a day and draws the line here." to "ارجع بعد كام يوم. Pocketta بيحفظ إجماليك مرة في اليوم وبيرسم الخط هنا.",
+        "Wallets and gold in one number, in dollars and gold, and how it changed" to "المحافظ والدهب في رقم واحد، بالدولار والدهب، وإزاي اتغيّر",
+        "Prices are rising" to "الأسعار بتزيد", "At this pace, compared with your average of the last 3 months" to "بالمعدل ده، مقارنة بمتوسط آخر 3 شهور",
+        "Keep going, next week is a fresh start." to "كمّل، والأسبوع الجاي بداية جديدة.",
     )
 }

@@ -5,7 +5,7 @@ import { startArabic } from './i18n.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -128,7 +128,7 @@ function render() {
   if (ui.locked) { app.innerHTML = lockScreen(); $('#pin')?.focus(); return; }
   if (!R.S().onboarded) { app.innerHTML = onboarding(); return; }
   const c = cur();
-  const pages = { home, spend, commit, more, add, income, wallets, categories, currencyPage, settings, plan };
+  const pages = { home, spend, commit, more, add, income, wallets, categories, currencyPage, settings, plan, wealthPage };
   const page = pages[c.r === 'currencies' ? 'currencyPage' : c.r] || home;
   if (isTab(c.r)) {
     app.innerHTML = `<main class="page wide">${page(c)}</main>
@@ -190,6 +190,7 @@ function home() {
   html += quickCard();
   html += converterCard();
   html += planEntryCard();
+  html += wealthEntry();
   html += gameyaCards(s);
   html += weekCard(s);
   html += monthEndCard(s);
@@ -336,8 +337,10 @@ function weekCard(s) {
     const pct = Math.trunc((d.spent - d.previous) / d.previous * 100);
     tag = pct > 0 ? pill(`▲ ${pct}% vs last week`, 'bad') : pct < 0 ? pill(`▼ ${-pct}% vs last week`, 'good') : pill('＝ vs last week');
   }
+  const pct = d.previous > 0 ? Math.trunc((d.spent - d.previous) / d.previous * 100) : null;
+  const [first, second] = C.weekSentences(d.spent, pct, d.topCategory, d.daysUnder, base());
   return card(`${label('Your week')}<div class="row-flex"><div class="big grow">${money(d.spent)} ${esc(base())}</div>${tag}</div>
-    ${d.topCategory ? `<div>Most spent on: ${esc(d.topCategory)}</div>` : ''}${d.daysUnder > 0 ? `<div>${d.daysUnder} days under your daily budget</div>` : ''}`, 'tonal');
+    <div>${esc(first)}</div><div>${esc(second)}</div>`, 'tonal');
 }
 
 /** A ring that fills as you save towards one goal (Umra, a car, a wedding...). */
@@ -908,6 +911,46 @@ function gameyaCards(s) {
   }).join('');
 }
 
+function risesCard(d) {
+  const rises = d.rises.slice(0, 3);
+  if (!rises.length) return '';
+  return card(`${label('Prices are rising')}` + rises.map((r) => `<div class="pline"><b>${esc(r.name)}</b><span class="bad-t b">▲ ${r.percent}% vs your usual</span></div>`).join('') +
+    `<div class="small">At this pace, compared with your average of the last 3 months</div>`, 'tonal');
+}
+
+// ---------- Everything I own ----------
+
+function wealthEntry() {
+  R.recordWealth();
+  const w = R.wealth();
+  if (w.total === 0 && !w.history.length) return '';
+  return card(`${label('Everything I own')}<div class="row-flex"><div class="big grow">${money(w.total)} ${esc(base())}</div><span class="chev">›</span></div>${w.dollars != null ? `<div class="small">≈ $${money(w.dollars)}</div>` : ''}`, 'tap', 'data-act="open" data-r="wealthPage"');
+}
+function sparkline(values) {
+  const lo = Math.min(...values), hi = Math.max(...values), span = hi - lo || 1, W = 320, H = 110;
+  const pts = values.map((v, i) => [i * W / Math.max(values.length - 1, 1), H - 8 - (v - lo) / span * (H - 16)]);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" aria-hidden="true"><polyline fill="none" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${pts.map((p) => p.join(',')).join(' ')}"/><circle cx="${pts[pts.length - 1][0]}" cy="${pts[pts.length - 1][1]}" r="5" fill="var(--primary)"/></svg>`;
+}
+function wealthPage() {
+  R.recordWealth();
+  const w = R.wealth(), cur = base(), today = C.todayEpoch();
+  const ln = (l, v, tone = '') => `<div class="pline"><span>${esc(l)}</span><span class="${tone} b">${esc(v)}</span></div>`;
+  let total = `${label('Total')}<div class="huge">${money(w.total)} ${esc(cur)}</div><div class="gap8"></div>` + ln('In wallets', `${money(w.cash)} ${cur}`) + ln("Gold I bought, at today's price", `${money(w.gold)} ${cur}`);
+  if (w.dollars != null) total += ln('In dollars', `$${money(w.dollars)}`);
+  if (w.goldGrams != null) total += ln('In gold (21k)', `${C.fmt(Math.round(w.goldGrams * 10) / 10)} g`);
+  if (w.dollars == null && w.goldGrams == null) total += `<div class="small">Turn on today's rates in Currencies & gold to see dollars and gold</div>`;
+  let time = label('Over time');
+  if (w.history.length < 2) time += `<div class="small">Come back in a few days. Pocketta saves your total once a day and draws the line here.</div>`;
+  else {
+    time += sparkline(w.history.map((p) => p[1]));
+    for (const [l, d] of [['Last 7 days', 7], ['Last 30 days', 30], ['Last 90 days', 90]]) {
+      const ch = C.wealthChange(w.history, today, d);
+      if (ch != null) time += ln(l, `${ch >= 0 ? '+' : '−'}${money(Math.abs(ch))} ${cur}`, ch >= 0 ? 'good-t' : 'bad-t');
+    }
+  }
+  return topbar('Everything I own') + `<main class="page">${card(total)}${card(time)}</main>`;
+}
+
 // ---------- Plan ahead: can I afford this, what if I save, emergency mode ----------
 
 const monthsText = (m) => m <= 0 ? 'now' : m === 1 ? '1 month' : `${m} months`;
@@ -979,13 +1022,14 @@ function plan() {
 }
 function planEntryCard() {
   const d = R.planData();
-  return emergencyCard(d, false) + card(`<div class="row-flex gap16"><span class="bigicon">🧮</span><div class="grow"><b>Plan ahead</b><div class="small">Can I afford this? What if I save?</div></div><span class="chev">›</span></div>`, 'tap', 'data-act="open" data-r="plan"');
+  return emergencyCard(d, false) + risesCard(d) + card(`<div class="row-flex gap16"><span class="bigicon">🧮</span><div class="grow"><b>Plan ahead</b><div class="small">Can I afford this? What if I save?</div></div><span class="chev">›</span></div>`, 'tap', 'data-act="open" data-r="plan"');
 }
 
 function more() {
   const big = (emoji, title, sub, r) => `<div class="card bigcard tap" data-act="open" data-r="${r}"><span class="bigicon">${emoji}</span>
     <div class="grow"><div class="mid">${esc(title)}</div><div class="small">${esc(sub)}</div></div><span class="chev">›</span></div>`;
   return topbar('Settings & more') + `<main class="page more">` +
+    big('🏦', 'Everything I own', 'Wallets and gold in one number, in dollars and gold, and how it changed', 'wealthPage') +
     big('🧮', 'Plan ahead', 'Can I afford this? What if I save? When money runs short', 'plan') +
     big('💰', 'Income & salary', 'Your monthly salary, other income, money set aside', 'income') +
     big('👛', 'Wallets', 'Cash, bank, Vodafone Cash, cards and balances', 'wallets') +

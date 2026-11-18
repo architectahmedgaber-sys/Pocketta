@@ -210,6 +210,7 @@ fun PlanEntryCard(repo: Repo, nav: Nav, prefs: Prefs) {
     LaunchedEffect(version, prefs) { data = repo.planData() }
     val d = data ?: return
     if (d.emergency != null) EmergencyCard(d, prefs.baseCurrency, onClick = { nav.open(Route.Plan) })
+    RisesCard(d)
     SectionCard(onClick = { nav.open(Route.Plan) }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("🧮")
