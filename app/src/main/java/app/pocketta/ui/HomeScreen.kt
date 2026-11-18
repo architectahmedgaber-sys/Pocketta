@@ -1,6 +1,16 @@
 package app.pocketta.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,10 +24,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,8 +45,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.pocketta.core.Budget
 import app.pocketta.core.Money
 import app.pocketta.BuildConfig
@@ -50,18 +64,40 @@ import kotlinx.coroutines.launch
 fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     val version by repo.version.collectAsState()
     var state by remember { mutableStateOf<HomeState?>(null) }
+    var details by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val dark = LocalDark.current
     LaunchedEffect(version, prefs) { state = repo.home() }
     val s = state ?: return
     val cur = prefs.baseCurrency
     val b = s.budget
+    val over = b.leftToday < 0
+    val spentToday = b.dailyAllowance - b.leftToday
+    val todayFrac = if (b.dailyAllowance > 0) (spentToday / b.dailyAllowance).toFloat() else 0f
+    // Green while you are fine, amber when most of today's money is gone, red when you are over.
+    val heroColor = when {
+        over -> HeroRed
+        todayFrac >= 0.8f -> HeroAmber
+        else -> HeroGreen
+    }
+    val heroText = Color.White
+    val target = kotlin.math.abs(b.leftToday).toFloat()
+    val shownAmount = remember { Animatable(0f) }
+    LaunchedEffect(target) { shownAmount.animateTo(target, tween(700)) }
     Box(modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(s.cycle.end.format(monthFmt), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-                Pill("${s.cycle.start.format(dayFmt)} → ${s.cycle.end.format(dayFmt)}")
+                Column(Modifier.weight(1f)) {
+                    Text(s.cycle.end.format(monthFmt), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text("${b.daysLeft} days left in this month", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = { scope.launch { repo.set("theme", if (dark) "LIGHT" else "DARK") } }) {
+                    Text(if (dark) "☀️" else "🌙", fontSize = 20.sp)
+                }
+                IconButton(onClick = { nav.open(Route.More) }) { Icon(Icons.Filled.Settings, contentDescription = "Settings and more") }
             }
             if (prefs.updateVersion.isNotEmpty() && prefs.updateUrl.isNotEmpty() && Online.isNewer(prefs.updateVersion, BuildConfig.VERSION_NAME)) {
                 SectionCard(container = MaterialTheme.colorScheme.tertiaryContainer, onClick = { nav.open(Route.Settings) }) {
@@ -69,60 +105,96 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                     Text("Tap to update. Your data stays as it is.", style = MaterialTheme.typography.bodySmall)
                 }
             }
-            BudgetRing(s, cur)
             if (b.budget <= 0 && s.salaryExpected <= 0) {
                 SectionCard(onClick = { nav.open(Route.Income) }) {
-                    Text("Add your salary or income to see your budget", fontWeight = FontWeight.SemiBold)
-                    Text("More → Income & salary", style = MaterialTheme.typography.bodySmall)
+                    Text("Add your salary to see how much you can spend", fontWeight = FontWeight.SemiBold)
+                    Text("Tap here to set it", style = MaterialTheme.typography.bodySmall)
                 }
             }
-            SectionCard(container = if (b.leftToday < 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Label(if (b.leftToday < 0) "Over today's budget" else "Today you can spend")
-                        Big(Money.short(kotlin.math.abs(b.leftToday)) + " $cur")
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("spent today", style = MaterialTheme.typography.bodySmall)
-                        Text(Money.short(b.dailyAllowance - b.leftToday), fontWeight = FontWeight.Bold)
-                        Text("daily ${Money.short(b.dailyAllowance)}", style = MaterialTheme.typography.bodySmall)
-                    }
+
+            // The one question: how much can I spend today?
+            SectionCard(container = heroColor) {
+                Text(if (over) "Over today's budget" else "You can spend today", color = heroText, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(Money.short(shownAmount.value.toDouble()), fontSize = 52.sp, fontWeight = FontWeight.ExtraBold, color = heroText, maxLines = 1)
+                    Text(" $cur", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = heroText, modifier = Modifier.padding(bottom = 10.dp))
                 }
-            }
-            SectionCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Label("Month-end forecast")
-                        Text("${Money.short(b.forecastSpend)} $cur", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    }
-                    if (b.forecastDiff >= 0) Pill("${Money.short(b.forecastDiff)} under", Good)
-                    else Pill("${Money.short(-b.forecastDiff)} over", MaterialTheme.colorScheme.error)
-                }
-            }
-            if (s.days.isNotEmpty()) {
-                SectionCard {
-                    Label("This month, day by day")
-                    Gap(8)
-                    DayBars(s)
-                }
-            }
-            if (s.upcoming.isNotEmpty()) UpcomingCard(repo, s.upcoming.take(6), s, cur)
-            SectionCard {
-                Label("How the budget is made")
+                Gap(8)
+                Progress(todayFrac, color = heroText, track = heroText.copy(alpha = 0.25f))
                 Gap(6)
-                Line("Income received", Money.short(s.income))
-                if (s.salaryExpected > 0) Line("Salary still coming", Money.short(s.salaryExpected))
-                if (s.setAside > 0) Line("Set aside (yearly bills, savings)", "−" + Money.short(s.setAside))
-                Line("Spent so far", "−" + Money.short(b.spent))
-                Line("Still to pay this month", "−" + Money.short(b.committed))
-                Line("Left", Money.short(b.left), bold = true)
+                Text("Spent ${Money.short(spentToday)} of ${Money.short(b.dailyAllowance)} today", color = heroText, style = MaterialTheme.typography.bodySmall)
+            }
+
+            QuickAddCard(repo, prefs)
+
+            // The converter lives on the first page so there is a reason to open the app every day.
+            ConverterCard(prefs)
+
+            WeekCard(repo, s)
+            GoalCard(repo, prefs)
+
+            SectionCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("This month", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("${Money.short(b.left)} left of ${Money.short(b.budget)} $cur", style = MaterialTheme.typography.bodySmall)
+                }
+                Gap(8)
+                val spentF = b.spentFraction
+                val commF = b.committedFraction
+                val restF = (1f - spentF - commF).coerceAtLeast(0f)
+                Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))) {
+                    if (spentF > 0f) Box(Modifier.weight(spentF).fillMaxHeight().background(if (b.left < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary))
+                    if (commF > 0f) Box(Modifier.weight(commF).fillMaxHeight().background(Warn))
+                    if (restF > 0f) Box(Modifier.weight(restF).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceVariant))
+                }
+                Gap(8)
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    LegendDot(MaterialTheme.colorScheme.primary, "Spent")
+                    LegendDot(Warn, "Still to pay")
+                    LegendDot(MaterialTheme.colorScheme.outline, "Free")
+                }
+            }
+
+            StartGuide(s, nav)
+
+            if (s.upcoming.isNotEmpty()) UpcomingCard(repo, s.upcoming.take(3), s, cur)
+
+            TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Show details (forecast, days, how it is calculated)") }
+            if (details) {
+                SectionCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Label("Month-end forecast")
+                            Text("${Money.short(b.forecastSpend)} $cur", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        }
+                        if (b.forecastDiff >= 0) Pill("${Money.short(b.forecastDiff)} under", Good)
+                        else Pill("${Money.short(-b.forecastDiff)} over", MaterialTheme.colorScheme.error)
+                    }
+                }
+                if (s.days.isNotEmpty()) {
+                    SectionCard {
+                        Label("This month, day by day")
+                        Gap(8)
+                        DayBars(s)
+                    }
+                }
+                SectionCard {
+                    Label("How the budget is made")
+                    Gap(6)
+                    Line("Income received", Money.short(s.income))
+                    if (s.salaryExpected > 0) Line("Salary still coming", Money.short(s.salaryExpected))
+                    if (s.setAside > 0) Line("Set aside (yearly bills, savings)", "−" + Money.short(s.setAside))
+                    Line("Spent so far", "−" + Money.short(b.spent))
+                    Line("Still to pay this month", "−" + Money.short(b.committed))
+                    Line("Left", Money.short(b.left), bold = true)
+                }
             }
             Gap(64)
         }
         ExtendedFloatingActionButton(
             onClick = { nav.open(Route.Add()) },
             icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-            text = { Text("Add") },
+            text = { Text("Add expense") },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
         )
     }
@@ -133,34 +205,6 @@ private fun Line(label: String, value: String, bold: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         Text(value, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal)
-    }
-}
-
-@Composable
-private fun BudgetRing(s: HomeState, cur: String) {
-    val b = s.budget
-    val primary = MaterialTheme.colorScheme.primary
-    val tertiary = MaterialTheme.colorScheme.tertiary
-    val track = MaterialTheme.colorScheme.surfaceVariant
-    val error = MaterialTheme.colorScheme.error
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(190.dp)) {
-            val stroke = 16.dp.toPx()
-            val inset = stroke / 2
-            val arcSize = Size(size.width - stroke, size.height - stroke)
-            val tl = Offset(inset, inset)
-            drawArc(track, 0f, 360f, false, tl, arcSize, style = Stroke(stroke))
-            val spent = b.spentFraction * 360f
-            val committed = b.committedFraction * 360f
-            if (committed > 0f) drawArc(tertiary, -90f + spent, committed, false, tl, arcSize, style = Stroke(stroke))
-            if (spent > 0f) drawArc(if (b.left < 0) error else primary, -90f, spent, false, tl, arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Label("Left")
-            Big(Money.short(b.left), if (b.left < 0) error else MaterialTheme.colorScheme.onSurface, 30)
-            Text("of ${Money.short(b.budget)} $cur", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("${b.daysLeft} days left", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
     }
 }
 
@@ -191,6 +235,7 @@ private fun DayBars(s: HomeState) {
 @Composable
 private fun UpcomingCard(repo: Repo, items: List<Upcoming>, s: HomeState, cur: String) {
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
     SectionCard {
         Label("Coming up")
         for (u in items) {
@@ -206,7 +251,7 @@ private fun UpcomingCard(repo: Repo, items: List<Upcoming>, s: HomeState, cur: S
                 }
                 Text((if (u.incoming) "+" else "") + Money.short(u.amount), fontWeight = FontWeight.Bold, color = if (u.incoming) Good else MaterialTheme.colorScheme.onSurface)
                 if (!u.due.isAfter(s.today.plusDays(3))) {
-                    TextButton(onClick = { scope.launch { payUpcoming(repo, u) } }) { Text(if (u.incoming) "Got it" else "Paid") }
+                    TextButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); scope.launch { payUpcoming(repo, u) } }) { Text(if (u.incoming) "Got it" else "Paid") }
                 }
             }
         }
@@ -221,5 +266,54 @@ suspend fun payUpcoming(repo: Repo, u: Upcoming) {
         "INSTALLMENT" -> dao.installment(u.id)?.let { repo.payInstallment(it) }
         "CIRCLE" -> dao.circle(u.id)?.let { repo.payCircle(it) }
         "LOAN" -> dao.loan(u.id)?.let { repo.loanPayment(it, it.remaining) }
+    }
+}
+
+@Composable
+private fun LegendDot(color: Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** First-run guide: three steps that tell a new user what to do and where their numbers go. It hides itself when done. */
+@Composable
+private fun StartGuide(s: HomeState, nav: Nav) {
+    val hasIncome = s.budget.budget > 0 || s.salaryExpected > 0
+    val hasExpense = s.days.any { it.second > 0 }
+    val hasCommit = s.upcoming.isNotEmpty()
+    var hidden by rememberSaveable { mutableStateOf(false) }
+    if (hidden || (hasIncome && hasExpense && hasCommit)) return
+    SectionCard(container = MaterialTheme.colorScheme.primaryContainer) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Start here", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = { hidden = true }) { Text("Hide") }
+        }
+        Text("Three quick steps and Pocketta works for you.", style = MaterialTheme.typography.bodySmall)
+        Gap(8)
+        GuideStep(1, "Put in your salary", "So it can tell you what you can spend each day", hasIncome) { nav.open(Route.Income) }
+        GuideStep(2, "Add what you spent today", "Tap Add expense, type the amount, pick a category", hasExpense) { nav.open(Route.Add()) }
+        GuideStep(3, "Add a bill, installment or gam'eya", "Pocketta reminds you and counts it in your budget", hasCommit) { nav.tab(Route.Commit) }
+    }
+}
+
+@Composable
+private fun GuideStep(n: Int, title: String, hint: String, done: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            Modifier.size(30.dp).clip(CircleShape).background(if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(if (done) "✓" else n.toString(), fontWeight = FontWeight.Bold, color = if (done) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(hint, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }

@@ -29,9 +29,16 @@ import app.pocketta.MainActivity
 import app.pocketta.core.Budget
 import app.pocketta.data.HomeState
 import app.pocketta.data.Repo
+import app.pocketta.i18n.Tr
+
+/** The language widgets draw in (set from the settings whenever a widget loads its data). */
+object WidgetLang {
+    @Volatile var lang: String = Tr.EN
+}
 
 object Widgets {
     suspend fun updateAll(context: Context) {
+        HeroWidget().updateAll(context)
         TodayWidget().updateAll(context)
         AddWidget().updateAll(context)
         MonthWidget().updateAll(context)
@@ -40,7 +47,9 @@ object Widgets {
 
     suspend fun load(context: Context): HomeState? = runCatching {
         val repo = Repo.get(context)
-        if (!repo.prefs().onboarded) null else repo.home()
+        val p = repo.prefs()
+        WidgetLang.lang = p.lang
+        if (!p.onboarded) null else repo.home()
     }.getOrNull()
 }
 
@@ -76,7 +85,7 @@ fun WidgetCard(state: HomeState?, onClick: Action, content: @Composable () -> Un
     ) {
         if (state == null) {
             Text(
-                if (compact) "Set up" else "Tap to set up Pocketta",
+                Tr.t(if (compact) "Set up" else "Tap to set up Pocketta", WidgetLang.lang),
                 style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Medium),
             )
         } else {
@@ -87,7 +96,7 @@ fun WidgetCard(state: HomeState?, onClick: Action, content: @Composable () -> Un
 
 @Composable
 fun label(text: String, size: Int = 12) = Text(
-    text,
+    Tr.t(text, WidgetLang.lang),
     maxLines = 1,
     style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = size.sp),
 )

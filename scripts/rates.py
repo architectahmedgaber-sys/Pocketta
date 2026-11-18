@@ -3,6 +3,7 @@
 Run once a day by .github/workflows/rates.yml. Only the Python standard library is used.
 """
 import json
+import os
 import sys
 import urllib.request
 from datetime import datetime, timezone
@@ -40,6 +41,19 @@ def gold_usd_ounce():
     return 1 / float(d["xau"])
 
 
+def previous_prices(today):
+    """Yesterday's prices, read from the file this job published last time, so the app can show up/down arrows."""
+    repo = os.environ.get("GITHUB_REPOSITORY", "architectahmedgaber-sys/pocketta")
+    try:
+        old = get("https://raw.githubusercontent.com/%s/rates/rates.json" % repo)
+    except Exception as e:  # noqa: BLE001
+        print("no previous file:", e, file=sys.stderr)
+        return None
+    if str(old.get("updated", ""))[:10] == today:
+        return old.get("previous")  # same day again: keep what the first run of the day saved
+    return {"rates": old.get("rates", {}), "gold": old.get("gold", {})}
+
+
 def main():
     rates = {}
     for source in (fx_open_er, fx_fawaz):
@@ -61,6 +75,9 @@ def main():
         out["gold"] = {"24": round(g24, 2), "21": round(g24 * 21 / 24, 2), "18": round(g24 * 18 / 24, 2)}
     except Exception as e:  # noqa: BLE001
         print("gold failed:", e, file=sys.stderr)
+    prev = previous_prices(out["updated"][:10])
+    if prev:
+        out["previous"] = prev
     with open("rates.json", "w") as f:
         json.dump(out, f, indent=1)
     print(json.dumps(out))

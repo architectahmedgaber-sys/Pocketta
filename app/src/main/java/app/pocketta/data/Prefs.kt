@@ -33,9 +33,34 @@ data class Prefs(
     val updateCheckedAt: Long = 0,
     val updateVersion: String = "",
     val updateUrl: String = "",
+    /** AUTO (follow the phone), LIGHT or DARK. */
+    val theme: String = "AUTO",
+    /** EN or AR. */
+    val lang: String = "EN",
+    /** A morning notification with today's number and the dollar and gold. */
+    val morning: Boolean = true,
+    val goalName: String = "",
+    val goalAmount: Double = 0.0,
+    val goalSaved: Double = 0.0,
+    /** Yesterday's rates and gold, to show an up or down arrow. */
+    val prevOnlineRates: Map<String, Double> = emptyMap(),
+    val prevGold: Map<String, Double> = emptyMap(),
 ) {
     fun rateOf(currency: String): Double =
         if (currency == baseCurrency) 1.0 else rates[currency] ?: (if (autoRates) onlineRates[currency] else null) ?: 1.0
+
+    /** Change since yesterday, as a fraction (0.01 = up 1%), or null when yesterday's price isn't known. */
+    fun rateChange(currency: String): Double? {
+        val now = onlineRates[currency] ?: return null
+        val before = prevOnlineRates[currency] ?: return null
+        return (now - before) / before
+    }
+
+    fun goldChange(karat: String): Double? {
+        val now = gold[karat] ?: return null
+        val before = prevGold[karat] ?: return null
+        return (now - before) / before
+    }
 
     fun isManual(currency: String): Boolean = rates.containsKey(currency)
 
@@ -77,6 +102,14 @@ data class Prefs(
                 updateCheckedAt = l("updateCheckedAt", 0),
                 updateVersion = m["updateVersion"].orEmpty(),
                 updateUrl = m["updateUrl"].orEmpty(),
+                theme = m["theme"] ?: "AUTO",
+                lang = m["lang"] ?: "EN",
+                morning = b("morning", true),
+                goalName = m["goalName"].orEmpty(),
+                goalAmount = d("goalAmount", 0.0),
+                goalSaved = d("goalSaved", 0.0),
+                prevOnlineRates = parseRates(m["prevOnlineRates"].orEmpty()),
+                prevGold = parseRates(m["prevGold"].orEmpty()),
             )
         }
 

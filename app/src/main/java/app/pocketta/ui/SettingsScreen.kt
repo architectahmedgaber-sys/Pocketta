@@ -18,7 +18,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.pocketta.BuildConfig
 import app.pocketta.data.Online
+import app.pocketta.i18n.Tr
 import app.pocketta.data.Prefs
 import app.pocketta.data.Repo
 import app.pocketta.work.DailyWorker
@@ -47,12 +47,15 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
     var start by remember { mutableStateOf(prefs.cycleStart.toString()) }
     var hour by remember { mutableStateOf(prefs.remindHour.toString()) }
     var confirmRestore by remember { mutableStateOf<Uri?>(null) }
+    var goalName by remember { mutableStateOf(prefs.goalName) }
+    var goalAmount by remember { mutableStateOf(numText(prefs.goalAmount)) }
+    var goalSaved by remember { mutableStateOf(numText(prefs.goalSaved)) }
 
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) scope.launch {
             val ok = runCatching { repo.exportTo(uri) }.isSuccess
             if (ok) repo.markBackedUp()
-            Toast.makeText(context, if (ok) "Backup saved" else "Couldn't save the backup", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, Tr.t(if (ok) "Backup saved" else "Couldn't save the backup", prefs.lang), Toast.LENGTH_SHORT).show()
         }
     }
     val autoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -63,7 +66,7 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
             repo.set("backupUri", uri.toString())
             if (prefs.autoBackup == "OFF") repo.set("autoBackup", "DAILY")
             val ok = repo.autoBackupIfDue(force = true)
-            Toast.makeText(context, if (ok) "Backup saved. It will update by itself." else "Couldn't save the backup", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, Tr.t(if (ok) "Backup saved. It will update by itself." else "Couldn't save the backup", prefs.lang), Toast.LENGTH_SHORT).show()
         }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> confirmRestore = uri }
@@ -92,6 +95,37 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
                 }
                 Text("Bills, installments and gam'eya shares remind you the days before you choose on each one.", style = MaterialTheme.typography.bodySmall)
                 Toggle("Tell me when I go over today's budget", prefs.budgetAlert) { v -> scope.launch { repo.set("budgetAlert", v) } }
+                Toggle("Morning message with today's number", prefs.morning) { v -> scope.launch { repo.set("morning", v) } }
+            }
+            SectionCard {
+                Label("Look")
+                Gap(4)
+                Text("Night mode", style = MaterialTheme.typography.labelLarge)
+                Choices(listOf("AUTO", "LIGHT", "DARK"), prefs.theme, { when (it) { "LIGHT" -> "Light"; "DARK" -> "Dark"; else -> "Auto" } }, { v ->
+                    scope.launch { repo.set("theme", v) }
+                })
+                Gap(8)
+                Text("Language", style = MaterialTheme.typography.labelLarge)
+                Choices(listOf("EN", "AR"), prefs.lang, { if (it == "AR") "العربية" else "English" }, { v ->
+                    scope.launch { repo.set("lang", v) }
+                })
+            }
+            SectionCard {
+                Label("Savings goal")
+                Text("Set a goal (Umra, car, wedding...) and watch the ring fill up.", style = MaterialTheme.typography.bodySmall)
+                Gap(8)
+                TextInput("Goal name", goalName, { goalName = it })
+                Gap(8)
+                NumberField("Goal amount", goalAmount, { goalAmount = it }, suffix = prefs.baseCurrency)
+                Gap(8)
+                NumberField("Saved so far", goalSaved, { goalSaved = it }, suffix = prefs.baseCurrency)
+                TextButton(onClick = {
+                    scope.launch {
+                        repo.set("goalName", goalName.trim())
+                        repo.set("goalAmount", parseNumber(goalAmount) ?: 0.0)
+                        repo.set("goalSaved", parseNumber(goalSaved) ?: 0.0)
+                    }
+                }) { Text("Save") }
             }
             SectionCard {
                 Label("Privacy")
@@ -127,7 +161,7 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
                         OutlinedButton(onClick = {
                             scope.launch {
                                 val ok = repo.autoBackupIfDue(force = true)
-                                Toast.makeText(context, if (ok) "Backup saved" else "Couldn't save. Choose the file again.", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, Tr.t(if (ok) "Backup saved" else "Couldn't save. Choose the file again.", prefs.lang), Toast.LENGTH_SHORT).show()
                             }
                         }) { Text("Back up now") }
                     }
@@ -159,7 +193,7 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
                         if (i != null) context.startActivity(Intent.makeRestartActivityTask(i.component))
                         Runtime.getRuntime().exit(0)
                     } else {
-                        Toast.makeText(context, "That file isn't a Pocketta backup", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, Tr.t("That file isn't a Pocketta backup", prefs.lang), Toast.LENGTH_SHORT).show()
                     }
                 }
             },

@@ -1,6 +1,7 @@
 package app.pocketta.core
 
-data class Quick(val amount: Double?, val note: String)
+/** [daysAgo] is 1 when the text says "yesterday" (أمس / امبارح), else 0. */
+data class Quick(val amount: Double?, val note: String, val daysAgo: Int = 0)
 
 /** Reads quick entries like "koshary 60", "60 uber", "كشري ٦٠" or "1.5k rent". */
 object QuickText {
@@ -18,7 +19,17 @@ object QuickText {
         )
     }
 
+    private val yesterdayWord = Regex("""(?<![\p{L}])(yesterday|أمس|امس|امبارح|إمبارح)(?![\p{L}])""", RegexOption.IGNORE_CASE)
+    private val todayWord = Regex("""(?<![\p{L}])(today|النهارده|النهاردة|اليوم)(?![\p{L}])""", RegexOption.IGNORE_CASE)
+
+    /** Like [parseAmount], and also understands a day word: "yesterday taxi 85", "امبارح تاكسي 85". */
     fun parse(input: String): Quick {
+        if (yesterdayWord.containsMatchIn(input)) return parseAmount(yesterdayWord.replace(input, " ")).copy(daysAgo = 1)
+        if (todayWord.containsMatchIn(input)) return parseAmount(todayWord.replace(input, " "))
+        return parseAmount(input)
+    }
+
+    private fun parseAmount(input: String): Quick {
         val s = normalizeDigits(input).replace(Regex("(?<=\\d) (?=\\d{3}\\b)"), "")
         val m = number.find(s) ?: return Quick(null, input.trim())
         var amount = m.groupValues[1].toDoubleOrNull()

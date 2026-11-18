@@ -8,8 +8,7 @@ import app.pocketta.data.TxType
 sealed interface Route {
     data object Home : Route
     data object Spend : Route
-    data object Bills : Route
-    data object Owe : Route
+    data object Commit : Route
     data object More : Route
     data class Add(val txnId: Long = 0, val type: String = TxType.EXPENSE) : Route
     data object Income : Route
@@ -19,7 +18,7 @@ sealed interface Route {
     data object Settings : Route
 }
 
-val tabs = listOf(Route.Home, Route.Spend, Route.Bills, Route.Owe, Route.More)
+val tabs = listOf(Route.Home, Route.Spend, Route.Commit)
 
 /** A tiny back stack: one tab at the bottom, screens opened on top of it. */
 class Nav {

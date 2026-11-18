@@ -1,5 +1,8 @@
 package app.pocketta.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +14,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +52,9 @@ fun ConverterCard(prefs: Prefs) {
     var fromKey by rememberSaveable { mutableStateOf(all.firstOrNull { it.key == "USD" }?.key ?: all.getOrNull(1)?.key ?: prefs.baseCurrency) }
     var toKey by rememberSaveable { mutableStateOf(prefs.baseCurrency) }
     SectionCard {
-        Text("Converter", fontWeight = FontWeight.SemiBold)
+        Text("Convert money and gold", fontWeight = FontWeight.SemiBold)
+        Gap(8)
+        RatesStrip(prefs)
         if (all.size < 2) {
             Text("Turn on today's rates below, or add your own rate, to convert.", style = MaterialTheme.typography.bodySmall)
             return@SectionCard
@@ -95,5 +99,38 @@ private fun UnitPicker(all: List<ConvUnit>, selected: ConvUnit, onPick: (ConvUni
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             for (u in all) DropdownMenuItem(text = { Text(u.label) }, onClick = { onPick(u); open = false })
         }
+    }
+}
+
+/** Today's dollar and 21k gold price, each with an arrow showing if it went up or down since yesterday. */
+@Composable
+fun RatesStrip(prefs: Prefs) {
+    val usd = prefs.rates["USD"] ?: prefs.onlineRates["USD"]
+    val g21 = prefs.gold["21"]
+    if (usd == null && g21 == null) return
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (usd != null) RateChip("Dollar", Money.fmt(usd), if (prefs.rates.containsKey("USD")) null else prefs.rateChange("USD"), Modifier.weight(1f))
+        if (g21 != null) RateChip("Gold 21k", Money.fmt(g21), prefs.goldChange("21"), Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun RateChip(label: String, value: String, change: Double?, modifier: Modifier) {
+    Column(
+        modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(value, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+            if (change != null) {
+                val pct = kotlin.math.abs(change) * 100
+                when {
+                    pct < 0.05 -> Text("  ＝", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+                    change > 0 -> Text("  ▲ " + String.format(java.util.Locale.US, "%.1f%%", pct), color = Good, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    else -> Text("  ▼ " + String.format(java.util.Locale.US, "%.1f%%", pct), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                }
+            }
+        }
+        if (change != null) Text("vs yesterday", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

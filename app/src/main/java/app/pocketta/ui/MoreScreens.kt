@@ -18,7 +18,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -44,7 +43,6 @@ import java.time.LocalDate
 @Composable
 fun MoreScreen(nav: Nav, modifier: Modifier) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Text("More", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(16.dp))
         ListRow("Income & salary", "Your monthly salary, other income, money set aside", icon = "💰", onClick = { nav.open(Route.Income) })
         ListRow("Wallets", "Cash, bank, Vodafone Cash, cards and balances", icon = "👛", onClick = { nav.open(Route.Wallets) })
         ListRow("Categories", "Categories, sub-categories and monthly limits", icon = "🏷️", onClick = { nav.open(Route.Categories) })
@@ -385,20 +383,15 @@ fun OnboardingScreen(repo: Repo, onDone: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text("Pocketta", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Choices(listOf("EN", "AR"), LocalLang.current, { if (it == "AR") "العربية" else "English" }, { v -> scope.launch { repo.set("lang", v) } })
             Text("Your money for the month: what you can spend today, your bills, installments, gam'eya and loans. Everything stays on your phone.")
             NumberField("Monthly salary (optional)", salary, { salary = it }, suffix = "EGP")
             NumberField("Salary day of the month", salaryDay, { salaryDay = it }, decimal = false)
-            NumberField("My month starts on day", start, { start = it }, decimal = false)
-            Text("Most people pick the day the salary arrives.", style = MaterialTheme.typography.bodySmall)
-            NumberField("Save every month (optional)", savings, { savings = it }, suffix = "EGP")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = lock, onCheckedChange = { lock = it })
-                Text("Lock the app with fingerprint")
-            }
+            Text("Your month starts on the salary day. You can change this later in Settings.", style = MaterialTheme.typography.bodySmall)
             Button(onClick = {
                 scope.launch {
                     repo.ensureSeeded()
-                    repo.set("cycleStart", (start.toIntOrNull() ?: 1).coerceIn(1, 31))
+                    repo.set("cycleStart", (salaryDay.toIntOrNull() ?: 1).coerceIn(1, 31))
                     repo.set("salary", parseNumber(salary) ?: 0.0)
                     repo.set("salaryDay", (salaryDay.toIntOrNull() ?: 1).coerceIn(1, 31))
                     repo.set("savingsPerMonth", parseNumber(savings) ?: 0.0)
@@ -408,7 +401,6 @@ fun OnboardingScreen(repo: Repo, onDone: () -> Unit) {
                     onDone()
                 }
             }, modifier = Modifier.padding(top = 8.dp)) { Text("Start") }
-            Text("You can change all of this later in More.", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

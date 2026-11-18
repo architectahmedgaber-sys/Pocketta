@@ -5,13 +5,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -40,14 +37,13 @@ fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Uni
             when (current) {
                 Route.Home -> HomeScreen(repo, nav, prefs, m)
                 Route.Spend -> SpendScreen(repo, nav, prefs, m)
-                Route.Bills -> BillsScreen(repo, prefs, m)
-                Route.Owe -> OweScreen(repo, prefs, m)
-                else -> MoreScreen(nav, m)
+                else -> CommitmentsScreen(repo, prefs, m)
             }
         }
     } else {
         when (current) {
             is Route.Add -> AddScreen(repo, nav, prefs, current)
+            Route.More -> Scaffold(topBar = { BackBar("Settings & more", { nav.back() }) }) { pad -> MoreScreen(nav, Modifier.padding(pad)) }
             Route.Income -> IncomeScreen(repo, nav, prefs)
             Route.Wallets -> WalletsScreen(repo, nav, prefs)
             Route.Categories -> CategoriesScreen(repo, nav)
@@ -59,17 +55,13 @@ fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Uni
 }
 
 private fun nameOf(r: Route) = when (r) {
-    Route.Home -> "Home"
-    Route.Spend -> "Spend"
-    Route.Bills -> "Bills"
-    Route.Owe -> "Owe"
-    else -> "More"
+    Route.Home -> "Today"
+    Route.Spend -> "Spending"
+    else -> "Commitments"
 }
 
 private fun iconOf(r: Route): ImageVector = when (r) {
     Route.Home -> Icons.Filled.Home
     Route.Spend -> Icons.AutoMirrored.Filled.List
-    Route.Bills -> Icons.Filled.DateRange
-    Route.Owe -> Icons.Filled.Person
-    else -> Icons.Filled.Menu
+    else -> Icons.Filled.DateRange
 }

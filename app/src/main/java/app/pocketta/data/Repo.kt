@@ -53,6 +53,12 @@ data class HomeState(
     val salaryExpected: Double,
 )
 
+/** A repeated expense (same note and amount) offered as a one-tap button. */
+data class Suggestion(val note: String, val amount: Double)
+
+/** The last 7 days against the 7 before, for the weekly card. */
+data class WeekData(val spent: Double, val previous: Double, val topCategory: String?, val daysUnder: Int)
+
 class Repo private constructor(private val app: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val db: AppDb get() = AppDb.get(app)
@@ -139,6 +145,45 @@ class Repo private constructor(private val app: Context) {
             val n = c.name.lowercase()
             words.any { w -> n == w || n.startsWith(w) || w.startsWith(n) }
         }?.id
+    }
+
+    /** Saves an expense typed as a sentence ("koshary 60"). Picks the category from the words, else the last one used. */
+    suspend fun quickExpense(note: String, amount: Double, daysAgo: Int = 0): Txn {
+        val p = prefs()
+        val cat = guessCategory(note, TxType.EXPENSE) ?: p.lastCategory.takeIf { it != 0L }
+        val t = Txn(
+            type = TxType.EXPENSE, amount = amount, currency = p.baseCurrency, rate = 1.0, walletId = defaultWallet(p),
+            categoryId = cat, note = note.trim(), epochDay = LocalDate.now().minusDays(daysAgo.toLong()).toEpochDay(),
+        )
+        return t.copy(id = saveTxn(t))
+    }
+
+    /** Expenses you type again and again, so they can be added with one tap. */
+    suspend fun suggestions(today: LocalDate = LocalDate.now()): List<Suggestion> {
+        val from = today.minusDays(60).toEpochDay()
+        val cur = prefs().baseCurrency
+        return dao.txns(from, today.toEpochDay() + 1)
+            .filter { it.type == TxType.EXPENSE && it.source == Source.NONE && it.note.isNotBlank() && it.currency == cur }
+            .groupBy { it.note.trim().lowercase() to it.amount }
+            .filter { it.value.size >= 2 }
+            .entries.sortedByDescending { it.value.size }
+            .take(4)
+            .map { Suggestion(it.value.first().note.trim(), it.key.second) }
+    }
+
+    suspend fun week(today: LocalDate, dayReference: Double): WeekData {
+        val from = today.minusDays(6).toEpochDay()
+        val to = today.toEpochDay() + 1
+        val now = dao.txns(from, to).filter { it.type == TxType.EXPENSE && !it.spread }
+        val before = dao.txns(from - 7, from).filter { it.type == TxType.EXPENSE && !it.spread }
+        val cats = dao.categories().associateBy { it.id }
+        fun topName(id: Long?): String? = id?.let { cats[it] }?.let { c -> (c.parentId?.let { cats[it] } ?: c).name }
+        val top = now.groupBy { topName(it.categoryId) }.filterKeys { it != null }
+            .mapValues { e -> e.value.sumOf { it.base } }.maxByOrNull { it.value }?.key
+        val perDay = now.groupBy { it.epochDay }.mapValues { e -> e.value.sumOf { it.base } }
+        var under = 0
+        if (dayReference > 0) for (d in from until to) if ((perDay[d] ?: 0.0) <= dayReference) under++
+        return WeekData(now.sumOf { it.base }, before.sumOf { it.base }, top, under)
     }
 
     // ---------- Bills ----------

@@ -21,3 +21,6 @@ Your money for the month, on your phone only. Android app (Kotlin, Jetpack Compo
 The APK is built by GitHub Actions (`.github/workflows/build.yml`). Run the workflow by hand with a version number to publish a release.
 The release key is stored encrypted (`signing/release.jks.enc`). CI unlocks it with the `KEYSTORE_PASSPHRASE` secret, so new versions install over old ones. (The key used for 1.0.0 is retired.)
 `./gradlew :core:test` runs the budget math tests.
+
+## Releasing
+Open a pull request, merge it to `main`. If `version.txt` holds a version without a release yet, the build publishes it as a GitHub release (the in-app updater reads that). Raise `version.txt` in the PR to ship a new version; otherwise main only builds a test APK.

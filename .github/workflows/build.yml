@@ -30,8 +30,17 @@ jobs:
       - name: Pick version
         run: |
           R="${{ github.event.inputs.release_version }}"
+          FILE_V="$(tr -d '[:space:]' < version.txt)"
           if [[ -n "$R" ]]; then V="${R#v}"; echo "RELEASE=true" >> "$GITHUB_ENV";
           elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; echo "RELEASE=true" >> "$GITHUB_ENV";
+          elif [[ "$GITHUB_REF" == refs/heads/main && "${{ github.event_name }}" == "push" ]]; then
+            # Merging to main publishes a release when version.txt names a version that has no release yet.
+            if git ls-remote --exit-code --tags origin "refs/tags/v$FILE_V" > /dev/null 2>&1; then
+              V="0.0.${{ github.run_number }}"
+              echo "v$FILE_V already released: test build only. Raise version.txt to publish a new release."
+            else
+              V="$FILE_V"; echo "RELEASE=true" >> "$GITHUB_ENV"
+            fi
           else V="0.0.${{ github.run_number }}"; fi
           echo "VERSION_NAME=$V" >> "$GITHUB_ENV"
 

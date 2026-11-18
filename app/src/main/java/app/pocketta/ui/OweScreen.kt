@@ -24,7 +24,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -57,17 +56,19 @@ private fun plan(i: Installment) = InstallmentPlan(i.amount, i.total, i.paid, Lo
 private fun circle(c: CircleEntity) = Circle(c.share, c.months, c.myTurn, c.paid, LocalDate.ofEpochDay(c.firstDue))
 
 @Composable
-fun OweScreen(repo: Repo, prefs: Prefs, modifier: Modifier) {
+fun CommitmentsScreen(repo: Repo, prefs: Prefs, modifier: Modifier) {
     var tab by remember { mutableIntStateOf(0) }
     Column(modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = tab) {
-            listOf("Installments", "Gam'eya", "Loans").forEachIndexed { i, t ->
-                Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) })
+        Text("Commitments", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 8.dp))
+        TabRow(selectedTabIndex = tab, containerColor = androidx.compose.ui.graphics.Color.Transparent) {
+            listOf("Bills", "Installments", "Gam'eya", "Loans").forEachIndexed { i, t ->
+                Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t, maxLines = 1) })
             }
         }
         when (tab) {
-            0 -> InstallmentsTab(repo, prefs) { tab = 1 }
-            1 -> CirclesTab(repo, prefs)
+            0 -> BillsScreen(repo, prefs, Modifier)
+            1 -> InstallmentsTab(repo, prefs) { tab = 2 }
+            2 -> CirclesTab(repo, prefs)
             else -> LoansTab(repo, prefs)
         }
     }

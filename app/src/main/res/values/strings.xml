@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">Pocketta</string>
+    <string name="widget_hero">Pocketta card</string>
+    <string name="widget_hero_desc">Today\'s number in a coloured card, with the dollar and gold</string>
     <string name="widget_today">Today\'s allowance</string>
     <string name="widget_today_desc">How much you can spend today</string>
     <string name="widget_add">Add expense</string>
