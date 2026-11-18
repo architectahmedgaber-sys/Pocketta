@@ -94,9 +94,7 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
                     }) { Text("Save") }
                 }
                 Text("Bills, installments and gam'eya shares remind you the days before you choose on each one.", style = MaterialTheme.typography.bodySmall)
-                Toggle("Tell me when I go over today's budget", prefs.budgetAlert) { v -> scope.launch { repo.set("budgetAlert", v) } }
-                Toggle("Morning message with today's number", prefs.morning) { v -> scope.launch { repo.set("morning", v) } }
-                Toggle("At month end, offer to move what's left to my savings goal", prefs.monthEndReminder) { v -> scope.launch { repo.set("monthEndReminder", v) } }
+                TextButton(onClick = { nav.open(Route.Notifications) }) { Text("Notifications: switch each one on or off") }
             }
             SectionCard {
                 Label("Look")
