@@ -5,7 +5,7 @@ import { startArabic } from './i18n.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -34,6 +34,7 @@ const ui = {
   commitTab: 0, catKind: 'EXPENSE',
   details: false, quickText: '', quickHint: false, quickSaved: null, heroShown: 0, hideGuide: false,
   conv: { amount: '1', from: 'USD', to: '' },
+  plan: { price: '', cat: null, pct: 20 },
   locked: false, hiddenAt: 0,
   hideInstall: false, updateReady: false,
 };
@@ -127,7 +128,7 @@ function render() {
   if (ui.locked) { app.innerHTML = lockScreen(); $('#pin')?.focus(); return; }
   if (!R.S().onboarded) { app.innerHTML = onboarding(); return; }
   const c = cur();
-  const pages = { home, spend, commit, more, add, income, wallets, categories, currencyPage, settings };
+  const pages = { home, spend, commit, more, add, income, wallets, categories, currencyPage, settings, plan };
   const page = pages[c.r === 'currencies' ? 'currencyPage' : c.r] || home;
   if (isTab(c.r)) {
     app.innerHTML = `<main class="page wide">${page(c)}</main>
@@ -188,6 +189,7 @@ function home() {
     <div class="hero-s">Spent ${money(spentToday)} of ${money(b.dailyAllowance)} today</div>`, `hero ${tone}`);
   html += quickCard();
   html += converterCard();
+  html += planEntryCard();
   html += weekCard(s);
   html += monthEndCard(s);
   html += goalCard();
@@ -882,10 +884,85 @@ function loanDialog(l) {
 
 // ---------- More ----------
 
+// ---------- Plan ahead: can I afford this, what if I save, emergency mode ----------
+
+const monthsText = (m) => m <= 0 ? 'now' : m === 1 ? '1 month' : `${m} months`;
+const pline = (l, v, tone = '', bold = false) => `<div class="pline"><span>${esc(l)}</span><span class="${tone} ${bold ? 'b' : ''}">${esc(v)}</span></div>`;
+const goalDateText = (today, months) => C.fmtMonthYear(C.goalDateAfter(today, months));
+
+function emergencyCard(d, full) {
+  const e = d.emergency, cur = base();
+  if (!e) return full ? card(`${label('Emergency mode')}<div class="good-t b">Your money should last until the end of the month</div>`) : '';
+  let h = `${label('Emergency mode')}<div class="mid">Your money may run out</div>` +
+    pline('Money runs out around', C.fmtDay(e.runOutDate), '', true) + pline('Days before the month ends', String(e.daysShort)) +
+    pline('Missing by month end', `${money(e.shortfall)} ${cur}`, 'bad-t', true);
+  if (full) {
+    if (e.postpone.length) h += `<div class="gap8">${label('Postpone if you can')}</div>` + e.postpone.map((p) => pline(`${p.name} · ${C.fmtDay(p.due)}`, `${money(p.amount)} ${cur}`)).join('');
+    if (e.cuts.length) h += `<div class="gap8">${label('Spend less on')}</div>` + e.cuts.map((c) => pline(c.name, `−${money(c.amount)} ${cur}`)).join('');
+    h += e.uncovered > 0
+      ? `<div class="gap8">${pline('Still missing after this', `${money(e.uncovered)} ${cur}`, 'bad-t', true)}<div class="small">Think about extra income or moving money from savings</div></div>`
+      : `<div class="gap8 good-t b">Do both and you reach the end of the month.</div>`;
+  } else h += `<div class="small">Tap to see what to postpone or cut</div>`;
+  return card(h, 'tonal' + (full ? '' : ' tap'), full ? '' : 'data-act="open" data-r="plan"');
+}
+
+function affordOut() {
+  const d = R.planData(), s = R.S(), b = d.home.budget, cur = base();
+  const price = C.parseNumber(ui.plan.price) || 0;
+  if (!(price > 0)) return `<div class="small">Type a price to see what it does to this month and your goal</div>`;
+  const r = C.canAfford(price, b.dailyAllowance, b.left, b.daysLeft, s.goalAmount, s.goalSaved, s.savingsPerMonth || 0);
+  const tone = r.verdict === 'YES' ? 'good-t' : r.verdict === 'NO' ? 'bad-t' : 'warn-t';
+  let h = `<div class="mid ${tone}">${{ YES: 'Yes, you can afford it', TIGHT: 'You can, but it will be tight', NO: 'Not this month' }[r.verdict]}</div>` +
+    pline('Daily number now', `${money(r.dailyBefore)} ${cur}`) + pline('Daily number after', `${money(r.dailyAfter)} ${cur}`, tone, true) +
+    pline('Left this month now', `${money(r.leftBefore)} ${cur}`) + pline('Left this month after', `${money(r.leftAfter)} ${cur}`, tone, true);
+  if (r.shortfall > 0) {
+    h += `<div class="small">It would have to come out of your savings: ${money(r.shortfall)}</div>`;
+    const gm = C.monthsToGoal(s.goalAmount, s.goalSaved, s.savingsPerMonth || 0);
+    if (r.goalDelayMonths > 0 && gm != null) {
+      h += pline('Goal date', `${goalDateText(d.home.today, gm)} → ${goalDateText(d.home.today, gm + r.goalDelayMonths)}`, 'bad-t', true) +
+        `<div class="small">Your goal moves back ${monthsText(r.goalDelayMonths)}</div>`;
+    }
+  }
+  return h;
+}
+
+function simOut() {
+  const d = R.planData(), s = R.S(), cur = base();
+  const cats = d.categories.filter((c) => !C.FIXED_CATEGORIES.includes(c.name) && c.monthly > 0).slice(0, 8);
+  if (!cats.length) return `<div class="small">Add some spending first, then try cutting a category</div>`;
+  const cat = cats.find((c) => c.name === ui.plan.cat) || cats[0];
+  const sim = C.simulateCut(cat.monthly, ui.plan.pct, s.goalAmount, s.goalSaved, s.savingsPerMonth || 0);
+  const chipRow = (act, items, on) => `<div class="chips">${items.map(([v, l]) => `<button type="button" class="chip ${String(v) === String(on) ? 'on' : ''}" data-act="${act}" data-val="${esc(v)}">${esc(l)}</button>`).join('')}</div>`;
+  let h = chipRow('plan-cat', cats.map((c) => [c.name, c.name]), cat.name) + `<div class="gap8"></div>` + chipRow('plan-pct', [10, 20, 30, 50].map((p) => [p, `${p}%`]), ui.plan.pct) + `<div class="gap8"></div>` +
+    pline('You spend per month', `${money(cat.monthly)} ${cur}`) + pline('You would save per month', `${money(sim.extraPerMonth)} ${cur}`, 'good-t', true) +
+    pline('You would save per year', `${money(sim.extraPerMonth * 12)} ${cur}`);
+  if (!(s.goalAmount > 0)) h += `<div class="small">Set a savings goal in Settings to see the date</div>`;
+  else if (s.goalSaved >= s.goalAmount) h += `<div class="good-t b">Goal reached!</div>`;
+  else if (sim.monthsAfter != null) {
+    if (sim.monthsBefore != null) h += pline('Goal date now', goalDateText(d.home.today, sim.monthsBefore));
+    h += pline('Goal date with this cut', goalDateText(d.home.today, sim.monthsAfter), 'good-t', true);
+    if (sim.monthsSooner > 0) h += `<div class="good-t b">Sooner by ${monthsText(sim.monthsSooner)}</div>`;
+    else if (sim.monthsBefore == null) h += `<div class="small">Without a monthly saving the goal has no date. This cut gives it one.</div>`;
+  }
+  return h;
+}
+
+function plan() {
+  const d = R.planData();
+  return topbar('Plan ahead') + `<main class="page">` + emergencyCard(d, true) +
+    card(`${label('Can I afford this?')}${numField('price', 'Price', ui.plan.price, { suffix: base() })}<div id="afford-out">${affordOut()}</div>`) +
+    card(`${label('What if I save?')}<div id="sim-out">${simOut()}</div>`) + `</main>`;
+}
+function planEntryCard() {
+  const d = R.planData();
+  return emergencyCard(d, false) + card(`<div class="row-flex gap16"><span class="bigicon">🧮</span><div class="grow"><b>Plan ahead</b><div class="small">Can I afford this? What if I save?</div></div><span class="chev">›</span></div>`, 'tap', 'data-act="open" data-r="plan"');
+}
+
 function more() {
   const big = (emoji, title, sub, r) => `<div class="card bigcard tap" data-act="open" data-r="${r}"><span class="bigicon">${emoji}</span>
     <div class="grow"><div class="mid">${esc(title)}</div><div class="small">${esc(sub)}</div></div><span class="chev">›</span></div>`;
   return topbar('Settings & more') + `<main class="page more">` +
+    big('🧮', 'Plan ahead', 'Can I afford this? What if I save? When money runs short', 'plan') +
     big('💰', 'Income & salary', 'Your monthly salary, other income, money set aside', 'income') +
     big('👛', 'Wallets', 'Cash, bank, Vodafone Cash, cards and balances', 'wallets') +
     big('🏷️', 'Categories', 'Categories, sub-categories and monthly limits', 'categories') +
@@ -1139,6 +1216,8 @@ const actions = {
   'qa-add': () => quickSubmit(),
   'qa-undo': () => { const t = R.byId(R.data.txns, ui.quickSaved?.id); ui.quickSaved = null; if (t) R.deleteTxn(t); else render(); },
   'qa-chip': (el) => { const g = R.suggestions()[+el.dataset.i]; if (g) quickAdd(g.note, g.amount, 0); },
+  'plan-cat': (el) => { ui.plan.cat = el.dataset.val; $('#sim-out').innerHTML = simOut(); },
+  'plan-pct': (el) => { ui.plan.pct = +el.dataset.val; $('#sim-out').innerHTML = simOut(); },
   'conv-swap': () => { const { from, to } = convCompute(); ui.conv.from = to[0]; ui.conv.to = from[0]; render(); },
   'goal-add': () => goalSheet(),
   'month-move': () => { const m = ui.monthEnd; if (!m) return; R.S().goalSaved += m.amt; R.S().monthEndDismissed = m.key; R.changed(); toast('Moved to your goal'); },
@@ -1285,6 +1364,7 @@ document.addEventListener('change', (e) => {
 document.addEventListener('input', (e) => {
   if (e.target.id === 'qa') { ui.quickText = e.target.value; ui.quickHint = false; }
   if (e.target.id === 'conv-amt') { ui.conv.amount = e.target.value; convRefresh(); }
+  if (e.target.name === 'price' && cur().r === 'plan') { ui.plan.price = e.target.value; $('#afford-out').innerHTML = affordOut(); }
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'qa') { e.preventDefault(); quickSubmit(); } });
 

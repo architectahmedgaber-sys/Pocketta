@@ -50,6 +50,7 @@ fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Uni
             Route.Categories -> CategoriesScreen(repo, nav)
             Route.Currencies -> CurrenciesScreen(repo, nav, prefs)
             Route.Settings -> SettingsScreen(repo, nav, prefs, authenticate)
+            Route.Plan -> PlanScreen(repo, nav, prefs)
             else -> {}
         }
     }

@@ -212,3 +212,80 @@ export function suggestMove(left, goalAmount, goalSaved, minimum = 50) {
   const amount = Math.floor(Math.min(left, goalAmount - goalSaved));
   return amount >= minimum || (amount > 0 && goalAmount - goalSaved <= amount) ? amount : 0;
 }
+
+// ---------- Planning: can I afford this, what if I save, emergency mode, price rises, weekly sentences ----------
+
+export const FIXED_CATEGORIES = ['Bills', 'Installments', "Gam'eya", 'Loans', 'Home', 'Subscriptions', 'Education', 'Health'];
+
+/** Whole months until the goal saving [monthly] a month. 0 = reached, null = can't tell. */
+export function monthsToGoal(goalAmount, goalSaved, monthly) {
+  if (!(goalAmount > 0)) return null;
+  const need = goalAmount - goalSaved;
+  if (need <= 0) return 0;
+  if (!(monthly > 0)) return null;
+  return Math.ceil(need / monthly - 1e-9);
+}
+export const goalDateAfter = (today, months) => addMonths(today, months, ymd(today).d);
+
+export function canAfford(price, dailyAllowance, left, daysLeft, goalAmount = 0, goalSaved = 0, savingsPerMonth = 0) {
+  const days = Math.max(daysLeft, 1);
+  const dailyAfter = dailyAllowance - price / days;
+  const leftAfter = left - price;
+  const verdict = leftAfter < 0 ? 'NO' : (dailyAllowance > 0 && dailyAfter >= dailyAllowance * 0.5) ? 'YES' : 'TIGHT';
+  const shortfall = Math.max(0, -leftAfter);
+  const goalDelayMonths = shortfall > 0 ? (goalAmount > goalSaved && savingsPerMonth > 0 ? Math.ceil(shortfall / savingsPerMonth - 1e-9) : null) : 0;
+  return { price, dailyBefore: dailyAllowance, dailyAfter, leftBefore: left, leftAfter, verdict, shortfall, goalDelayMonths };
+}
+
+export function simulateCut(categoryMonthly, percent, goalAmount, goalSaved, savingsPerMonth) {
+  const extra = Math.max(0, categoryMonthly) * Math.min(Math.max(percent, 0), 100) / 100;
+  const before = monthsToGoal(goalAmount, goalSaved, savingsPerMonth);
+  const after = monthsToGoal(goalAmount, goalSaved, savingsPerMonth + extra);
+  return { extraPerMonth: extra, monthsBefore: before, monthsAfter: after, monthsSooner: before != null && after != null ? Math.max(0, before - after) : 0 };
+}
+
+/** Null while the month looks fine; otherwise when the money runs out and what to postpone or cut. */
+export function emergency(today, cycle, budget, everydaySpent, dayIndex, postponable, categories, minDays = 4) {
+  if (!(budget.budget > 0) || dayIndex < minDays || !(everydaySpent > 0) || budget.forecastDiff >= 0) return null;
+  const shortfall = -budget.forecastDiff;
+  const perDay = everydaySpent / dayIndex;
+  const daysAhead = budget.left <= 0 ? 0 : Math.floor(budget.left / perDay);
+  const runOut = Math.min(today + daysAhead, cycle.end);
+  const daysShort = Math.max(cycle.end - runOut, 0);
+  let remaining = shortfall;
+  const postpone = [];
+  for (const p of postponable.filter((x) => x.amount > 0 && x.due > today).sort((a, b) => b.amount - a.amount)) {
+    if (remaining <= 0) break;
+    postpone.push(p); remaining -= p.amount;
+  }
+  const cuts = [];
+  const daysToGo = Math.max(budget.daysLeft - 1, 1);
+  for (const c of categories.filter((x) => !FIXED_CATEGORIES.includes(x.name) && x.spent > 0).sort((a, b) => b.spent - a.spent).slice(0, 4)) {
+    if (remaining <= 0) break;
+    const projected = c.spent / dayIndex * daysToGo;
+    const cut = Math.min(remaining, Math.ceil(projected * 0.4 / 10) * 10);
+    if (cut >= 10) { const v = Math.min(cut, projected); cuts.push({ name: c.name, amount: v }); remaining -= v; }
+  }
+  return { runOutDate: runOut, daysShort, shortfall, postpone, cuts, uncovered: Math.max(0, remaining) };
+}
+
+/** Categories heading higher than the usual (average of the last 3 months). [c] = {name, spentSoFar, usual}. */
+export function priceRises(cats, dayIndex, cycleLength, minPercent = 20, minUsual = 100) {
+  if (dayIndex < 5 || cycleLength <= 0) return [];
+  return cats.filter((c) => c.usual >= minUsual).map((c) => {
+    const projected = c.spentSoFar / dayIndex * cycleLength;
+    return { name: c.name, percent: Math.trunc((projected - c.usual) / c.usual * 100), thisMonth: projected, usual: c.usual };
+  }).filter((r) => r.percent >= minPercent).sort((a, b) => b.percent - a.percent);
+}
+
+/** Two short sentences for Friday. [pct] is the change against the week before (null when there was none). */
+export function weekSentences(spent, pct, topCategory, daysUnder, currency) {
+  const first = pct == null ? `You spent ${short(spent)} ${currency} this week.`
+    : pct > 0 ? `You spent ${short(spent)} ${currency} this week, ${pct}% more than last week.`
+    : pct < 0 ? `You spent ${short(spent)} ${currency} this week, ${-pct}% less than last week.`
+    : `You spent ${short(spent)} ${currency} this week, the same as last week.`;
+  const second = topCategory && daysUnder >= 5 ? `Most of it went to ${topCategory}, and you stayed under your daily budget on ${daysUnder} days.`
+    : topCategory && daysUnder > 0 ? `Most of it went to ${topCategory}, and ${daysUnder} days were under your daily budget.`
+    : topCategory ? `Most of it went to ${topCategory}.` : 'Keep going, next week is a fresh start.';
+  return [first, second];
+}

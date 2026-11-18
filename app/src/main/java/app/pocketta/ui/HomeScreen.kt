@@ -130,6 +130,7 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
             // The converter lives on the first page so there is a reason to open the app every day.
             ConverterCard(prefs)
 
+            PlanEntryCard(repo, nav, prefs)
             WeekCard(repo, s)
             GoalCard(repo, prefs)
 
