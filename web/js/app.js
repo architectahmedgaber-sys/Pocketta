@@ -5,7 +5,7 @@ import { startArabic } from './i18n.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.6.0';
+const VERSION = '1.7.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -190,6 +190,7 @@ function home() {
   html += quickCard();
   html += converterCard();
   html += planEntryCard();
+  html += gameyaCards(s);
   html += weekCard(s);
   html += monthEndCard(s);
   html += goalCard();
@@ -884,6 +885,29 @@ function loanDialog(l) {
 
 // ---------- More ----------
 
+/** One card per running gam'eya: when it's your turn, how much you collect, how many installments are left. */
+function gameyaCards(s) {
+  const cur = base();
+  return R.data.circles.map((c) => {
+    const k = C.circle(c);
+    const left = k.plan.remainingCount, next = k.plan.nextDue;
+    const days = k.payoutDate - s.today;
+    const collectNow = !c.payoutReceived && days <= 0;
+    if (k.plan.done && c.payoutReceived) return '';
+    const ln = (l, v, tone = '') => `<div class="pline"><span>${esc(l)}</span><span class="${tone} b">${esc(v)}</span></div>`;
+    let h = `${label("Gam'eya")}<div class="mid">${esc(c.name)}</div><div class="gap8"></div>`;
+    if (c.payoutReceived) h += `<div class="good-t b">You collected your turn</div>`;
+    else if (collectNow) h += `<div class="good-t b">It's your turn! Collect ${money(k.payout)} ${esc(cur)}</div>`;
+    else h += ln('Your turn', `${C.fmtDay(k.payoutDate)}, ${C.ymd(k.payoutDate).y}`) + ln('Days to your turn', String(days)) + ln('You collect', `${money(k.payout)} ${cur}`, 'good-t');
+    h += ln('Installments left', `${left} / ${c.months}`);
+    if (next != null) h += ln('Next installment', `${money(c.share)} ${cur} · ${C.fmtDay(next)}`);
+    h += progress(c.months > 0 ? c.paid / c.months : 0);
+    const btns = (collectNow ? `<button class="btn filled" data-act="gameya-payout" data-id="${c.id}">Got my payout</button>` : '') +
+      (next != null && next <= s.today + 7 ? `<button class="btn tonal" data-act="gameya-pay" data-id="${c.id}">Paid installment</button>` : '');
+    return card(h + (btns ? `<div class="btns">${btns}</div>` : ''), collectNow ? 'tonal' : '');
+  }).join('');
+}
+
 // ---------- Plan ahead: can I afford this, what if I save, emergency mode ----------
 
 const monthsText = (m) => m <= 0 ? 'now' : m === 1 ? '1 month' : `${m} months`;
@@ -1216,6 +1240,8 @@ const actions = {
   'qa-add': () => quickSubmit(),
   'qa-undo': () => { const t = R.byId(R.data.txns, ui.quickSaved?.id); ui.quickSaved = null; if (t) R.deleteTxn(t); else render(); },
   'qa-chip': (el) => { const g = R.suggestions()[+el.dataset.i]; if (g) quickAdd(g.note, g.amount, 0); },
+  'gameya-pay': (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) R.payCircle(c); },
+  'gameya-payout': (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) R.receivePayout(c); },
   'plan-cat': (el) => { ui.plan.cat = el.dataset.val; $('#sim-out').innerHTML = simOut(); },
   'plan-pct': (el) => { ui.plan.pct = +el.dataset.val; $('#sim-out').innerHTML = simOut(); },
   'conv-swap': () => { const { from, to } = convCompute(); ui.conv.from = to[0]; ui.conv.to = from[0]; render(); },

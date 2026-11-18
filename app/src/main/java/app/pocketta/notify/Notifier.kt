@@ -163,6 +163,29 @@ object Notifier {
         NotificationManagerCompat.from(context).notify(ID_MONTH_END, n)
     }
 
+    /** The day before and on the day of your turn in a gam'eya: how much you collect, with a one-tap "Got it". */
+    @SuppressLint("MissingPermission")
+    fun gameyaTurn(context: Context, circleId: Long, name: String, payout: Double, daysLeft: Int, currency: String, lang: String = Tr.EN) {
+        if (!canPost(context)) return
+        val ar = lang == Tr.AR
+        val title = when {
+            ar && daysLeft <= 0 -> "دورك في جمعية $name النهارده!"
+            ar -> "دورك في جمعية $name بكرة"
+            daysLeft <= 0 -> "It's your turn in $name today!"
+            else -> "Your turn in $name is tomorrow"
+        }
+        val id = ("PAYOUT".hashCode() * 31 + circleId.toInt()) and 0x7fffffff
+        val n = NotificationCompat.Builder(context, CH_DUE)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle(title)
+            .setContentText((if (ar) "هتقبض " else "You collect ") + Money.short(payout) + " " + currency)
+            .setContentIntent(openApp(context, MainActivity.ACTION_BILLS))
+            .addAction(0, if (ar) "استلمت" else "Got it", ActionReceiver.pending(context, ActionReceiver.ACTION_PAID, "PAYOUT", circleId, id))
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(id, n)
+    }
+
     @SuppressLint("MissingPermission")
     fun morning(context: Context, title: String, text: String?) {
         if (!canPost(context)) return

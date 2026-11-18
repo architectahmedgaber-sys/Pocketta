@@ -29,3 +29,34 @@ data class Circle(val share: Double, val months: Int, val myTurn: Int, val paid:
     val payoutDate: LocalDate get() = plan.dueOf((myTurn - 1).coerceIn(0, (months - 1).coerceAtLeast(0)))
     val currentMonth: Int get() = (paid + 1).coerceAtMost(months)
 }
+
+/** Where a gam'eya stands today: what's left to pay and when it's your turn to collect. */
+data class CircleStatus(
+    val installmentsLeft: Int,
+    val nextDue: LocalDate?,
+    val payout: Double,
+    val payoutDate: LocalDate,
+    val payoutReceived: Boolean,
+    /** Days until your turn. 0 = today, negative = it has passed. */
+    val daysToTurn: Int,
+    /** Everything is paid and the payout is in your hands. */
+    val finished: Boolean,
+    /** It's your turn (or past it) and you haven't marked the payout received. */
+    val collectNow: Boolean,
+)
+
+object Circles {
+    fun status(c: Circle, payoutReceived: Boolean, today: LocalDate): CircleStatus {
+        val days = java.time.temporal.ChronoUnit.DAYS.between(today, c.payoutDate).toInt()
+        return CircleStatus(
+            installmentsLeft = c.plan.remainingCount,
+            nextDue = c.plan.nextDue,
+            payout = c.payout,
+            payoutDate = c.payoutDate,
+            payoutReceived = payoutReceived,
+            daysToTurn = days,
+            finished = c.plan.done && payoutReceived,
+            collectNow = !payoutReceived && days <= 0,
+        )
+    }
+}
