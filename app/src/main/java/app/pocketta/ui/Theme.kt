@@ -15,6 +15,7 @@ private val LightFallback = lightColorScheme(
     primary = Color(0xFF1F6B4F), onPrimary = Color.White,
     primaryContainer = Color(0xFFA9F0CF), onPrimaryContainer = Color(0xFF002116),
     tertiary = Color(0xFF3D6373), tertiaryContainer = Color(0xFFC1E8FB),
+    background = Color(0xFFF3F6F4), surface = Color(0xFFF3F6F4), surfaceContainer = Color(0xFFFFFFFF),
 )
 private val DarkFallback = darkColorScheme(
     primary = Color(0xFF8DD5B3), onPrimary = Color(0xFF003826),
@@ -27,12 +28,7 @@ val Good @Composable get() = if (isSystemInDarkTheme()) Color(0xFF8FD8A4) else C
 
 @Composable
 fun PockettaTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val ctx = LocalContext.current
-    val scheme = when {
-        Build.VERSION.SDK_INT >= 31 -> if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
-        dark -> DarkFallback
-        else -> LightFallback
-    }
+    // A fixed Pocketta look (green) instead of the wallpaper colours, so the app has its own identity.
+    val scheme = if (isSystemInDarkTheme()) DarkFallback else LightFallback
     MaterialTheme(colorScheme = scheme, content = content)
 }

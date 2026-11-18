@@ -157,12 +157,12 @@ fun ListRow(
 }
 
 @Composable
-fun Progress(fraction: Float, color: Color = MaterialTheme.colorScheme.primary, modifier: Modifier = Modifier) {
+fun Progress(fraction: Float, color: Color = MaterialTheme.colorScheme.primary, modifier: Modifier = Modifier, track: Color = MaterialTheme.colorScheme.surfaceVariant) {
     LinearProgressIndicator(
         progress = { fraction.coerceIn(0f, 1f) },
         modifier = modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(8.dp)),
         color = color,
-        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+        trackColor = track,
         strokeCap = StrokeCap.Round,
     )
 }

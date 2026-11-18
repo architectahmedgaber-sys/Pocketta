@@ -50,7 +50,7 @@ fun ConverterCard(prefs: Prefs) {
     var fromKey by rememberSaveable { mutableStateOf(all.firstOrNull { it.key == "USD" }?.key ?: all.getOrNull(1)?.key ?: prefs.baseCurrency) }
     var toKey by rememberSaveable { mutableStateOf(prefs.baseCurrency) }
     SectionCard {
-        Text("Converter", fontWeight = FontWeight.SemiBold)
+        Text("Convert money and gold", fontWeight = FontWeight.SemiBold)
         if (all.size < 2) {
             Text("Turn on today's rates below, or add your own rate, to convert.", style = MaterialTheme.typography.bodySmall)
             return@SectionCard

@@ -104,8 +104,8 @@ class MainActivity : FragmentActivity() {
         when (intent?.action) {
             ACTION_ADD -> nav.open(Route.Add(type = TxType.EXPENSE))
             ACTION_ADD_INCOME -> nav.open(Route.Add(type = TxType.INCOME))
-            ACTION_BILLS -> nav.tab(Route.Bills)
-            ACTION_SETTINGS, ACTION_UPDATE -> { nav.tab(Route.More); nav.open(Route.Settings) }
+            ACTION_BILLS -> nav.tab(Route.Commit)
+            ACTION_SETTINGS, ACTION_UPDATE -> { nav.tab(Route.Home); nav.open(Route.Settings) }
         }
     }
 
