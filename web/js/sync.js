@@ -235,6 +235,23 @@ export async function deleteCloud() {
   st.lastHash = ''; st.cloudAt = ''; st.lastSyncAt = 0; st.dek = ''; st.keys = null; st.forceUpload = false; save(); emit();
 }
 
+/** Settings > Encryption. Both ask for the current password first. The data key itself never changes, so other devices keep working. */
+async function checkPass(cur) { try { await K.unlock(st.keys, 'pass', cur); return true; } catch { return false; } }
+export const hasKeys = () => !!(st.dek && st.keys);
+export async function newRecoveryKey(cur) {
+  if (!hasKeys() || !(await checkPass(cur))) return null;
+  const rec = K.newRecoveryKey();
+  st.keys = await K.withRecovery(st.dek, st.keys, rec); st.forceUpload = true; save();
+  syncNow();
+  return rec;
+}
+export async function changePassword(cur, next) {
+  if (!hasKeys() || !(await checkPass(cur))) return false;
+  st.keys = await K.rewrap(st.dek, st.keys, next); st.forceUpload = true; save();
+  syncNow();
+  return true;
+}
+
 /** Start syncing after changes (debounced) and when the app opens. Does nothing while signed out. */
 export function start(h) {
   hooks = { ...hooks, ...h };

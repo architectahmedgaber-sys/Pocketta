@@ -57,6 +57,12 @@ export async function unlock(env, mode, secret) {
   return toB64(bytes);
 }
 
+/** A new recovery key for the same data key (the old one stops working once this is uploaded). */
+export async function withRecovery(dekB64, keys, recovery) {
+  const recSalt = rand(16);
+  return { ...keys, recIter: REC_ITER, recSalt: toB64(recSalt), wrapRec: await seal(await kek(normRecovery(recovery), recSalt, REC_ITER), fromB64(dekB64)) };
+}
+
 /** After a recovery: lock the same data key with a new password (the recovery key stays the same). */
 export async function rewrap(dekB64, keys, newPassword) {
   const salt = rand(16);

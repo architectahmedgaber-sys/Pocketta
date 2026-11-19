@@ -344,6 +344,31 @@ object CloudSync {
         }
     }
 
+    // ---------- Settings > Encryption ----------
+    // Both ask for the current password first. The data key itself never changes, so other devices keep working.
+
+    fun hasEncryption() = ::sp.isInitialized && hasKeys()
+
+    private suspend fun checkPass(cur: String): Boolean = withContext(Dispatchers.Default) {
+        runCatching { E2ee.unlock(JSONObject(sp.getString("keys", "{}") ?: "{}"), "pass", cur) }.isSuccess
+    }
+
+    /** Makes a new recovery key and returns it (null if the password is wrong). The old key stops working after the next upload. */
+    suspend fun newRecoveryKey(cur: String): String? {
+        if (!hasKeys() || !checkPass(cur)) return null
+        val rec = E2ee.newRecoveryKey()
+        val keys = withContext(Dispatchers.Default) { E2ee.withRecovery(sp.getString("dek", "") ?: "", JSONObject(sp.getString("keys", "{}") ?: "{}"), rec) }
+        sp.edit().putString("keys", keys.toString()).putBoolean("forceUpload", true).apply()
+        return rec
+    }
+
+    suspend fun changePassword(cur: String, next: String): Boolean {
+        if (!hasKeys() || !checkPass(cur)) return false
+        val keys = withContext(Dispatchers.Default) { E2ee.rewrap(sp.getString("dek", "") ?: "", JSONObject(sp.getString("keys", "{}") ?: "{}"), next) }
+        sp.edit().putString("keys", keys.toString()).putBoolean("forceUpload", true).apply()
+        return true
+    }
+
     private fun parseTime(s: String): Long = runCatching { java.time.OffsetDateTime.parse(s).toInstant().toEpochMilli() }.getOrDefault(0L)
 
     suspend fun deleteCloud() = withContext(Dispatchers.IO) {

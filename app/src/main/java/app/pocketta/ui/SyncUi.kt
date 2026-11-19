@@ -59,6 +59,8 @@ fun SyncCard(repo: Repo) {
     val s by CloudSync.ui.collectAsState()
     var confirmOut by remember { mutableStateOf(false) }
     var confirmDel by remember { mutableStateOf(false) }
+    var encDialog by remember { mutableStateOf("") }
+    var newKey by remember { mutableStateOf<String?>(null) }
     SectionCard {
         Label("Sync and backup")
         if (!s.signedIn) {
@@ -83,12 +85,22 @@ fun SyncCard(repo: Repo) {
                 OutlinedButton(onClick = { confirmOut = true }, modifier = Modifier.padding(start = 8.dp)) { Text("Sign out") }
             }
             Text("If you sign out, your data stays on this device and sync stops.", style = MaterialTheme.typography.bodySmall)
+            if (s.encrypted) {
+                Gap(4)
+                Text("Encryption", fontWeight = FontWeight.SemiBold)
+                Row {
+                    OutlinedButton(onClick = { encDialog = "key" }) { Text("New recovery key") }
+                    OutlinedButton(onClick = { encDialog = "pass" }, modifier = Modifier.padding(start = 8.dp)) { Text("Change password") }
+                }
+            }
             TextButton(onClick = { confirmDel = true }) { Text("Delete my data from the cloud", color = MaterialTheme.colorScheme.error) }
         }
         Gap(8)
         Text("🔒 Your money data is encrypted on your phone before it is saved. Only your encryption password can open it, not even the developer can read it.", style = MaterialTheme.typography.bodySmall)
         if (s.signedIn && s.encrypted) Text("Encrypted on this device", style = MaterialTheme.typography.bodySmall)
     }
+    if (encDialog.isNotEmpty()) EncryptionDialog(encDialog, onDone = { rec -> encDialog = ""; if (rec != null) newKey = rec; scope.launch { CloudSync.syncNow(repo) } }, onCancel = { encDialog = "" })
+    newKey?.let { NewKeyDialog(it) { newKey = null } }
     if (confirmOut) ConfirmDialog(
         "Sign out?", "Your data stays on this device. Sync stops until you sign in again.", "Sign out",
         onConfirm = { confirmOut = false; CloudSync.signOut() }, onDismiss = { confirmOut = false },
@@ -160,9 +172,21 @@ fun SyncSetupDialog() {
     val r by CloudSync.setup.collectAsState()
     val q = r ?: return
     val clip = LocalClipboardManager.current
+    var saved by remember(q) { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    val saveKey = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) {
+            val ok = runCatching {
+                ctx.contentResolver.openOutputStream(uri)?.use {
+                    it.write(("Pocketta recovery key\n\n" + q.recovery + "\n\nKeep this file somewhere safe (not only on this phone). With it you can open your cloud backup if you forget your encryption password. Anyone who has it and your Google account can open your backup.\n").toByteArray(Charsets.UTF_8))
+                } != null
+            }.getOrDefault(false)
+            if (ok) saved = true
+            Toast.makeText(ctx, if (ok) "Saved" else "Could not save the file", Toast.LENGTH_SHORT).show()
+        }
+    }
     var p1 by remember(q) { mutableStateOf("") }
     var p2 by remember(q) { mutableStateOf("") }
-    var saved by remember(q) { mutableStateOf(false) }
     var err by remember(q) { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = { q.answer.complete(null) },
@@ -174,12 +198,11 @@ fun SyncSetupDialog() {
                 OutlinedTextField(p2, { p2 = it; err = "" }, label = { Text("Repeat the password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
                 Text("Recovery key. Save it somewhere safe (a password manager or on paper):", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
                 Text(q.recovery, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                TextButton(onClick = { clip.setText(AnnotatedString(q.recovery)) }) { Text("Copy recovery key") }
-                Row(Modifier.fillMaxWidth().clickable { saved = !saved }, verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = saved, onCheckedChange = { saved = it })
-                    Text("I saved the recovery key", style = MaterialTheme.typography.bodySmall)
+                Row {
+                    TextButton(onClick = { clip.setText(AnnotatedString(q.recovery)); saved = true }) { Text("Copy recovery key") }
+                    TextButton(onClick = { saveKey.launch("pocketta-recovery-key.txt") }) { Text("Download as a file") }
                 }
-                Text("If you forget the password and lose the recovery key, nobody can open your cloud data, not even us. Your data on this device stays safe.", style = MaterialTheme.typography.bodySmall)
+                Text("Copy it or download it as a file, and keep it somewhere safe. It is the only way back if you forget the password. With neither, your cloud copy is lost. Your data on this device stays safe.", style = MaterialTheme.typography.bodySmall)
                 if (err.isNotEmpty()) Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         },
@@ -188,7 +211,7 @@ fun SyncSetupDialog() {
                 when {
                     p1.length < 8 -> err = "Use at least 8 characters."
                     p1 != p2 -> err = "The passwords do not match."
-                    !saved -> err = "Please confirm you saved the recovery key."
+                    !saved -> err = "Copy or download the recovery key first."
                     else -> q.answer.complete(p1)
                 }
             }) { Text("Turn on encryption") }
@@ -245,5 +268,85 @@ fun SyncUnlockDialog() {
             }
         },
         dismissButton = { TextButton(onClick = { q.answer.complete(null) }) { Text("Cancel") } },
+    )
+}
+
+/** Settings > Encryption: make a new recovery key, or change the encryption password. Asks for the current password first. */
+@Composable
+private fun EncryptionDialog(kind: String, onDone: (String?) -> Unit, onCancel: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var cur by remember { mutableStateOf("") }
+    var p1 by remember { mutableStateOf("") }
+    var p2 by remember { mutableStateOf("") }
+    var err by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = { if (!busy) onCancel() },
+        title = { Text(if (kind == "key") "New recovery key" else "Change encryption password") },
+        text = {
+            Column {
+                if (kind == "key") Text("The app makes a new recovery key for you. The old one stops working. Type your encryption password to continue.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(cur, { cur = it; err = "" }, label = { Text(if (kind == "key") "Encryption password" else "Current password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                if (kind == "pass") {
+                    OutlinedTextField(p1, { p1 = it; err = "" }, label = { Text("New password (8 or more)") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                    OutlinedTextField(p2, { p2 = it; err = "" }, label = { Text("Type it again") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                    Text("Your other devices keep working. A new device will ask for the new password.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+                }
+                if (err.isNotEmpty()) Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy, onClick = {
+                when {
+                    cur.isEmpty() -> err = "Type your current password"
+                    kind == "pass" && p1.length < 8 -> err = "Use at least 8 characters"
+                    kind == "pass" && p1 != p2 -> err = "The passwords do not match."
+                    else -> {
+                        busy = true
+                        scope.launch {
+                            if (kind == "key") {
+                                val rec = CloudSync.newRecoveryKey(cur)
+                                if (rec == null) { err = "Wrong password"; busy = false } else onDone(rec)
+                            } else {
+                                if (CloudSync.changePassword(cur, p1)) onDone(null) else { err = "Wrong password"; busy = false }
+                            }
+                        }
+                    }
+                }
+            }) { Text(if (kind == "key") "Make a new key" else "Change password") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onCancel) { Text("Cancel") } },
+    )
+}
+
+/** Shows the new recovery key once, with copy and download. */
+@Composable
+private fun NewKeyDialog(key: String, onClose: () -> Unit) {
+    val clip = LocalClipboardManager.current
+    val ctx = LocalContext.current
+    val saveKey = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) {
+            val ok = runCatching {
+                ctx.contentResolver.openOutputStream(uri)?.use {
+                    it.write(("Pocketta recovery key\n\n" + key + "\n\nKeep this file somewhere safe (not only on this phone). With it you can open your cloud backup if you forget your encryption password. Anyone who has it and your Google account can open your backup.\n").toByteArray(Charsets.UTF_8))
+                } != null
+            }.getOrDefault(false)
+            Toast.makeText(ctx, if (ok) "Saved" else "Could not save the file", Toast.LENGTH_SHORT).show()
+        }
+    }
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Your new recovery key") },
+        text = {
+            Column {
+                Text(key, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                Row {
+                    TextButton(onClick = { clip.setText(AnnotatedString(key)) }) { Text("Copy recovery key") }
+                    TextButton(onClick = { saveKey.launch("pocketta-recovery-key.txt") }) { Text("Download as a file") }
+                }
+                Text("Save it now. It is shown only once. The old recovery key no longer works.", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("Done") } },
     )
 }

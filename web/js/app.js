@@ -9,7 +9,7 @@ import * as Sync from './sync.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.17.0';
+const VERSION = '1.17.1';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -1680,6 +1680,7 @@ function syncCard() {
     <div class="small">Last sync: ${esc(when)}</div>
     <div class="btns"><button class="btn filled" data-act="sync-now">Sync now</button><button class="btn outline" data-act="sync-out">Sign out</button></div>
     <div class="small">If you sign out, your data stays on this device and sync stops.</div>${note}
+    ${Sync.hasKeys() ? `<div class="label">Encryption</div><div class="btns"><button class="btn outline" data-act="enc-newkey">New recovery key</button><button class="btn outline" data-act="enc-pass">Change password</button></div>` : ''}
     <button class="btn text danger" data-act="sync-delete">Delete my data from the cloud</button>`;
 }
 function ago(t) {
@@ -1693,24 +1694,25 @@ function syncSetup({ recovery }) {
   return new Promise((resolve) => {
     let done = false;
     const fin = (v) => { if (!done) { done = true; resolve(v); } };
-    sheet({
+    const { el } = sheet({
       title: 'Lock your data',
       body: `<p>Your data is locked on this device before it goes to the cloud. Nobody can read it without your encryption password, not even us. This is not your Google password.</p>` +
         field('p1', 'Encryption password (8 or more)', '', { type: 'password' }) + field('p2', 'Type it again', '', { type: 'password' }) +
         `<div class="label">Recovery key</div><div class="recovery">${esc(recovery)}</div>
         <button type="button" class="btn text" data-act="copy-text" data-text="${esc(recovery)}">Copy</button>
-        <p class="small">Save it somewhere safe (a screenshot, or WhatsApp to yourself). If you forget the password, this key is the only way back. With neither, your cloud copy is lost for good. The data on your devices stays.</p>` +
-        check('saved', 'I saved the recovery key'),
+        <button type="button" class="btn text" data-act="download-text" data-text="${esc(recovery)}">Download as a file</button>
+        <p class="small">Copy it or download it as a file, and keep it somewhere safe. It is the only way back if you forget the password. With neither, your cloud copy is lost. The data on your devices stays.</p>`,
       saveLabel: 'Lock and continue',
       onSave: (root) => {
         const p1 = val(root, 'p1');
         if (p1.length < 8) return 'Use at least 8 characters';
         if (p1 !== val(root, 'p2')) return "The two passwords don't match";
-        if (!checked(root, 'saved')) return 'Tick the box after you save the recovery key';
+        if (!root.dataset.saved) return 'Copy or download the recovery key first';
         fin({ password: p1 });
       },
       onClose: () => fin(null),
     });
+    el.addEventListener('click', (e) => { if (e.target.closest('[data-act="copy-text"],[data-act="download-text"]')) el.dataset.saved = '1'; });
   });
 }
 
@@ -2076,8 +2078,53 @@ const actions = {
   'pin-set': () => pinSheet(),
   'pin-off': () => confirmSheet('Turn off the PIN?', 'Anyone with your phone can open Pocketta.', 'Turn off', () => { R.S().pinSalt = ''; R.setSetting('pinHash', ''); }),
   'sync-in': () => Sync.signIn(),
+  'download-text': (el) => {
+    try {
+      const txt = 'Pocketta recovery key\n\n' + el.dataset.text + '\n\nKeep this file somewhere safe (not only on this device). With it you can open your cloud backup if you forget your encryption password. Anyone who has it and your Google account can open your backup.\n';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }));
+      a.download = 'pocketta-recovery-key.txt';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      toast('Saved to your downloads');
+    } catch (e) { toast('Could not save the file'); }
+  },
   'copy-text': (el) => { navigator.clipboard?.writeText(el.dataset.text).then(() => toast('Copied')).catch(() => {}); },
   'sync-now': () => Sync.syncNow(),
+  'enc-newkey': () => sheet({
+    title: 'New recovery key',
+    body: `<p>The app makes a new recovery key for you. The old one stops working. Type your encryption password to continue.</p>` + field('cur', 'Encryption password', '', { type: 'password' }),
+    saveLabel: 'Make a new key',
+    onSave: (root) => {
+      const cur = val(root, 'cur');
+      if (!cur) return 'Type your encryption password';
+      Sync.newRecoveryKey(cur).then((rec) => {
+        if (!rec) return toast('Wrong password');
+        sheet({
+          title: 'Your new recovery key',
+          body: `<div class="recovery">${esc(rec)}</div>
+            <button type="button" class="btn text" data-act="copy-text" data-text="${esc(rec)}">Copy</button>
+            <button type="button" class="btn text" data-act="download-text" data-text="${esc(rec)}">Download as a file</button>
+            <p class="small">Save it now. It is shown only once. The old recovery key no longer works.</p>`,
+          saveLabel: 'Done',
+          onSave: () => {},
+        });
+      });
+    },
+  }),
+  'enc-pass': () => sheet({
+    title: 'Change encryption password',
+    body: field('cur', 'Current password', '', { type: 'password' }) + field('p1', 'New password (8 or more)', '', { type: 'password' }) + field('p2', 'Type it again', '', { type: 'password' }) +
+      `<p class="small">Your other devices keep working. A new device will ask for the new password.</p>`,
+    saveLabel: 'Change password',
+    onSave: (root) => {
+      const cur = val(root, 'cur'), p1 = val(root, 'p1');
+      if (!cur) return 'Type your current password';
+      if (p1.length < 8) return 'Use at least 8 characters';
+      if (p1 !== val(root, 'p2')) return "The two passwords don't match";
+      Sync.changePassword(cur, p1).then((ok) => toast(ok ? 'Password changed' : 'Wrong password'));
+    },
+  }),
   'sync-out': () => confirmSheet('Sign out?', 'Your data stays on this device. Sync stops until you sign in again.', 'Sign out', () => Sync.signOut()),
   'sync-delete': () => confirmSheet('Delete your data from the cloud?', 'This removes the copy in the cloud and its safety copy. Your data on this device is not touched.', 'Delete from cloud', () => { Sync.deleteCloud().then(() => toast('Deleted from the cloud')).catch(() => toast('Could not delete. Check your internet.')); }),
   backup: () => backup(),
