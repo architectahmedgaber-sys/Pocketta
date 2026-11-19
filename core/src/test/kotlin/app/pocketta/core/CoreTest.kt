@@ -66,6 +66,21 @@ class CoreTest {
         assertEquals(12000.0 - 6100 - 1300, r.left, 0.001)
     }
 
+    @Test fun moneyDecimalsFollowTheCurrency() {
+        try {
+            Money.setCurrency("JOD")
+            assertEquals("12.345", Money.fmt(12.3454))
+            assertEquals("12.5", Money.short(12.5))
+            Money.setCurrency("IQD")
+            assertEquals("1,235", Money.fmt(1234.6))
+            Money.setCurrency("EGP")
+            assertEquals("12.35", Money.fmt(12.348))
+            assertEquals("13", Money.short(12.6))
+            assertEquals(3, Countries.decimalsOf("KWD"))
+            assertEquals(2, Countries.decimalsOf("XYZ"))
+        } finally { Money.setCurrency("EGP") }
+    }
+
     @Test fun money() {
         assertEquals("1,234", Money.fmt(1234.0))
         assertEquals("12.5", Money.fmt(12.5))

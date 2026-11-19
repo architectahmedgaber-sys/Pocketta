@@ -3,6 +3,10 @@
 import { DICT, MONTHS, DAYS, RULES } from './ar-dict.js';
 
 const EXTRA = {
+  "Mobile wallet": "محفظة موبايل",
+  "Main currency": "العملة الأساسية",
+  "Your country": "بلدك",
+  "Pick your country": "اختار بلدك",
   "Spent that day": "اللي اتصرف في اليوم ده",
   "Previous month": "الشهر اللي فات",
   "Left for flexible spending": "متبقي للمرن",

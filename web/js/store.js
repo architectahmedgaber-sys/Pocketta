@@ -1,6 +1,7 @@
 // All data lives in one object, saved to IndexedDB on this phone. Ported from the Android Repo.
 import * as C from './core.js';
 import * as P from './plan.js';
+import { countryFor } from './countries.js';
 
 const DB_NAME = 'pocketta', STORE = 'kv', KEY = 'data';
 
@@ -19,7 +20,7 @@ export const EXPENSE_SEED = [
 export const INCOME_SEED = ['Salary', "Gam'eya payout", 'Borrowed', 'Loan repaid', 'Side work', 'Gift', 'Other income'];
 
 const DEFAULT_SETTINGS = {
-  onboarded: false, cycleStart: 1, baseCurrency: 'EGP', salary: 0, salaryDay: 1, salaryWallet: 0,
+  onboarded: false, cycleStart: 1, baseCurrency: 'EGP', country: '', salary: 0, salaryDay: 1, salaryWallet: 0,
   savingsPerMonth: 0, budgetAlert: true, rates: {}, lastCategory: 0, lastWallet: 0, pinHash: '', pinSalt: '', overAlert: '',
   // 1.3: look, savings goal, today's rates from the internet (your own rates still win)
   theme: 'AUTO', goalName: '', goalAmount: 0, goalSaved: 0, goals: [], piggy: [], piggyTarget: 0, limitAlert: true, limitDismissed: '',
@@ -65,6 +66,7 @@ export async function load() {
   try { raw = await idb('readonly', (s) => s.get(KEY)); } catch (e) { console.warn(e); }
   if (!raw) { try { raw = JSON.parse(localStorage.getItem('pocketta-data') || 'null'); } catch { raw = null; } }
   data = normalize(raw) || empty();
+  C.setCurrencyFormat(data.settings.baseCurrency);
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch { /* fine */ }
 }
 
@@ -93,6 +95,25 @@ let lastId = 0;
 export const nextId = () => (lastId = Math.max(lastId + 1, Date.now() * 1000 + Math.floor(Math.random() * 1000)));
 export const S = () => data.settings;
 export function setSetting(k, v) { data.settings[k] = v; changed(); }
+/** The country picked in the app (old data has none, so it is read from the currency: Egypt for EGP). */
+export const country = () => countryFor(S().country, S().baseCurrency);
+/** Change the main currency. Old amounts are not converted: only the symbol and decimals change. */
+export function setCurrency(cur, countryCode = '') {
+  const s = S();
+  cur = String(cur || '').trim().toUpperCase().slice(0, 4);
+  if (!cur) return;
+  const was = s.baseCurrency;
+  s.country = countryCode;
+  if (cur !== was) {
+    s.baseCurrency = cur;
+    // Online rates and gold were converted into the old currency: drop them and fetch again.
+    s.onlineRates = {}; s.prevOnlineRates = {}; s.gold = {}; s.prevGold = {}; s.ratesFetchedAt = 0;
+    s.autoCurrencies = [...new Set([...s.autoCurrencies.filter((c) => c !== cur), ...(cur === 'USD' ? [] : ['USD'])])];
+  }
+  C.setCurrencyFormat(cur);
+  changed();
+  if (cur !== was) refreshRates(true);
+}
 export const rateOf = (cur) => cur === S().baseCurrency ? 1 : (S().rates[cur] || (S().autoRates ? S().onlineRates[cur] : 0) || 1);
 export const currencies = () => [...new Set([S().baseCurrency, ...Object.keys(S().rates).sort(),
   ...(S().autoRates ? S().autoCurrencies.filter((c) => S().onlineRates[c]) : [])])];
@@ -113,9 +134,20 @@ export async function refreshRates(force = false) {
     const res = await fetch(RATES_URL, { cache: 'no-cache' });
     if (!res.ok) throw new Error(res.status);
     const j = await res.json();
-    const rates = readMap(j.rates), gold = readMap(j.gold);
+    // The file is in EGP; turn it into the main currency (rate of X = EGP per X / EGP per main currency).
+    const inBase = (r, g) => {
+      const rates = readMap(r), gold = readMap(g), b = s.baseCurrency;
+      if (b === 'EGP') return [rates, gold];
+      const f = rates[b];
+      if (!f) throw new Error('no rate for ' + b);
+      const rr = { EGP: 1 / f }, gg = {};
+      for (const [k, v] of Object.entries(rates)) if (k !== b) rr[k] = v / f;
+      for (const [k, v] of Object.entries(gold)) gg[k] = v / f;
+      return [rr, gg];
+    };
+    const [rates, gold] = inBase(j.rates, j.gold);
     if (!Object.keys(rates).length) throw new Error('empty');
-    if (j.previous) { s.prevOnlineRates = readMap(j.previous.rates); s.prevGold = readMap(j.previous.gold); }
+    if (j.previous) { [s.prevOnlineRates, s.prevGold] = inBase(j.previous.rates, j.previous.gold); }
     else if (Object.keys(s.onlineRates).length && String(s.ratesUpdated).slice(0, 10) !== String(j.updated).slice(0, 10)) { s.prevOnlineRates = s.onlineRates; s.prevGold = s.gold; }
     s.onlineRates = rates; s.gold = gold; s.ratesUpdated = String(j.updated || ''); s.ratesFetchedAt = Date.now();
     changed();
@@ -133,17 +165,18 @@ export function importJson(text) {
   const d = normalize(raw);
   if (!d) return false;
   data = d;
+  C.setCurrencyFormat(data.settings.baseCurrency);
   changed();
   return true;
 }
-export function wipe() { data = empty(); changed(); }
+export function wipe() { data = empty(); C.setCurrencyFormat(data.settings.baseCurrency); changed(); }
 
 // ---------- Seed ----------
 
 export function ensureSeeded() {
   if (data.wallets.length) return;
-  for (const [i, [name, type]] of [['Cash', 'CASH'], ['Bank account', 'BANK'], ['Vodafone Cash', 'MOBILE']].entries()) {
-    data.wallets.push({ id: nextId(), name, type, currency: 'EGP', opening: 0, sort: i, archived: false });
+  for (const [i, [name, type]] of [['Cash', 'CASH'], ['Bank account', 'BANK'], [S().baseCurrency === 'EGP' ? 'Vodafone Cash' : 'Mobile wallet', 'MOBILE']].entries()) {
+    data.wallets.push({ id: nextId(), name, type, currency: S().baseCurrency, opening: 0, sort: i, archived: false });
   }
   let sort = 0;
   for (const [name, subs] of EXPENSE_SEED) {

@@ -8,7 +8,7 @@ import sys
 import urllib.request
 from datetime import datetime, timezone
 
-CODES = ["USD", "EUR", "SAR", "AED", "KWD", "GBP", "QAR", "TRY", "JOD", "OMR", "BHD", "CHF", "CAD", "AUD", "CNY", "JPY"]
+CODES = ["USD", "EUR", "SAR", "AED", "KWD", "GBP", "QAR", "TRY", "JOD", "OMR", "BHD", "CHF", "CAD", "AUD", "CNY", "JPY", "ILS", "LYD", "TND", "DZD", "MAD", "MRU", "SDG", "IQD", "LBP", "SYP", "YER"]
 OUNCE_GRAMS = 31.1034768
 
 

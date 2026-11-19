@@ -310,6 +310,8 @@ fun CurrenciesScreen(repo: Repo, nav: Nav, prefs: Prefs) {
     var code by remember { mutableStateOf("") }
     var rate by remember { mutableStateOf("") }
     var base by remember { mutableStateOf(prefs.baseCurrency) }
+    var pickCountry by remember { mutableStateOf(false) }
+    val country0 = app.pocketta.core.Countries.find(prefs.country, prefs.baseCurrency)
     var refreshing by remember { mutableStateOf(false) }
     Scaffold(topBar = { BackBar("Currencies & gold", { nav.back() }) }) { pad ->
         Column(
@@ -402,11 +404,49 @@ fun CurrenciesScreen(repo: Repo, nav: Nav, prefs: Prefs) {
             }
             SectionCard {
                 Label("Main currency")
+                val country = app.pocketta.core.Countries.find(prefs.country, prefs.baseCurrency)
+                val ar = LocalLang.current == app.pocketta.i18n.Tr.AR
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextInput("Code", base, { base = it.uppercase().take(4) }, Modifier.weight(1f))
-                    TextButton(onClick = { scope.launch { if (base.isNotBlank()) repo.set("baseCurrency", base.trim()) } }) { Text("Save") }
+                    Text(
+                        (country?.let { it.flag + " " + (if (ar) it.ar else it.en) + " · " } ?: "") + prefs.baseCurrency,
+                        Modifier.weight(1f), fontWeight = FontWeight.SemiBold,
+                    )
+                    TextButton(onClick = { pickCountry = true }) { Text("Change") }
                 }
-                Text("Everything is totalled in this currency. Internet rates are in EGP.", style = MaterialTheme.typography.bodySmall)
+                Text("Numbers look like: ${Money.fmt(1234.5678)} ${prefs.baseCurrency}", style = MaterialTheme.typography.bodySmall)
+                Text("Everything is totalled in this currency. Internet rates and gold are converted to it.", style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextInput("Another currency (code)", base, { base = it.uppercase().take(4) }, Modifier.weight(1f))
+                    TextButton(onClick = {
+                        scope.launch {
+                            if (base.isNotBlank()) { repo.setCurrency(base.trim(), ""); app.pocketta.data.Online.refreshRates(repo, true) }
+                        }
+                    }) { Text("Save") }
+                }
+            }
+            if (pickCountry) {
+                var sel by remember { mutableStateOf(country0?.code ?: "") }
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { pickCountry = false },
+                    title = { Text("Pick your country") },
+                    text = {
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                            CountryPicker(sel) { c -> sel = c.code }
+                            Text("Changing the currency does not convert your old amounts, only the symbol and decimals.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val c = app.pocketta.core.Countries.choices.firstOrNull { it.code == sel }
+                            pickCountry = false
+                            if (c != null) scope.launch {
+                                repo.setCurrency(c.currency, if (c.code.startsWith("CUR:")) "" else c.code)
+                                app.pocketta.data.Online.refreshRates(repo, true)
+                            }
+                        }) { Text("Save") }
+                    },
+                    dismissButton = { TextButton(onClick = { pickCountry = false }) { Text("Cancel") } },
+                )
             }
         }
     }
@@ -420,6 +460,7 @@ fun OnboardingScreen(repo: Repo, onDone: () -> Unit) {
     var salaryDay by remember { mutableStateOf("1") }
     var savings by remember { mutableStateOf("") }
     var lock by remember { mutableStateOf(false) }
+    var picked by remember { mutableStateOf(app.pocketta.core.Countries.all.first()) }
     Scaffold { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(24.dp).verticalScroll(rememberScrollState()),
@@ -428,11 +469,15 @@ fun OnboardingScreen(repo: Repo, onDone: () -> Unit) {
             Text("Pocketta", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Choices(listOf("EN", "AR"), LocalLang.current, { if (it == "AR") "العربية" else "English" }, { v -> scope.launch { repo.set("lang", v) } })
             Text("Your money for the month: what you can spend today, your bills, installments, gam'eya and loans. Everything stays on your phone.")
-            NumberField("Monthly salary (optional)", salary, { salary = it }, suffix = "EGP")
+            Text("Your country", fontWeight = FontWeight.SemiBold)
+            Text("We set your currency from it. You can change it later in Settings.", style = MaterialTheme.typography.bodySmall)
+            CountryPicker(picked.code) { picked = it }
+            NumberField("Monthly salary (optional)", salary, { salary = it }, suffix = picked.currency)
             NumberField("Salary day of the month", salaryDay, { salaryDay = it }, decimal = false)
             Text("Your month starts on the salary day. You can change this later in Settings.", style = MaterialTheme.typography.bodySmall)
             Button(onClick = {
                 scope.launch {
+                    repo.setCurrency(picked.currency, if (picked.code.startsWith("CUR:")) "" else picked.code)
                     repo.ensureSeeded()
                     repo.set("cycleStart", (salaryDay.toIntOrNull() ?: 1).coerceIn(1, 31))
                     repo.set("salary", parseNumber(salary) ?: 0.0)

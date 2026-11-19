@@ -36,7 +36,7 @@ object QuickText {
         if (amount != null && m.groupValues[2].isNotEmpty()) amount *= 1000
         val note = (s.substring(0, m.range.first) + " " + s.substring(m.range.last + 1))
             .replace(Regex("\\s+"), " ").trim()
-            .replace(Regex("(^|\\s)(EGP|egp|LE|le|L\\.E\\.?|جنيه|ج\\.?م?)$"), "").trim()
+            .replace(Regex("(^|\\s)(EGP|egp|LE|le|L\\.E\\.?|JOD|ILS|LYD|TND|DZD|MAD|MRU|SDG|SAR|AED|KWD|QAR|BHD|OMR|IQD|LBP|SYP|YER|USD|EUR|جنيه|دينار|شيكل|ريال|درهم|ليرة|ج\\.?م?)$", RegexOption.IGNORE_CASE), "").trim()
         return Quick(amount, note)
     }
 }
