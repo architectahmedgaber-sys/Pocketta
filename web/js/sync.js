@@ -124,10 +124,15 @@ async function needKeys() {
   const recovery = K.newRecoveryKey();
   const r = await hooks.setup({ recovery });
   if (!r) return false;
-  const k = await K.createKeys(r.password, recovery);
+  const k = await K.createKeys(recovery, recovery); // the app's key is also the unlock secret: no password to choose
   st.dek = k.dek; st.keys = k.keys;
   save();
   return true;
+}
+
+/** The key made by the app, or a password chosen in an older version: try both. */
+async function openWith(env, secret) {
+  try { return await K.unlock(env, 'rec', secret); } catch { return K.unlock(env, 'pass', secret); }
 }
 
 /** The cloud row as stored, opened: a sealed copy needs the password (or the recovery key) once per device. */
@@ -141,9 +146,8 @@ async function openRow(row) {
       if (!r) return null;
       if (r.wipe) { await deleteCloud(); return 'retry'; }
       try {
-        const dek = await K.unlock(d, r.mode, r.secret);
+        const dek = await openWith(d, r.secret);
         st.dek = dek; st.keys = K.keysOf(d);
-        if (r.mode === 'rec') { st.keys = await K.rewrap(dek, st.keys, r.newPass); st.forceUpload = true; }
         save(); bad = false;
       } catch { bad = true; continue; }
     }
@@ -235,21 +239,15 @@ export async function deleteCloud() {
   st.lastHash = ''; st.cloudAt = ''; st.lastSyncAt = 0; st.dek = ''; st.keys = null; st.forceUpload = false; save(); emit();
 }
 
-/** Settings > Encryption. Both ask for the current password first. The data key itself never changes, so other devices keep working. */
-async function checkPass(cur) { try { await K.unlock(st.keys, 'pass', cur); return true; } catch { return false; } }
+/** Settings > Encryption: a new encryption key made by the app. It asks for the current key (or old password) first. The data itself is not re-encrypted, so other devices keep working. */
+async function checkSecret(cur) { try { await openWith(st.keys, cur); return true; } catch { return false; } }
 export const hasKeys = () => !!(st.dek && st.keys);
 export async function newRecoveryKey(cur) {
-  if (!hasKeys() || !(await checkPass(cur))) return null;
+  if (!hasKeys() || !(await checkSecret(cur))) return null;
   const rec = K.newRecoveryKey();
-  st.keys = await K.withRecovery(st.dek, st.keys, rec); st.forceUpload = true; save();
+  st.keys = await K.rewrap(st.dek, await K.withRecovery(st.dek, st.keys, rec), rec); st.forceUpload = true; save();
   syncNow();
   return rec;
-}
-export async function changePassword(cur, next) {
-  if (!hasKeys() || !(await checkPass(cur))) return false;
-  st.keys = await K.rewrap(st.dek, st.keys, next); st.forceUpload = true; save();
-  syncNow();
-  return true;
 }
 
 /** Start syncing after changes (debounced) and when the app opens. Does nothing while signed out. */

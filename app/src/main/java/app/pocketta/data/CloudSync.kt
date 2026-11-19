@@ -193,7 +193,7 @@ object CloudSync {
         _setup.value = SetupReq(recovery, d)
         val pw: String? = try { d.await() } finally { _setup.value = null }
         if (pw == null) return false
-        val k = withContext(Dispatchers.Default) { E2ee.createKeys(pw, recovery) }
+        val k = withContext(Dispatchers.Default) { E2ee.createKeys(recovery, recovery) } // the app's key is also the unlock secret
         sp.edit().putString("dek", k.first).putString("keys", k.second.toString()).apply()
         return true
     }
@@ -203,6 +203,10 @@ object CloudSync {
         _unlock.value = UnlockReq(bad, d)
         return try { d.await() } finally { _unlock.value = null }
     }
+
+    /** The key made by the app, or a password chosen in an older version: try both. */
+    private fun openWith(env: JSONObject, secret: String): String =
+        try { E2ee.unlock(env, "rec", secret) } catch (e: Exception) { E2ee.unlock(env, "pass", secret) }
 
     /** A sealed copy needs the password (or the recovery key) once per phone. */
     private suspend fun openRow(f: Fetched): Opened {
@@ -214,14 +218,8 @@ object CloudSync {
                 val ans = askUnlock(bad) ?: return Opened(2, null)
                 if (ans.wipe) { deleteCloud(); return Opened(1, null) }
                 try {
-                    val dek = withContext(Dispatchers.Default) { E2ee.unlock(d, ans.mode, ans.secret) }
-                    var keys = E2ee.keysOf(d)
-                    val ed = sp.edit()
-                    if (ans.mode == "rec") {
-                        keys = withContext(Dispatchers.Default) { E2ee.rewrap(dek, keys, ans.newPass) }
-                        ed.putBoolean("forceUpload", true)
-                    }
-                    ed.putString("dek", dek).putString("keys", keys.toString()).apply()
+                    val dek = withContext(Dispatchers.Default) { openWith(d, ans.secret) }
+                    sp.edit().putString("dek", dek).putString("keys", E2ee.keysOf(d).toString()).apply()
                     bad = false
                 } catch (e: Exception) {
                     bad = true
@@ -349,24 +347,20 @@ object CloudSync {
 
     fun hasEncryption() = ::sp.isInitialized && hasKeys()
 
-    private suspend fun checkPass(cur: String): Boolean = withContext(Dispatchers.Default) {
-        runCatching { E2ee.unlock(JSONObject(sp.getString("keys", "{}") ?: "{}"), "pass", cur) }.isSuccess
+    private suspend fun checkSecret(cur: String): Boolean = withContext(Dispatchers.Default) {
+        runCatching { openWith(JSONObject(sp.getString("keys", "{}") ?: "{}"), cur) }.isSuccess
     }
 
-    /** Makes a new recovery key and returns it (null if the password is wrong). The old key stops working after the next upload. */
+    /** Makes a new encryption key (used as the unlock secret too) and returns it; null if the current key is wrong. */
     suspend fun newRecoveryKey(cur: String): String? {
-        if (!hasKeys() || !checkPass(cur)) return null
+        if (!hasKeys() || !checkSecret(cur)) return null
         val rec = E2ee.newRecoveryKey()
-        val keys = withContext(Dispatchers.Default) { E2ee.withRecovery(sp.getString("dek", "") ?: "", JSONObject(sp.getString("keys", "{}") ?: "{}"), rec) }
+        val keys = withContext(Dispatchers.Default) {
+            val dek = sp.getString("dek", "") ?: ""
+            E2ee.rewrap(dek, E2ee.withRecovery(dek, JSONObject(sp.getString("keys", "{}") ?: "{}"), rec), rec)
+        }
         sp.edit().putString("keys", keys.toString()).putBoolean("forceUpload", true).apply()
         return rec
-    }
-
-    suspend fun changePassword(cur: String, next: String): Boolean {
-        if (!hasKeys() || !checkPass(cur)) return false
-        val keys = withContext(Dispatchers.Default) { E2ee.rewrap(sp.getString("dek", "") ?: "", JSONObject(sp.getString("keys", "{}") ?: "{}"), next) }
-        sp.edit().putString("keys", keys.toString()).putBoolean("forceUpload", true).apply()
-        return true
     }
 
     private fun parseTime(s: String): Long = runCatching { java.time.OffsetDateTime.parse(s).toInstant().toEpochMilli() }.getOrDefault(0L)
