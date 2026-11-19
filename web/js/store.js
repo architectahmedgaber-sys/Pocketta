@@ -1,5 +1,6 @@
 // All data lives in one object, saved to IndexedDB on this phone. Ported from the Android Repo.
 import * as C from './core.js';
+import * as P from './plan.js';
 
 const DB_NAME = 'pocketta', STORE = 'kv', KEY = 'data';
 
@@ -23,6 +24,7 @@ const DEFAULT_SETTINGS = {
   // 1.3: look, savings goal, today's rates from the internet (your own rates still win)
   theme: 'AUTO', goalName: '', goalAmount: 0, goalSaved: 0, goals: [], piggy: [], piggyTarget: 0, limitAlert: true, limitDismissed: '',
   lang: 'EN', goldBuys: [], monthEndReminder: true, monthEndDismissed: '',
+  salarySteps: {}, livingBase: 0, livingOverrides: {},
   wealthHistory: [], autoRates: true, autoCurrencies: ['USD', 'EUR', 'SAR'], onlineRates: {}, prevOnlineRates: {}, gold: {}, prevGold: {}, ratesUpdated: '', ratesFetchedAt: 0,
 };
 
@@ -294,9 +296,12 @@ export function saveInstallment(it) {
   changed();
 }
 export function deleteInstallment(it) { data.installments = data.installments.filter((x) => x.id !== it.id); changed(); }
-export function payInstallment(it, day = C.todayEpoch()) {
+export function payInstallment(it, dayArg = null) {
   const x = byId(data.installments, it.id);
   if (!x || x.paid >= x.total) return;
+  // Recorded on the day it was due when that day has passed, so old installments land in their own months.
+  const due = C.plan(x.amount, x.total, x.paid, x.firstDue).dueOf(x.paid), today = C.todayEpoch();
+  const day = dayArg ?? (due < today ? due : today);
   data.txns.push(txn({
     type: 'EXPENSE', amount: x.amount, walletId: x.walletId || defaultWallet(), categoryId: categoryNamed('Installments', 'EXPENSE'),
     note: x.name, epochDay: day, source: 'INSTALLMENT', sourceId: x.id,
@@ -313,9 +318,11 @@ export function saveCircle(c) {
   changed();
 }
 export function deleteCircle(c) { data.circles = data.circles.filter((x) => x.id !== c.id); changed(); }
-export function payCircle(c, day = C.todayEpoch()) {
+export function payCircle(c, dayArg = null) {
   const x = byId(data.circles, c.id);
   if (!x || x.paid >= x.months) return;
+  const due = C.circle(x).plan.dueOf(x.paid), today = C.todayEpoch();
+  const day = dayArg ?? (due < today ? due : today);
   data.txns.push(txn({
     type: 'EXPENSE', amount: x.share, walletId: x.walletId || defaultWallet(), categoryId: categoryNamed("Gam'eya", 'EXPENSE'),
     note: `${x.name} share`, epochDay: day, source: 'CIRCLE', sourceId: x.id,
@@ -323,9 +330,11 @@ export function payCircle(c, day = C.todayEpoch()) {
   x.paid++;
   changed();
 }
-export function receivePayout(c, day = C.todayEpoch()) {
+export function receivePayout(c, dayArg = null) {
   const x = byId(data.circles, c.id);
   if (!x || x.payoutReceived) return;
+  const pd = C.circle(x).payoutDate, today = C.todayEpoch();
+  const day = dayArg ?? (pd < today ? pd : today);
   data.txns.push(txn({
     type: 'INCOME', amount: x.share * x.months, walletId: x.walletId || defaultWallet(), categoryId: categoryNamed("Gam'eya payout", 'INCOME'),
     note: `${x.name} payout`, epochDay: day, source: 'CIRCLE', sourceId: x.id,
@@ -362,7 +371,12 @@ export function loanPayment(l, amount, walletId = null, day = C.todayEpoch()) {
   x.closed = x.repaid >= x.amount - 0.001;
   changed();
 }
-export function deleteLoan(l) { data.loans = data.loans.filter((x) => x.id !== l.id); changed(); }
+/** Deleting a loan also removes the money records it made, so wallets and the budget stay right. */
+export function deleteLoan(l) {
+  data.txns = data.txns.filter((t) => !(t.source === 'LOAN' && t.sourceId === l.id));
+  data.loans = data.loans.filter((x) => x.id !== l.id);
+  changed();
+}
 
 // ---------- Salary ----------
 
@@ -577,3 +591,43 @@ export function saveGoal(goal) {
   changed();
 }
 export function deleteGoal(id) { data.settings.goals = (S().goals || []).filter((g) => g.id !== id); changed(); }
+
+// ---------- Month plan ----------
+
+/** Past months from what really happened, this month as what happened plus what is still due, then expected months. */
+export function monthPlan(past = 3, future = 12, today = C.todayEpoch()) {
+  const s = S(), nowYm = P.ymOf(today);
+  const input = {
+    salaryBase: s.salary, salarySteps: s.salarySteps || {}, livingBase: s.livingBase || 0, livingOverrides: s.livingOverrides || {},
+    bills: data.bills.filter((b) => b.active !== false).map((b) => ({ name: b.name, amount: b.amount * rateOf(b.currency), frequency: b.frequency, everyN: b.everyN, nextDue: b.nextDue, anchorDay: b.anchorDay })),
+    installments: data.installments.map((i) => ({ name: i.name, amount: i.amount, total: i.total, paid: i.paid, firstDue: i.firstDue, card: String(i.type).toLowerCase() === 'credit card' })),
+    circles: data.circles,
+    loans: data.loans.filter((l) => !l.closed).map((l) => ({ person: l.person, remaining: remaining(l), due: l.dueDay, lent: l.direction === 'LENT' })),
+  };
+  const proj = Object.fromEntries(P.project(input, nowYm, future + 1).map((m) => [m.ym, m]));
+  const rows = [];
+  for (let ym = nowYm - past; ym <= nowYm + future; ym++) {
+    const from = P.ymStart(ym), to = P.ymEnd(ym);
+    const tx = data.txns.filter((t) => t.type !== 'TRANSFER' && t.epochDay >= from && t.epochDay < to);
+    const a = actualMonth(ym, tx);
+    const p = proj[ym];
+    if (ym < nowYm || !p) rows.push(a);
+    else rows.push({
+      ...p, salary: a.salary + (a.salary > 0 ? 0 : p.salary), payout: a.payout + p.payout, loansIn: a.loansIn + p.loansIn,
+      bills: a.bills + p.bills, installments: a.installments + p.installments, cards: a.cards + p.cards,
+      circleShares: a.circleShares + p.circleShares, loansOut: a.loansOut + p.loansOut, living: Math.max(p.living, a.living),
+    });
+  }
+  return P.withCumulative(rows);
+}
+function actualMonth(ym, tx) {
+  const inc = tx.filter((t) => t.type === 'INCOME'), exp = tx.filter((t) => t.type === 'EXPENSE');
+  const sum = (l, src) => l.filter((t) => t.source === src).reduce((a, t) => a + base(t), 0);
+  const payout = sum(inc, 'CIRCLE'), loansIn = sum(inc, 'LOAN');
+  const committed = ['BILL', 'INSTALLMENT', 'CIRCLE', 'LOAN'];
+  return {
+    ym, actual: true, salary: inc.reduce((a, t) => a + base(t), 0) - payout - loansIn, payout, loansIn,
+    bills: sum(exp, 'BILL'), installments: sum(exp, 'INSTALLMENT'), cards: 0, circleShares: sum(exp, 'CIRCLE'), loansOut: sum(exp, 'LOAN'),
+    living: exp.filter((t) => !committed.includes(t.source)).reduce((a, t) => a + base(t), 0), lines: [],
+  };
+}

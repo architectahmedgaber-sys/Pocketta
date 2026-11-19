@@ -438,7 +438,8 @@ internal fun NewLoanDialog(repo: Repo, prefs: Prefs, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val walletsFlow = remember { repo.dao.walletsFlow() }
     val wallets by walletsFlow.collectAsState(initial = emptyList())
-    var lent by remember { mutableStateOf(true) }
+    var lentSel by remember { mutableStateOf<Boolean?>(null) }
+    val lent = lentSel == true
     var person by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(LocalDate.now()) }
@@ -449,13 +450,14 @@ internal fun NewLoanDialog(repo: Repo, prefs: Prefs, onClose: () -> Unit) {
     val a = parseNumber(amount)
     FormDialog(
         "New loan", onDismiss = onClose,
-        saveEnabled = person.isNotBlank() && a != null && a > 0,
+        saveEnabled = lentSel != null && person.isNotBlank() && a != null && a > 0,
         onSave = {
             scope.launch { repo.addLoan(person.trim(), lent, a ?: 0.0, walletId, date, due, note.trim(), record) }
             onClose()
         },
     ) {
-        Choices(listOf(true, false), lent, { if (it) "I lent money" else "I borrowed money" }, { lent = it })
+        Label("Pick one first")
+        Choices(listOf(false, true), lentSel, { if (it) "I lent money (they owe me)" else "I borrowed money (I owe)" }, { lentSel = it })
         TextInput(if (lent) "To whom" else "From whom", person, { person = it })
         NumberField("Amount", amount, { amount = it }, suffix = prefs.baseCurrency)
         DateField("Date", date, { if (it != null) date = it })

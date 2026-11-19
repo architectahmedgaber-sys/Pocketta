@@ -16,6 +16,14 @@ import app.pocketta.core.GoalList
 import app.pocketta.core.Piggy
 import app.pocketta.core.SavingsGoal
 import app.pocketta.core.Planning
+import app.pocketta.core.PlanInput
+import app.pocketta.core.PlanBill
+import app.pocketta.core.PlanInstallment
+import app.pocketta.core.PlanCircle
+import app.pocketta.core.PlanLoan
+import app.pocketta.core.PlanMonth
+import app.pocketta.core.MonthPlanner
+import app.pocketta.core.Ym
 import app.pocketta.core.WealthLog
 import app.pocketta.core.WealthPoint
 import app.pocketta.core.Recurrence
@@ -150,6 +158,9 @@ class Repo private constructor(private val app: Context) {
         return ws.firstOrNull { it.id == p.lastWallet }?.id ?: ws.firstOrNull()?.id ?: dao.insertWallet(Wallet(name = "Cash"))
     }
 
+    /** The wallet new money records go to unless told otherwise. */
+    suspend fun newRecordWallet(): Long = defaultWallet(prefs())
+
     // ---------- Transactions ----------
 
     suspend fun saveTxn(t: Txn): Long {
@@ -265,9 +276,12 @@ class Repo private constructor(private val app: Context) {
     suspend fun saveInstallment(i: Installment) { if (i.id == 0L) dao.insertInstallment(i) else dao.updateInstallment(i); changed() }
     suspend fun deleteInstallment(i: Installment) { dao.deleteInstallment(i); changed() }
 
-    suspend fun payInstallment(i: Installment, day: LocalDate = LocalDate.now()) {
+    suspend fun payInstallment(i: Installment, dayOrNull: LocalDate? = null) {
         if (i.paid >= i.total) return
         val p = prefs()
+        val today = LocalDate.now()
+        val due = InstallmentPlan(i.amount, i.total, i.paid, LocalDate.ofEpochDay(i.firstDue)).dueOf(i.paid)
+        val day = dayOrNull ?: if (due.isBefore(today)) due else today
         dao.insertTxn(
             Txn(
                 type = TxType.EXPENSE, amount = i.amount, walletId = i.walletId ?: defaultWallet(p),
@@ -284,9 +298,13 @@ class Repo private constructor(private val app: Context) {
     suspend fun saveCircle(c: CircleEntity) { if (c.id == 0L) dao.insertCircle(c) else dao.updateCircle(c); changed() }
     suspend fun deleteCircle(c: CircleEntity) { dao.deleteCircle(c); changed() }
 
-    suspend fun payCircle(c: CircleEntity, day: LocalDate = LocalDate.now()) {
+    /** Recorded on the day the share was due when that day has passed, so an old gam'eya's shares land in their own months, not today. */
+    suspend fun payCircle(c: CircleEntity, dayOrNull: LocalDate? = null) {
         if (c.paid >= c.months) return
         val p = prefs()
+        val today = LocalDate.now()
+        val due = Circle(c.share, c.months, c.myTurn, c.paid, LocalDate.ofEpochDay(c.firstDue)).plan.dueOf(c.paid)
+        val day = dayOrNull ?: if (due.isBefore(today)) due else today
         dao.insertTxn(
             Txn(
                 type = TxType.EXPENSE, amount = c.share, walletId = c.walletId ?: defaultWallet(p),
@@ -298,9 +316,13 @@ class Repo private constructor(private val app: Context) {
         changed()
     }
 
-    suspend fun receivePayout(c: CircleEntity, day: LocalDate = LocalDate.now()) {
+    /** Recorded on the payout day when it has passed, so collecting an old payout does not land in this month. */
+    suspend fun receivePayout(c: CircleEntity, dayOrNull: LocalDate? = null) {
         if (c.payoutReceived) return
         val p = prefs()
+        val today = LocalDate.now()
+        val payDay = Circle(c.share, c.months, c.myTurn, c.paid, LocalDate.ofEpochDay(c.firstDue)).payoutDate
+        val day = dayOrNull ?: if (payDay.isBefore(today)) payDay else today
         dao.insertTxn(
             Txn(
                 type = TxType.INCOME, amount = c.share * c.months, walletId = c.walletId ?: defaultWallet(p),
@@ -337,7 +359,8 @@ class Repo private constructor(private val app: Context) {
     }
 
     suspend fun updateLoan(l: Loan) { dao.updateLoan(l); changed() }
-    suspend fun deleteLoan(l: Loan) { dao.deleteLoan(l); changed() }
+    /** Deleting a loan also removes the money records it made, so wallets and the budget stay right. */
+    suspend fun deleteLoan(l: Loan) { dao.deleteTxnsFor(Source.LOAN, l.id); dao.deleteLoan(l); changed() }
 
     suspend fun loanPayment(l: Loan, amount: Double, walletId: Long? = null, day: LocalDate = LocalDate.now()) {
         val p = prefs()
@@ -486,6 +509,79 @@ class Repo private constructor(private val app: Context) {
         val postponable = h.upcoming.filter { it.kind == "BILL" && !it.incoming && !it.spread && it.due.isAfter(today) && it.due.isBefore(h.cycle.nextStart) }
             .map { Planning.Postponable(it.title, it.amount, it.due) }
         return PlanData(h, stats, everyday, h.cycle.dayIndex(today), postponable)
+    }
+
+    // ---------- Month plan ----------
+
+    /** The month-by-month plan: [past] finished months from what really happened, this month as what happened plus what is still due, then [future] months of what is expected. */
+    suspend fun monthPlan(past: Int = 3, future: Int = 12, today: LocalDate = LocalDate.now()): List<PlanMonth> {
+        val p = prefs()
+        val nowYm = Ym.of(today)
+        val input = PlanInput(
+            salaryBase = p.salary, salarySteps = p.salarySteps, livingBase = p.livingBase, livingOverrides = p.livingOverrides,
+            bills = dao.bills().map {
+                PlanBill(
+                    it.name, it.amount * p.rateOf(it.currency), Frequency.parse(it.frequency), it.everyN,
+                    LocalDate.ofEpochDay(it.nextDue), it.anchorDay,
+                )
+            },
+            installments = dao.installments().map {
+                PlanInstallment(
+                    it.name, it.amount, it.total, it.paid, LocalDate.ofEpochDay(it.firstDue), it.type.equals("Credit card", ignoreCase = true),
+                )
+            },
+            circles = dao.circles().map {
+                PlanCircle(it.name, it.share, it.months, it.myTurn, it.paid, LocalDate.ofEpochDay(it.firstDue), it.payoutReceived)
+            },
+            loans = dao.loans().filter { !it.closed }.map {
+                PlanLoan(it.person, it.remaining, it.dueDay?.let { d -> LocalDate.ofEpochDay(d) }, it.lent)
+            },
+        )
+        val projected = MonthPlanner.project(input, nowYm, future + 1).associateBy { it.ym }
+        val rows = ArrayList<PlanMonth>()
+        for (ym in (nowYm - past)..(nowYm + future)) {
+            val from = Ym.start(ym).toEpochDay()
+            val to = Ym.endExclusive(ym).toEpochDay()
+            val tx = dao.txns(from, to).filter { it.type != TxType.TRANSFER }
+            val a = actualMonth(ym, tx)
+            val proj = projected[ym]
+            rows += when {
+                ym < nowYm -> a
+                proj == null -> a
+                else -> {
+                    // This month: what already happened plus what is still due (unpaid things only), and living cost is the bigger of the plan and what was spent.
+                    proj.copy(
+                        salary = a.salary + (if (a.salary > 0) 0.0 else proj.salary),
+                        payout = a.payout + proj.payout,
+                        loansIn = a.loansIn + proj.loansIn,
+                        bills = a.bills + proj.bills,
+                        installments = a.installments + proj.installments,
+                        cards = a.cards + proj.cards,
+                        circleShares = a.circleShares + proj.circleShares,
+                        loansOut = a.loansOut + proj.loansOut,
+                        living = maxOf(proj.living, a.living),
+                    )
+                }
+            }
+        }
+        return MonthPlanner.withCumulative(rows)
+    }
+
+    private fun actualMonth(ym: Int, tx: List<Txn>): PlanMonth {
+        val inc = tx.filter { it.type == TxType.INCOME }
+        val exp = tx.filter { it.type == TxType.EXPENSE }
+        fun sum(l: List<Txn>, src: String) = l.filter { it.source == src }.sumOf { it.base }
+        val payout = sum(inc, Source.CIRCLE)
+        val loansIn = sum(inc, Source.LOAN)
+        val committedSources = setOf(Source.BILL, Source.INSTALLMENT, Source.CIRCLE, Source.LOAN)
+        return PlanMonth(
+            ym = ym, actual = true,
+            salary = inc.sumOf { it.base } - payout - loansIn,
+            payout = payout, loansIn = loansIn,
+            bills = sum(exp, Source.BILL), installments = sum(exp, Source.INSTALLMENT), cards = 0.0,
+            circleShares = sum(exp, Source.CIRCLE), loansOut = sum(exp, Source.LOAN),
+            living = exp.filter { it.source !in committedSources }.sumOf { it.base },
+        )
     }
 
     // ---------- Wealth ----------

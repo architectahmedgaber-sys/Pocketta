@@ -1,0 +1,202 @@
+package app.pocketta.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import app.pocketta.ai.AiConfig
+import app.pocketta.ai.AiError
+import app.pocketta.ai.AiProvider
+import app.pocketta.ai.AiSession
+import app.pocketta.data.Prefs
+import app.pocketta.data.Repo
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+
+private class Bubble(val role: String, val text: String)
+
+/** Miqrish: a chat with the user's own AI key. It reads and changes Pocketta through tools, always asking before saving. */
+@Composable
+fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs) {
+    val ctx = LocalContext.current
+    val cfg = remember { AiConfig(ctx) }
+    val scope = rememberCoroutineScope()
+    val bubbles = remember { mutableStateListOf<Bubble>() }
+    var pending by remember { mutableStateOf<Pair<String, CompletableDeferred<Boolean>>?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var settings by remember { mutableStateOf(cfg.key().isBlank()) }
+    var input by remember { mutableStateOf("") }
+    var provider by remember { mutableStateOf(cfg.provider) }
+    val listState = rememberLazyListState()
+
+    val session = remember {
+        AiSession(
+            repo, cfg,
+            confirm = { what ->
+                val d = CompletableDeferred<Boolean>()
+                pending = what to d
+                val ok = d.await()
+                pending = null
+                ok
+            },
+            show = { role, text -> bubbles.add(Bubble(role, text)) },
+        )
+    }
+    LaunchedEffect(bubbles.size, busy) { if (bubbles.isNotEmpty()) listState.animateScrollToItem(bubbles.size - 1) }
+
+    fun send() {
+        val text = input.trim()
+        if (text.isEmpty() || busy) return
+        input = ""
+        bubbles.add(Bubble("me", text))
+        busy = true
+        scope.launch {
+            try {
+                session.send(text)
+            } catch (e: AiError) {
+                bubbles.add(Bubble("error", e.friendly()))
+            } catch (e: Exception) {
+                bubbles.add(Bubble("error", "Could not reach the assistant. Check your internet and try again."))
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    Scaffold(topBar = {
+        BackBar("Miqrish", { nav.back() }) {
+            TextButton(onClick = { settings = !settings }) { Text(if (settings) "Chat" else "Settings") }
+        }
+    }) { pad ->
+        if (settings) {
+            AssistantSettings(cfg, provider, { provider = it }, Modifier.padding(pad)) { settings = false }
+        } else {
+            Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (bubbles.isEmpty()) item {
+                        SectionCard {
+                            Text("Hi, I'm Miqrish, your money advisor.", style = MaterialTheme.typography.titleMedium)
+                            Gap(6)
+                            Text("Tell me things like: koshary 60 · I borrowed 1000 from Basem · I paid the installment · how much did I spend on food this month? I always ask before I save anything.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    items(bubbles.toList()) { b -> BubbleView(b) }
+                    if (busy) item { CircularProgressIndicator(Modifier.padding(8.dp)) }
+                }
+                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = input, onValueChange = { input = it }, modifier = Modifier.weight(1f), shape = FieldShape,
+                        placeholder = { Text("Write to Miqrish") },
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    )
+                    Button(onClick = { send() }, enabled = input.isNotBlank() && !busy) { Text("Send") }
+                }
+            }
+        }
+    }
+
+    pending?.let { (what, d) ->
+        AlertDialog(
+            onDismissRequest = { d.complete(false) },
+            title = { Text("Save this?") },
+            text = { Text(what) },
+            confirmButton = { TextButton(onClick = { d.complete(true) }) { Text("Yes, save") } },
+            dismissButton = { TextButton(onClick = { d.complete(false) }) { Text("No") } },
+        )
+    }
+}
+
+@Composable
+private fun BubbleView(b: Bubble) {
+    val mine = b.role == "me"
+    val bg = when (b.role) {
+        "me" -> MaterialTheme.colorScheme.primary
+        "done" -> MaterialTheme.colorScheme.tertiaryContainer
+        "error" -> MaterialTheme.colorScheme.errorContainer
+        else -> MaterialTheme.colorScheme.surfaceContainer
+    }
+    val fg = when (b.role) {
+        "me" -> MaterialTheme.colorScheme.onPrimary
+        "done" -> MaterialTheme.colorScheme.onTertiaryContainer
+        "error" -> MaterialTheme.colorScheme.onErrorContainer
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
+        Box(Modifier.clip(RoundedCornerShape(16.dp)).background(bg).padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Text((if (b.role == "done") "✓ " else "") + b.text, color = fg)
+        }
+    }
+}
+
+@Composable
+private fun AssistantSettings(cfg: AiConfig, provider: AiProvider, onProvider: (AiProvider) -> Unit, modifier: Modifier, onDone: () -> Unit) {
+    var key by remember(provider) { mutableStateOf(cfg.key(provider)) }
+    var model by remember(provider) { mutableStateOf(cfg.model(provider)) }
+    var notesVersion by remember { mutableStateOf(0) }
+    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        SectionCard {
+            Label("Choose the company")
+            Gap(6)
+            Choices(AiProvider.entries.toList(), provider, { it.label }, { cfg.provider = it; onProvider(it) })
+            Gap(8)
+            Text("Get a key at " + provider.keyHelp + ". Gemini has a free plan that is enough for personal use.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Gap(10)
+            OutlinedTextField(
+                value = key, onValueChange = { key = it }, label = { Text("Your API key") }, singleLine = true, shape = FieldShape,
+                visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
+            )
+            Gap(8)
+            OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Model") }, singleLine = true, shape = FieldShape, modifier = Modifier.fillMaxWidth())
+            Gap(10)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { cfg.setKey(provider, key); cfg.setModel(provider, model); onDone() }, enabled = key.isNotBlank()) { Text("Save and chat") }
+                if (cfg.key(provider).isNotBlank()) OutlinedButton(onClick = { cfg.removeKey(provider); key = "" }) { Text("Remove key") }
+            }
+            Gap(8)
+            Text("The key stays on this phone only. It is not in your backups and it is sent only to the company you picked. Your chat is sent to that company, and any cost is on your own account there.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        SectionCard {
+            Label("What Miqrish learned about you")
+            Gap(6)
+            val notes = remember(notesVersion) { cfg.notes() }
+            if (notes.isEmpty()) Text("Nothing yet. When you correct it or tell it a habit, it remembers here.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else {
+                for (n in notes) Text("• $n", style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = { cfg.clearNotes(); notesVersion++ }) { Text("Forget everything") }
+            }
+        }
+    }
+}

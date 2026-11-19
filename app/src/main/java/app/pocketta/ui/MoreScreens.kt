@@ -52,6 +52,8 @@ fun MoreScreen(nav: Nav, modifier: Modifier) {
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        MoreCard("🪙", "Miqrish", "Your AI money advisor. Chat to add, change and calculate, with your own key") { nav.open(Route.Assistant) }
+        MoreCard("📅", "Month plan", "Every month like your spreadsheet: income, installments, living, what is left") { nav.open(Route.MonthPlan) }
         MoreCard("🐷", "Piggy bank", "Everything you saved, month by month") { nav.open(Route.Piggy) }
         MoreCard("🎯", "Goals", "Umra, a car, a laptop, each with its own date") { nav.open(Route.Goals) }
         MoreCard("🏦", "Everything I own", "Wallets and gold in one number, in dollars and gold, and how it changed") { nav.open(Route.Wealth) }

@@ -2,10 +2,12 @@ import * as C from './core.js';
 import * as R from './store.js';
 import { shareMonth } from './share.js';
 import { startArabic } from './i18n.js';
+import * as P from './plan.js';
+import * as AI from './ai.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.11.0';
+const VERSION = '1.12.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -37,6 +39,8 @@ const ui = {
   plan: { price: '', cat: null, pct: 20 },
   locked: false, hiddenAt: 0,
   hideInstall: false, updateReady: false,
+  mp: { open: null },
+  chat: { bubbles: [], busy: false, settings: null, draft: '', session: null },
 };
 try { ui.hideInstall = localStorage.getItem('pocketta-hide-install') === '1'; ui.hideGuide = localStorage.getItem('pocketta-hide-guide') === '1'; } catch { /* private mode */ }
 const cur = () => ui.stack[ui.stack.length - 1];
@@ -86,7 +90,7 @@ function toast(msg, ms = 3200) {
 
 // ---------- Sheets (dialogs) ----------
 
-function sheet({ title, body, saveLabel = 'Save', onSave, onDelete, deleteLabel = 'Delete', extra = '' }) {
+function sheet({ title, body, saveLabel = 'Save', onSave, onDelete, deleteLabel = 'Delete', extra = '', onClose }) {
   const el = document.createElement('div');
   el.className = 'scrim';
   el.innerHTML = `<div class="sheet" role="dialog" aria-label="${esc(title)}">
@@ -101,7 +105,7 @@ function sheet({ title, body, saveLabel = 'Save', onSave, onDelete, deleteLabel 
   document.body.appendChild(el);
   document.body.classList.add('noscroll');
   requestAnimationFrame(() => el.classList.add('open'));
-  const close = () => { el.classList.remove('open'); document.body.classList.remove('noscroll'); setTimeout(() => el.remove(), 200); };
+  const close = () => { el.classList.remove('open'); document.body.classList.remove('noscroll'); setTimeout(() => el.remove(), 200); if (onClose) onClose(); };
   el.addEventListener('click', (e) => {
     if (e.target === el) return close();
     const b = e.target.closest('[data-s]');
@@ -128,7 +132,7 @@ function render() {
   if (ui.locked) { app.innerHTML = lockScreen(); $('#pin')?.focus(); return; }
   if (!R.S().onboarded) { app.innerHTML = onboarding(); return; }
   const c = cur();
-  const pages = { home, spend, commit, more, add, income, wallets, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage };
+  const pages = { home, spend, commit, more, add, income, wallets, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage, monthPlanPage, assistantPage };
   const page = pages[c.r === 'currencies' ? 'currencyPage' : c.r] || home;
   if (isTab(c.r)) {
     app.innerHTML = `<main class="page wide">${page(c)}</main>
@@ -1111,7 +1115,7 @@ function loansTab() {
 }
 
 function newLoan() {
-  const body = chips('dir', [['LENT', 'I lent money'], ['BORROWED', 'I borrowed money']], 'LENT', 'seg') +
+  const body = label('Pick one first') + chips('dir', [['BORROWED', 'I borrowed money (I owe)'], ['LENT', 'I lent money (they owe me)']], '', 'seg') +
     field('person', 'To / from whom', '') + numField('amount', 'Amount', null, { suffix: base() }) +
     dateField('date', 'Date', C.todayEpoch()) + dateField('due', 'Pay back by (optional)', null) + field('note', 'Note (optional)', '') +
     check('record', 'Record the money in my wallet too', true) + label('Wallet') + chips('wallet', walletOpts(), R.wallets()[0]?.id ?? '');
@@ -1119,6 +1123,7 @@ function newLoan() {
     title: 'New loan', body,
     onSave: (root) => {
       const person = val(root, 'person').trim(), a = num(root, 'amount');
+      if (!chipVal(root, 'dir')) return 'Pick: I borrowed or I lent';
       if (!person) return 'Who is it?';
       if (!(a > 0)) return 'Type the amount';
       R.addLoan({ person, lent: chipVal(root, 'dir') === 'LENT', amount: a, walletId: +chipVal(root, 'wallet') || null, day: C.fromIso(val(root, 'date')) ?? C.todayEpoch(), due: C.fromIso(val(root, 'due')), note: val(root, 'note').trim(), record: checked(root, 'record') });
@@ -1144,6 +1149,108 @@ function loanDialog(l) {
       if (!l.closed) { const a = num(root, 'pay'); if (a > 0) R.loanPayment(l, a); }
     },
   });
+}
+
+
+// ---------- Month plan ----------
+
+function monthCard(m, nowYm) {
+  const isNow = m.ym === nowYm, rem = P.remainingOf(m), open = ui.mp.open === m.ym;
+  const kind = m.actual ? 'Actual' : isNow ? 'This month' : 'Expected';
+  let detail = '';
+  if (open) {
+    const rows = [['Salary / income', m.salary, 1], ['Gam\'eya payout', m.payout, 1], ['Loans coming back', m.loansIn, 1], ['Bills and subscriptions', m.bills, 0],
+      ['Installments', m.installments, 0], ['Credit cards', m.cards, 0], ["Gam'eya shares", m.circleShares, 0], ['Loans to pay back', m.loansOut, 0], ['Living', m.living, 0]];
+    detail = `<div class="mpd">` + rows.filter((r) => r[1] !== 0).map(([l, v, plus]) =>
+      `<div class="row-flex"><div class="grow">${esc(l)}</div><span class="${plus ? 'good-t' : ''}">${plus ? '+' : '−'} ${money(v)} ${esc(base())}</span></div>`).join('') +
+      (m.lines?.length ? `<div class="small">${m.lines.map((x) => `${esc(x.name)} ${money(x.amount)}`).join(' · ')}</div>` : '') +
+      (!m.actual ? `<div class="btns"><button class="btn tonal" data-act="mp-living" data-ym="${m.ym}">Change living cost</button><button class="btn tonal" data-act="mp-raise" data-ym="${m.ym}">Salary from here</button></div>` : '') + `</div>`;
+  }
+  return card(`<div class="row-flex"><div class="grow"><div class="mid">${esc(P.ymLabel(m.ym))}</div>
+    <div class="small">${esc(kind)} · In ${money(P.incomeOf(m))} · Out ${money(P.committedOf(m) + m.living)}</div></div>
+    <div style="text-align:end"><b class="${rem < 0 ? 'bad-t' : 'good-t'}" style="font-size:1.25rem">${money(rem)}</b><div class="small">Total ${money(m.cumulative)}</div></div></div>${detail}`,
+  `tap ${isNow ? 'tonal' : ''}`, `data-act="mp-open" data-ym="${m.ym}" ${isNow ? 'id="mp-now"' : ''}`);
+}
+function monthPlanPage() {
+  const s = R.S(), months = R.monthPlan(3, 24), nowYm = P.ymOf(C.todayEpoch());
+  const steps = Object.entries(s.salarySteps || {}).map(([k, v]) => [+k, v]).sort((a, b) => a[0] - b[0]);
+  const head = card(label('Living cost in a normal month') + `<div class="small">Food, transport, everyday things. Used for every coming month.</div>` +
+    numField('living', 'Living cost', s.livingBase || null, { suffix: base() }) +
+    `<div class="btns"><button class="btn filled" data-act="mp-save">Save</button><button class="btn tonal" data-act="mp-raise" data-ym="${nowYm}">Salary raise</button></div>` +
+    steps.map(([k, v]) => `<div class="row-flex"><div class="grow small">From ${esc(P.ymLabel(k))}: ${money(v)} ${esc(base())}</div><button class="btn text" data-act="mp-raise" data-ym="${k}">Edit</button></div>`).join(''));
+  return topbar('Month plan') + `<main class="page" id="monthplan">${head}${months.map((m) => monthCard(m, nowYm)).join('')}</main>`;
+}
+function livingSheet(ym) {
+  const s = R.S(), has = s.livingOverrides && s.livingOverrides[ym] != null;
+  sheet({
+    title: `Living cost · ${P.ymLabel(ym)}`,
+    body: `<div class="small">Only for this month. Other months keep the normal living cost.</div>` + numField('living', 'Living cost', has ? s.livingOverrides[ym] : (s.livingBase || null), { suffix: base() }),
+    onDelete: has ? () => { const o = { ...s.livingOverrides }; delete o[ym]; R.setSetting('livingOverrides', o); } : null,
+    onSave: (root) => { const v = num(root, 'living'); if (!(v >= 0)) return 'Type the amount'; R.setSetting('livingOverrides', { ...(s.livingOverrides || {}), [ym]: v }); },
+  });
+}
+function raiseSheet(ym0) {
+  const s = R.S(), steps = s.salarySteps || {}, has = steps[ym0] != null;
+  sheet({
+    title: 'Salary from a month',
+    body: `<div class="small">From this month on, the salary is this amount, until the next raise.</div>` + dateField('month', 'Month', P.ymStart(ym0)) +
+      numField('salary', 'Salary', has ? steps[ym0] : (P.stepAt(steps, ym0) ?? (s.salary || null)), { suffix: base() }),
+    onDelete: has ? () => { const o = { ...steps }; delete o[ym0]; R.setSetting('salarySteps', o); } : null,
+    onSave: (root) => {
+      const d = C.fromIso(val(root, 'month')), v = num(root, 'salary');
+      if (d == null) return 'Pick a month';
+      if (!(v > 0)) return 'Type the salary';
+      const o = { ...steps }; delete o[ym0]; o[P.ymOf(d)] = v;
+      R.setSetting('salarySteps', o);
+    },
+  });
+}
+
+// ---------- Miqrish (the AI advisor) ----------
+
+function chatBubble([role, text]) {
+  return `<div class="bubble-row ${role === 'me' ? 'me' : ''}"><div class="bubble ${role}">${role === 'done' ? '✓ ' : ''}${esc(text)}</div></div>`;
+}
+function assistantPage() {
+  const ch = ui.chat, prov = AI.cfg.provider();
+  const settings = ch.settings ?? !AI.cfg.key();
+  const bar = topbar('Miqrish', `<button class="btn text" data-act="ai-toggle">${settings ? 'Chat' : 'Settings'}</button>`);
+  if (settings) {
+    const notes = AI.cfg.notes();
+    return bar + `<main class="page" id="aiset">` + card(label('Choose the company') +
+      chips('aiprov', Object.entries(AI.PROVIDERS).map(([k, v]) => [k, v.label]), prov) +
+      `<div class="small">Get a key at ${esc(AI.PROVIDERS[prov].help)}. Gemini has a free plan that is enough for personal use.</div>` +
+      field('key', 'Your API key', AI.cfg.key(prov), { type: 'password' }) + field('model', 'Model', AI.cfg.model(prov)) +
+      `<div class="btns"><button class="btn filled" data-act="ai-save">Save and chat</button>${AI.cfg.key(prov) ? `<button class="btn tonal" data-act="ai-remove">Remove key</button>` : ''}</div>` +
+      `<div class="small">The key stays in this browser only. It is not in your backups and it is sent only to the company you picked. Your chat is sent to that company, and any cost is on your own account there.</div>`) +
+      card(label('What Miqrish learned about you') + (notes.length ? notes.map((n) => `<div>• ${esc(n)}</div>`).join('') + `<div class="btns"><button class="btn text" data-act="ai-forget">Forget everything</button></div>`
+        : `<div class="small">Nothing yet. When you correct it or tell it a habit, it remembers here.</div>`)) + `</main>`;
+  }
+  const intro = ch.bubbles.length ? '' : card(`<div class="mid">Hi, I'm Miqrish, your money advisor.</div><div class="small">Tell me things like: koshary 60 · I borrowed 1000 from Basem · I paid the installment · how much did I spend on food this month? I always ask before I save anything.</div>`);
+  return bar + `<main class="page chatpage"><div id="chat">${intro}${ch.bubbles.map(chatBubble).join('')}${ch.busy ? '<div class="small">…</div>' : ''}</div>
+    <div class="chatbar"><input id="ai-in" placeholder="Write to Miqrish" value="${esc(ch.draft)}" autocomplete="off"><button class="btn filled" data-act="ai-send" ${ch.busy ? 'disabled' : ''}>Send</button></div></main>`;
+}
+function aiSession() {
+  const ch = ui.chat;
+  if (!ch.session) {
+    ch.session = AI.createSession({
+      confirm: (what) => new Promise((resolve) => sheet({ title: 'Save this?', body: `<p>${esc(what)}</p>`, saveLabel: 'Yes, save', onSave: () => { resolve(true); }, onClose: () => resolve(false) })),
+      show: (role, text) => { ch.bubbles.push([role, text]); if (cur().r === 'assistant') render(); },
+    });
+  }
+  return ch.session;
+}
+async function aiSend() {
+  const ch = ui.chat, inp = $('#ai-in'), text = (inp?.value || '').trim();
+  if (!text || ch.busy) return;
+  ch.draft = '';
+  ch.bubbles.push(['me', text]);
+  ch.busy = true;
+  render();
+  try { await aiSession().send(text); }
+  catch (e) { ch.bubbles.push(['error', e instanceof AI.AiError ? e.friendly() : 'Could not reach the assistant. Check your internet and try again.']); }
+  ch.busy = false;
+  render();
 }
 
 // ---------- More ----------
@@ -1289,6 +1396,8 @@ function more() {
   const big = (emoji, title, sub, r) => `<div class="card bigcard tap" data-act="open" data-r="${r}"><span class="bigicon">${emoji}</span>
     <div class="grow"><div class="mid">${esc(title)}</div><div class="small">${esc(sub)}</div></div><span class="chev">›</span></div>`;
   return topbar('Settings & more') + `<main class="page more">` +
+    big('🪙', 'Miqrish', 'Your AI money advisor. Chat to add, change and calculate, with your own key', 'assistant') +
+    big('📅', 'Month plan', 'Every month like your spreadsheet: income, installments, living, what is left', 'monthPlanPage') +
     big('🐷', 'Piggy bank', 'Everything you saved, month by month', 'piggyPage') +
     big('🎯', 'Goals', 'Umra, a car, a laptop, each with its own date', 'goalsPage') +
     big('🏦', 'Everything I own', 'Wallets and gold in one number, in dollars and gold, and how it changed', 'wealthPage') +
@@ -1519,6 +1628,8 @@ function afterRender(c) {
       }
     }
   }
+  if (c.r === 'assistant') { const el = $('#chat'); if (el) window.scrollTo(0, document.body.scrollHeight); }
+  if (c.r === 'monthPlanPage' && !ui.mp.scrolled) { ui.mp.scrolled = true; $('#mp-now')?.scrollIntoView({ block: 'center' }); }
   if (c.r === 'spend') {
     const s = $('#spend-search');
     s.addEventListener('input', () => { ui.spendSearch = s.value; $('#spend-list').innerHTML = spendList(spendData().txns); });
@@ -1536,6 +1647,19 @@ async function updateBadge() {
 // ---------- Actions ----------
 
 const actions = {
+  'mp-open': (el) => { const ym = +el.dataset.ym; ui.mp.open = ui.mp.open === ym ? null : ym; render(); },
+  'mp-save': () => { const v = C.parseNumber($('#monthplan [name="living"]').value); R.setSetting('livingBase', v > 0 ? v : 0); toast('Saved'); },
+  'mp-living': (el) => livingSheet(+el.dataset.ym),
+  'mp-raise': (el) => raiseSheet(+el.dataset.ym),
+  'ai-toggle': () => { ui.chat.settings = !(ui.chat.settings ?? !AI.cfg.key()); render(); },
+  'ai-save': () => {
+    const root = $('#aiset'), p = AI.cfg.provider();
+    AI.cfg.setKey(p, val(root, 'key')); AI.cfg.setModel(p, val(root, 'model') || AI.PROVIDERS[p].model);
+    ui.chat.settings = false; ui.chat.session = null; render();
+  },
+  'ai-remove': () => { AI.cfg.setKey(AI.cfg.provider(), ''); render(); },
+  'ai-forget': () => { AI.cfg.clearNotes(); render(); },
+  'ai-send': () => aiSend(),
   tab: (el) => go(el.dataset.r),
   open: (el) => go(el.dataset.r, el.dataset.type ? { type: el.dataset.type } : {}),
   back: () => back(),
@@ -1598,6 +1722,7 @@ const actions = {
       if (group === 'currency') { st.currency = v; addRefresh(); }
       if (group === 'day') { st.date = +v; $('[name="date"]').value = C.isoOf(+v); }
     }
+    if (group === 'aiprov') { AI.cfg.setProvider(el.dataset.val); render(); }
     if (group === 'catkind') { ui.catKind = el.dataset.val; render(); }
     if (group === 'theme') { R.setSetting('theme', el.dataset.val); }
     if (group === 'lang') { R.S().lang = el.dataset.val; R.changed(); setTimeout(() => location.reload(), 250); }
@@ -1722,10 +1847,14 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('input', (e) => {
   if (e.target.id === 'qa') { ui.quickText = e.target.value; ui.quickHint = false; }
+  if (e.target.id === 'ai-in') ui.chat.draft = e.target.value;
   if (e.target.id === 'conv-amt') { ui.conv.amount = e.target.value; convRefresh(); }
   if (e.target.name === 'price' && cur().r === 'plan') { ui.plan.price = e.target.value; $('#afford-out').innerHTML = affordOut(); }
 });
-document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'qa') { e.preventDefault(); quickSubmit(); } });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.id === 'qa') { e.preventDefault(); quickSubmit(); }
+  if (e.key === 'Enter' && e.target.id === 'ai-in') { e.preventDefault(); aiSend(); }
+});
 
 document.addEventListener('input', async (e) => {
   if (e.target.id !== 'pin') return;

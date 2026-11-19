@@ -306,4 +306,35 @@ class CoreTest {
         assertEquals(listOf("Rent", "Netflix", "Internet"), items.filter { Commitments.matches(CFilter.BILLS, it) }.map { it.name })
         assertEquals(listOf("CIB card"), items.filter { Commitments.matches(CFilter.CARDS, it) }.map { it.name })
     }
+
+    @Test fun monthPlanProjectsSalaryRaisesAndCircles() {
+        val jan = Ym.of(LocalDate.of(2027, 1, 15))
+        val input = PlanInput(
+            salaryBase = 55000.0, salarySteps = mapOf(jan to 63000.0), livingBase = 10000.0, livingOverrides = mapOf(jan + 1 to 12000.0),
+            bills = listOf(PlanBill("Net", 400.0, Frequency.MONTHLY, 0, LocalDate.of(2026, 12, 5), 5)),
+            installments = listOf(PlanInstallment("Fridge", 1000.0, 3, 1, LocalDate.of(2026, 11, 20), false)),
+            circles = listOf(PlanCircle("Work", 3000.0, 10, 5, 2, LocalDate.of(2026, 10, 1), false)),
+            loans = listOf(PlanLoan("Basem", 1000.0, LocalDate.of(2027, 2, 10), false)),
+        )
+        val m = MonthPlanner.project(input, jan - 1, 3)
+        assertEquals(55000.0, m[0].salary, 0.001)
+        assertEquals(63000.0, m[1].salary, 0.001)
+        // Circle: 10 months from Oct 2026, my turn 5 = Feb 2027; shares 3 and 4 are Dec and Jan.
+        assertEquals(3000.0, m[1].circleShares, 0.001)
+        assertEquals(30000.0, m[2].payout, 0.001)
+        assertEquals(1000.0, m[2].loansOut, 0.001)
+        assertEquals(12000.0, m[2].living, 0.001)
+        // Fridge: paid 1 of 3, due Nov 20, Dec 20, Jan 20 -> unpaid are Dec and Jan.
+        assertEquals(1000.0, m[0].installments, 0.001)
+        assertEquals(1000.0, m[1].installments, 0.001)
+        assertEquals(m[0].remaining + m[1].remaining + m[2].remaining, m[2].cumulative, 0.001)
+    }
+
+    @Test fun monthValuesRoundTrip() {
+        val v = mapOf(24325 to 63000.0, 24330 to 70000.5)
+        assertEquals(v, MonthValues.parse(MonthValues.format(v)))
+        assertEquals(63000.0, MonthValues.stepAt(v, 24328)!!, 0.001)
+        assertNull(MonthValues.stepAt(v, 24000))
+        assertEquals(java.time.YearMonth.of(2027, 1), Ym.toMonth(Ym.of(java.time.YearMonth.of(2027, 1))))
+    }
 }
