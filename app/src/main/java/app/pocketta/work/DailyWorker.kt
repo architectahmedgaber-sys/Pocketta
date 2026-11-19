@@ -80,13 +80,14 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         Notifier.morning(applicationContext, title, if (lines.isEmpty()) null else lines.joinToString("\n"))
     }
 
-    /** On the last day of the month: if money is left and a savings goal isn't reached, suggest moving it there. */
+    /** On the last day of the month: if money is left, suggest putting it in the piggy bank (and the savings goal when one is open). */
     private suspend fun monthEndMessage(repo: Repo) {
         val s = repo.home()
         val p = s.prefs
         if (s.budget.daysLeft != 1) return
-        val amount = app.pocketta.core.Savings.suggestMove(s.budget.left, p.goalAmount, p.goalSaved)
-        if (amount > 0) Notifier.monthEnd(applicationContext, amount, p.goalName, p.baseCurrency, p.lang)
+        if (s.budget.left <= 0) return
+        val goalMove = app.pocketta.core.Savings.suggestMove(s.budget.left, p.goalAmount, p.goalSaved)
+        Notifier.monthEnd(applicationContext, s.budget.left, goalMove, p.goalName, p.baseCurrency, p.lang)
     }
 
     /** Once per month and category: spending in a category is running 20% or more above your 3-month average. */

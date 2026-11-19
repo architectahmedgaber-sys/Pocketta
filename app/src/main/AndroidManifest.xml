@@ -6,6 +6,10 @@
     <!-- Only to download daily currency/gold rates and new versions of the app. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Only if you turn on "Suggest expenses from bank messages": messages are read on the phone, never sent anywhere. -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <application
         android:name=".PockettaApp"
@@ -30,6 +34,9 @@
         </activity>
 
         <receiver android:name=".notify.ActionReceiver" android:exported="false" />
+        <receiver android:name=".notify.SmsReceiver" android:exported="true" android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter><action android:name="android.provider.Telephony.SMS_RECEIVED" /></intent-filter>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

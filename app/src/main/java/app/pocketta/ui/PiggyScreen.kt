@@ -46,6 +46,12 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
     var dialog by remember { mutableStateOf<Int?>(null) } // 1 = put in, -1 = take out
     var text by remember { mutableStateOf("") }
     val avg = Piggy.averagePerMonth(months)
+    val today = LocalDate.now()
+    var spend by remember { mutableStateOf(0.0) }
+    androidx.compose.runtime.LaunchedEffect(prefs.piggy.size, total) { spend = repo.monthlySpend() }
+    val cover = Piggy.coverMonths(total, spend)
+    var editTarget by remember { mutableStateOf(false) }
+    var targetText by remember { mutableStateOf("") }
 
     Scaffold(topBar = { BackBar("Piggy bank", { nav.back() }) }) { pad ->
         Column(
@@ -71,6 +77,49 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                         onClick = { text = ""; dialog = -1 }, modifier = Modifier.weight(1f), enabled = total > 0,
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = on),
                     ) { Text("Take out") }
+                }
+            }
+            if (cover != null) {
+                SectionCard {
+                    Label("How long it lasts")
+                    Gap(4)
+                    Text("Your piggy bank covers " + cover + " months of your spending", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                    Text("You spend about " + Money.short(spend) + " a month", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            SectionCard {
+                Label("Monthly target")
+                Gap(4)
+                val target = prefs.piggyTarget
+                if (target <= 0) {
+                    Text("Pick an amount to put in every month and see how many months in a row you hit it.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Gap(6)
+                    Button(onClick = { targetText = ""; editTarget = true }) { Text("Set a monthly target") }
+                } else {
+                    val got = Piggy.thisMonth(months, today)
+                    val streak = Piggy.streak(months, target, today)
+                    val hit = got >= target
+                    Text("This month: " + Money.short(got) + " of " + Money.short(target) + " " + cur, fontWeight = FontWeight.SemiBold)
+                    Gap(6)
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { (got / target).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)),
+                        color = if (hit) Good else MaterialTheme.colorScheme.primary,
+                    )
+                    Gap(6)
+                    Text(
+                        if (hit) "You hit this month's target" else "Still " + Money.short(target - got) + " to go this month",
+                        color = if (hit) Good else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    val run = streak + if (hit) 1 else 0
+                    Text(
+                        when {
+                            run == 0 -> "No streak yet. Hit the target this month to start one."
+                            run == 1 -> "1 month in a row"
+                            else -> "$run months in a row"
+                        },
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    TextButton(onClick = { targetText = numText(target); editTarget = true }) { Text("Change target") }
                 }
             }
             if (months.isEmpty()) {
@@ -117,6 +166,21 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
             }
             Gap(24)
         }
+    }
+
+    if (editTarget) {
+        AlertDialog(
+            onDismissRequest = { editTarget = false },
+            title = { Text("Monthly target") },
+            text = { NumberField("Amount each month (0 to remove)", targetText, { targetText = it }, suffix = cur) },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch { repo.set("piggyTarget", (parseNumber(targetText) ?: 0.0).coerceAtLeast(0.0)) }
+                    editTarget = false
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editTarget = false }) { Text("Cancel") } },
+        )
     }
 
     val mode = dialog

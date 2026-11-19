@@ -9,6 +9,7 @@ import app.pocketta.core.Circle
 import app.pocketta.core.Cycle
 import app.pocketta.core.CycleMath
 import app.pocketta.core.Frequency
+import app.pocketta.core.LimitAlerts
 import app.pocketta.core.InstallmentPlan
 import app.pocketta.core.Gold
 import app.pocketta.core.GoalList
@@ -560,6 +561,38 @@ class Repo private constructor(private val app: Context) {
         val p = prefs()
         saveGoals(p.goals.map { if (it.id == id) it.copy(saved = it.saved + amount) else it })
         piggyAdd(amount)
+    }
+
+    /** Top-level expense categories whose spending this cycle is above their monthly limit, as (category, spent). */
+    suspend fun categoriesOverLimit(today: LocalDate = LocalDate.now()): List<Pair<Category, Double>> {
+        val p = prefs()
+        val cycle = CycleMath.cycleFor(today, p.cycleStart)
+        val cats = dao.categories().filter { it.kind == TxType.EXPENSE }.associateBy { it.id }
+        val limited = cats.values.filter { it.parentId == null && it.monthlyLimit > 0 && !it.archived }
+        if (limited.isEmpty()) return emptyList()
+        val byTop = HashMap<Long, Double>()
+        for (t in dao.txns(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay())) {
+            if (t.type != TxType.EXPENSE || t.spread || t.categoryId == null) continue
+            val c = cats[t.categoryId] ?: continue
+            val top = c.parentId ?: c.id
+            byTop[top] = (byTop[top] ?: 0.0) + t.base
+        }
+        return limited.mapNotNull { c -> byTop[c.id]?.takeIf { LimitAlerts.isOver(it, c.monthlyLimit) }?.let { c to it } }
+    }
+
+    /** What you spend in a normal month: the average of the last 3 finished cycles that had spending, else this cycle so far. */
+    suspend fun monthlySpend(today: LocalDate = LocalDate.now()): Double {
+        val p = prefs()
+        var cycle = CycleMath.cycleFor(today, p.cycleStart)
+        suspend fun total(c: Cycle) = dao.txns(c.start.toEpochDay(), c.nextStart.toEpochDay())
+            .filter { it.type == TxType.EXPENSE && !it.spread }.sumOf { it.base }
+        val past = ArrayList<Double>()
+        repeat(3) {
+            cycle = cycle.previous(p.cycleStart)
+            total(cycle).takeIf { it > 0 }?.let { past += it }
+        }
+        if (past.isNotEmpty()) return past.average()
+        return total(CycleMath.cycleFor(today, p.cycleStart))
     }
 
     // ---------- Backup ----------

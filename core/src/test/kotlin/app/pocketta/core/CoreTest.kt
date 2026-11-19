@@ -205,6 +205,53 @@ class CoreTest {
         assertEquals(1, Piggy.months(Piggy.add(emptyList(), d(2026, 11, 1), 10.0), java.time.LocalDate.of(2026, 11, 18)).size)
     }
 
+    @Test fun piggyTargetStreakAndCover() {
+        val d = { y: Int, m: Int, day: Int -> java.time.LocalDate.of(y, m, day).toEpochDay() }
+        var list = emptyList<PiggyEntry>()
+        list = Piggy.add(list, d(2026, 8, 5), 1000.0)
+        list = Piggy.add(list, d(2026, 9, 5), 1500.0)
+        list = Piggy.add(list, d(2026, 10, 5), 1200.0)
+        list = Piggy.add(list, d(2026, 11, 2), 300.0)
+        val today = java.time.LocalDate.of(2026, 11, 18)
+        val months = Piggy.months(list, today)
+        assertEquals(2, Piggy.streak(months, 1200.0, today))
+        assertEquals(3, Piggy.streak(months, 900.0, today))
+        assertEquals(0, Piggy.streak(months, 1300.0, today))
+        assertEquals(0, Piggy.streak(months, 0.0, today))
+        assertEquals(300.0, Piggy.thisMonth(months, today), 0.001)
+        assertEquals(3.0, Piggy.coverMonths(9000.0, 3000.0)!!, 0.001)
+        assertEquals(1.7, Piggy.coverMonths(5000.0, 3000.0)!!, 0.001)
+        assertNull(Piggy.coverMonths(5000.0, 0.0))
+    }
+
+    @Test fun categoryLimitAlertsOncePerCycle() {
+        assertEquals(false, LimitAlerts.isOver(3000.0, 3000.0))
+        assertEquals(true, LimitAlerts.isOver(3000.5, 3000.0))
+        assertEquals(false, LimitAlerts.isOver(5000.0, 0.0))
+        assertEquals(listOf(1L, 2L), LimitAlerts.fresh(100, "", listOf(1, 2)))
+        val saved = LimitAlerts.format(100, setOf(1L))
+        assertEquals(listOf(2L), LimitAlerts.fresh(100, saved, listOf(1, 2)))
+        assertEquals(listOf(1L), LimitAlerts.fresh(130, saved, listOf(1)))
+    }
+
+    @Test fun bankSmsAndReceipts() {
+        val a = SmsParser.parse("Your card ending 1234 was used for purchase of EGP 1,250.50 at CARREFOUR MAADI on 18/11. Balance EGP 9,000")!!
+        assertEquals(1250.5, a.amount, 0.001)
+        assertEquals("EGP", a.currency)
+        assertEquals("CARREFOUR MAADI", a.merchant)
+        val b = SmsParser.parse("تم خصم ٣٥٠ جنيه من بطاقتك عند صيدلية العزبي")!!
+        assertEquals(350.0, b.amount, 0.001)
+        assertEquals("EGP", b.currency)
+        assertEquals(true, b.merchant.startsWith("صيدلية"))
+        assertNull(SmsParser.parse("Your OTP is 123456. Do not share. Amount EGP 500 purchase"))
+        assertNull(SmsParser.parse("EGP 5,000 credited to your account"))
+        assertNull(SmsParser.parse("Hello, welcome to the bank"))
+        assertEquals(236.5, ReceiptParser.total("Cafe\nSubtotal 210.00\nVAT 14% 26.50\nTOTAL 236.50\nCash 300.00")!!, 0.001)
+        assertEquals(412.0, ReceiptParser.total("سوبر ماركت\nالاجمالي: ٤١٢٫٠٠\nشكرا")!!, 0.001)
+        assertEquals(99.9, ReceiptParser.total("Shop\nItem 20.50\nItem 99.90")!!, 0.001)
+        assertNull(ReceiptParser.total("hello"))
+    }
+
     @Test fun extraGoals() {
         val list = listOf(
             SavingsGoal(1, "Car", 250000.0, 22000.0, 3000.0),

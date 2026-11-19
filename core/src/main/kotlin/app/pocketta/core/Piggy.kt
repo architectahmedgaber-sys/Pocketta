@@ -47,4 +47,22 @@ object Piggy {
     /** Average saved per month over the months listed, or null with fewer than two months. */
     fun averagePerMonth(months: List<PiggyMonth>): Double? =
         if (months.size < 2) null else months.sumOf { it.saved } / months.size
+
+    /** Months in a row, counting back from the last finished month, in which at least [target] went in. */
+    fun streak(months: List<PiggyMonth>, target: Double, today: LocalDate): Int {
+        if (target <= 0) return 0
+        val done = months.associateBy { it.month }
+        var m = YearMonth.from(today).minusMonths(1)
+        var n = 0
+        while ((done[m]?.saved ?: 0.0) >= target) { n++; m = m.minusMonths(1) }
+        return n
+    }
+
+    /** What went in so far this month. */
+    fun thisMonth(months: List<PiggyMonth>, today: LocalDate): Double =
+        months.firstOrNull { it.month == YearMonth.from(today) }?.saved ?: 0.0
+
+    /** How many months of spending the piggy bank covers (one decimal), or null when spending is unknown. */
+    fun coverMonths(total: Double, monthlySpend: Double): Double? =
+        if (monthlySpend <= 0 || total <= 0) null else Math.round(total / monthlySpend * 10) / 10.0
 }

@@ -328,6 +328,24 @@ export function piggyMonths(history, today) {
   return out;
 }
 export const piggyAverage = (months) => (months.length < 2 ? null : months.reduce((s, m) => s + m.saved, 0) / months.length);
+/** Months in a row (counting back from the last finished month) in which at least [target] went into the piggy bank. */
+export function piggyStreak(months, target, today) {
+  if (!(target > 0)) return 0;
+  const { y, m } = ymd(today);
+  let k = y * 12 + (m - 1) - 1, n = 0;
+  const by = {};
+  for (const x of months) by[x.y * 12 + (x.m - 1)] = x.saved;
+  while ((by[k] || 0) >= target) { n++; k--; }
+  return n;
+}
+export function piggyThisMonth(months, today) {
+  const { y, m } = ymd(today);
+  const x = months.find((q) => q.y === y && q.m === m);
+  return x ? x.saved : 0;
+}
+/** How many months of spending the piggy bank covers (one decimal), or null when spending is unknown. */
+export const coverMonths = (total, monthlySpend) => (monthlySpend > 0 && total > 0 ? Math.round(total / monthlySpend * 10) / 10 : null);
+export const limitOver = (spent, limit) => limit > 0 && spent > limit;
 export const goalReached = (g) => g.target > 0 && g.saved >= g.target;
 export const goalFraction = (g) => (g.target > 0 ? Math.max(0, Math.min(1, g.saved / g.target)) : 0);
 export const goalMonthsLeft = (g) => monthsToGoal(g.target, g.saved, g.monthly);

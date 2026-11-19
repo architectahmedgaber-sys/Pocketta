@@ -29,6 +29,20 @@ class ActionReceiver : BroadcastReceiver() {
             }
             return
         }
+        if (intent.action == ACTION_PIGGY) {
+            val amount = intent.getDoubleExtra(EXTRA_AMOUNT, 0.0)
+            val notifId = intent.getIntExtra(EXTRA_NOTIF, 0)
+            val job = goAsync()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    if (amount > 0) Repo.get(context).piggyAdd(amount)
+                    NotificationManagerCompat.from(context).cancel(notifId)
+                } finally {
+                    job.finish()
+                }
+            }
+            return
+        }
         val kind = intent.getStringExtra(EXTRA_KIND) ?: return
         val id = intent.getLongExtra(EXTRA_ID, 0)
         val notif = intent.getIntExtra(EXTRA_NOTIF, 0)
@@ -56,6 +70,7 @@ class ActionReceiver : BroadcastReceiver() {
         const val ACTION_PAID = "app.pocketta.PAID"
         const val ACTION_SKIP = "app.pocketta.SKIP"
         const val ACTION_GOAL = "app.pocketta.GOAL"
+        const val ACTION_PIGGY = "app.pocketta.PIGGY"
         private const val EXTRA_AMOUNT = "amount"
         private const val EXTRA_KIND = "kind"
         private const val EXTRA_ID = "id"
@@ -65,6 +80,12 @@ class ActionReceiver : BroadcastReceiver() {
             val i = Intent(context, ActionReceiver::class.java).setAction(ACTION_GOAL)
                 .putExtra(EXTRA_AMOUNT, amount).putExtra(EXTRA_NOTIF, notif)
             return PendingIntent.getBroadcast(context, 900 + notif, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        }
+
+        fun piggyPending(context: Context, amount: Double, notif: Int): PendingIntent {
+            val i = Intent(context, ActionReceiver::class.java).setAction(ACTION_PIGGY)
+                .putExtra(EXTRA_AMOUNT, amount).putExtra(EXTRA_NOTIF, notif)
+            return PendingIntent.getBroadcast(context, 950 + notif, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         }
 
         fun pending(context: Context, action: String, kind: String, id: Long, notif: Int): PendingIntent {
