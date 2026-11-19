@@ -50,7 +50,7 @@ private class Bubble(val role: String, val text: String)
 
 /** Miqrish: a chat with the user's own AI key. It reads and changes Pocketta through tools, always asking before saving. */
 @Composable
-fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs) {
+fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs, bottomBar: @Composable () -> Unit = {}) {
     val ctx = LocalContext.current
     val cfg = remember { AiConfig(ctx) }
     val scope = rememberCoroutineScope()
@@ -96,7 +96,7 @@ fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs) {
         }
     }
 
-    Scaffold(topBar = {
+    Scaffold(bottomBar = bottomBar, topBar = {
         BackBar("Miqrish", { nav.back() }) {
             TextButton(onClick = { settings = !settings }) { Text(if (settings) "Chat" else "Settings") }
         }

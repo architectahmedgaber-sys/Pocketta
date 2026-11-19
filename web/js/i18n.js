@@ -6,6 +6,7 @@ const EXTRA = {
   "Month plan": "خطة الشهور",
   "Every month like your spreadsheet: income, installments, living, what is left": "كل شهر زي الشيت: الدخل والأقساط والمعيشة واللي بيفضل",
   "Miqrish": "مِقرِش",
+  "More": "المزيد",
   "Your AI money advisor. Chat to add, change and calculate, with your own key": "مستشارك المالي بالذكاء الاصطناعي. كلّمه يضيف ويعدّل ويحسب، بمفتاحك أنت",
   "Living cost in a normal month": "المعيشة في شهر عادي",
   "Food, transport, everyday things. Used for every coming month.": "أكل ومواصلات وحاجات يومية. بتتحسب في كل الشهور الجاية.",
