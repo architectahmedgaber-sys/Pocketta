@@ -134,7 +134,7 @@ fun TagDetailScreen(repo: Repo, nav: Nav, prefs: Prefs, name: String) {
                     }
                 }
                 Label("Records")
-                for (x in txns) TxnRow(x, categories, emptyMap()) { nav.open(Route.Add(txnId = x.id)) }
+                for (x in txns) TxnRow(x, categories) { nav.open(Route.Add(txnId = x.id)) }
             }
         }
     }

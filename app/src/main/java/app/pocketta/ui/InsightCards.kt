@@ -62,7 +62,6 @@ fun WealthCard(repo: Repo, nav: Nav, prefs: Prefs) {
     var w by remember { mutableStateOf<WealthView?>(null) }
     LaunchedEffect(version) { w = repo.wealth(); repo.recordWealth() }
     val v = w ?: return
-    if (v.total == 0.0 && v.history.isEmpty()) return
     SectionCard(onClick = { nav.open(Route.Wealth) }) {
         Label("Everything I own")
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -81,6 +80,8 @@ fun WealthScreen(repo: Repo, nav: Nav, prefs: Prefs) {
     var w by remember { mutableStateOf<WealthView?>(null) }
     LaunchedEffect(version) { w = repo.wealth() }
     val cur = prefs.baseCurrency
+    var editBalance by remember { mutableStateOf(false) }
+    if (editBalance) BalanceDialog(repo, prefs, w?.cash ?: 0.0) { editBalance = false }
     Scaffold(topBar = { BackBar("Everything I own", { nav.back() }) }) { pad ->
         Column(
             Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -91,7 +92,8 @@ fun WealthScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                 Label("Total")
                 Big(Money.short(v.total) + " " + cur, size = 32)
                 Gap(8)
-                WLine("In wallets", Money.short(v.cash) + " " + cur)
+                WLine("Money I have", Money.short(v.cash) + " " + cur)
+                androidx.compose.material3.OutlinedButton(onClick = { editBalance = true }) { Text("Change my balance") }
                 WLine("Gold I bought, at today's price", Money.short(v.gold) + " " + cur)
                 val usd = v.dollars
                 if (usd != null) WLine("In dollars", "$" + Money.short(usd))

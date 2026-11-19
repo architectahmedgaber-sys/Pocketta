@@ -174,10 +174,7 @@ export function wipe() { data = empty(); C.setCurrencyFormat(data.settings.baseC
 // ---------- Seed ----------
 
 export function ensureSeeded() {
-  if (data.wallets.length) return;
-  for (const [i, [name, type]] of [['Cash', 'CASH'], ['Bank account', 'BANK'], [S().baseCurrency === 'EGP' ? 'Vodafone Cash' : 'Mobile wallet', 'MOBILE']].entries()) {
-    data.wallets.push({ id: nextId(), name, type, currency: S().baseCurrency, opening: 0, sort: i, archived: false });
-  }
+  if (data.categories.length) return;
   let sort = 0;
   for (const [name, subs] of EXPENSE_SEED) {
     const pid = nextId();
@@ -197,9 +194,12 @@ export function categoryNamed(name, kind) {
   return (data.categories.find((c) => c.name.toLowerCase() === n && c.kind === kind && !c.archived) ||
     data.categories.find((c) => c.name.toLowerCase() === n && c.kind === kind))?.id ?? null;
 }
+/** All money lives in one account. Old data may still hold several wallets; their ids stay but nothing shows them. */
 function defaultWallet() {
-  const ws = wallets();
-  return (ws.find((w) => w.id === S().lastWallet) || ws[0])?.id ?? 0;
+  if (!data.wallets.length) data.wallets.push({ id: nextId(), name: 'Money', type: 'CASH', currency: S().baseCurrency, opening: 0, sort: 0, archived: false });
+  const ws = data.wallets.filter((w) => !w.archived).sort((a, b) => a.sort - b.sort);
+  const all = ws.length ? ws : data.wallets;
+  return (all.find((w) => w.id === S().lastWallet) || all[0]).id;
 }
 
 export function categoryLabel(id) {
@@ -509,7 +509,7 @@ export function ensureSalary(today = C.todayEpoch()) {
   const d = salaryDateIn(cycle, s.salaryDay);
   if (d == null || today < d) return;
   if (data.txns.some((t) => t.source === 'SALARY' && cycle.contains(t.epochDay))) return;
-  const w = wallets().find((x) => x.id === s.salaryWallet)?.id || defaultWallet();
+  const w = defaultWallet();
   data.txns.push(txn({ type: 'INCOME', amount: s.salary, walletId: w, categoryId: categoryNamed('Salary', 'INCOME'), note: 'Salary', epochDay: d, source: 'SALARY' }));
   changed();
 }
@@ -649,6 +649,15 @@ export function balances() {
   return m;
 }
 
+/** "How much do I have now?": shifts the opening balance so the one total matches what the person says. */
+export function setBalance(target) {
+  const wid = defaultWallet();
+  const cur = Object.values(balances()).reduce((a, v) => a + v, 0);
+  const w = byId(data.wallets, wid);
+  w.opening += (target - cur) / rateOf(w.currency);
+  changed();
+}
+
 /** Items to remind about today: due within each item's reminder window, or late. */
 export function dueSoon(today = C.todayEpoch()) {
   return upcoming(today + 31).filter((u) => u.due - today <= (u.remind ?? 1));
@@ -658,7 +667,7 @@ export function dueSoon(today = C.todayEpoch()) {
 export function wealth() {
   const s = S();
   const bal = balances();
-  const cash = wallets().reduce((a, w) => a + (bal[w.id] || 0), 0);
+  const cash = Object.values(bal).reduce((a, v) => a + v, 0);
   const gs = C.goldSummary(s.goldBuys || [], s.gold || {});
   const gold = gs ? gs.value : 0;
   const total = cash + gold;

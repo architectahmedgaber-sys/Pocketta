@@ -454,6 +454,12 @@ object ArabicWords {
         "Couldn't save. Choose the file again." to "معرفتش أحفظ. اختار الملف تاني.",
         "That file isn't a Pocketta backup" to "الملف ده مش نسخة Pocketta",
         // Onboarding
+        "How much money do I have now? (optional)" to "معايا كام دلوقتي؟ (اختياري)",
+        "How much money do I have now?" to "معايا كام دلوقتي؟",
+        "Cash, bank and mobile wallet together." to "كاش وبنك ومحفظة مع بعض.",
+        "Change my balance" to "عدّل رصيدي",
+        "My money" to "فلوسي",
+        "Type the real total of your cash, bank and mobile wallet. Pocketta fixes the rest." to "اكتب الرقم الحقيقي اللي معاك (كاش + بنك + محفظة مع بعض). التطبيق هيظبط الباقي.",
         "Your money for the month: what you can spend today, your bills, installments, gam'eya and loans. Everything stays on your phone." to "فلوسك في الشهر: تصرف كام النهارده، فواتيرك وأقساطك وجمعياتك وسلفك. كل حاجة بتفضل على موبايلك.",
         "Your month starts on the salary day. You can change this later in Settings." to "شهرك بيبدأ يوم المرتب. تقدر تغيّره بعدين من الإعدادات.",
         // Notifications
@@ -541,7 +547,7 @@ object ArabicWords {
         "You collected your turn" to "قبضت دورك", "It's your turn! Collect #" to "جه دورك! اقبض #",
         "Installments left" to "الأقساط الباقية", "Next installment" to "القسط الجاي", "Got my payout" to "استلمت المبلغ", "Paid installment" to "دفعت القسط",
         // Wealth, price rises, weekly summary
-        "Everything I own" to "كل اللي أملكه", "Total" to "الإجمالي", "In wallets" to "في المحافظ",
+        "Everything I own" to "فلوسي", "Total" to "الإجمالي", "In wallets" to "فلوسي",
         "Gold I bought, at today's price" to "الدهب اللي اشتريته بسعر النهارده", "In dollars" to "بالدولار", "In gold (21k)" to "بالدهب (عيار 21)",
         "Turn on today's rates in Currencies & gold to see dollars and gold" to "شغّل أسعار النهارده من العملات والدهب عشان تشوف بالدولار والدهب",
         "Over time" to "على مدار الوقت", "Last 7 days" to "آخر 7 أيام", "Last 30 days" to "آخر 30 يوم", "Last 90 days" to "آخر 90 يوم",

@@ -1430,7 +1430,6 @@ function risesCard(d) {
 function wealthEntry() {
   R.recordWealth();
   const w = R.wealth();
-  if (w.total === 0 && !w.history.length) return '';
   return card(`${label('Everything I own')}<div class="row-flex"><div class="big grow">${money(w.total)} ${esc(base())}</div><span class="chev">›</span></div>${w.dollars != null ? `<div class="small">≈ $${money(w.dollars)}</div>` : ''}`, 'tap', 'data-act="open" data-r="wealthPage"');
 }
 function sparkline(values) {
@@ -1455,6 +1454,7 @@ function wealthPage() {
       if (ch != null) time += ln(l, `${ch >= 0 ? '+' : '−'}${money(Math.abs(ch))} ${cur}`, ch >= 0 ? 'good-t' : 'bad-t');
     }
   }
+  total += `<button class="btn tonal wide" data-act="edit-balance">Change my balance</button>`;
   return topbar('Everything I own') + `<main class="page">${card(total)}${card(time)}</main>`;
 }
 
@@ -1709,6 +1709,8 @@ function onboarding() {
     ${numField('start', 'My month starts on day', 1, { int: true })}
     <div class="small">Most people pick the day the salary arrives.</div>
     ${numField('savings', 'Save every month (optional)', null, { suffix: 'EGP' })}
+    ${numField('balance', 'How much money do I have now? (optional)', null, { suffix: 'EGP' })}
+    <div class="small">Cash, bank and mobile wallet together.</div>
     <button class="btn filled wide" data-act="start">Start</button>
     <div class="small">You can change all of this later in More.</div></main>`;
 }
@@ -1912,6 +1914,11 @@ const actions = {
     else if (k === 'LOAN') actions['open-loan']({ dataset: { id } });
     else actions['edit-inst']({ dataset: { id } });
   },
+  'edit-balance': () => sheet({
+    title: 'How much money do I have now?',
+    body: numField('bal', 'My money', Math.round(R.wealth().cash), { suffix: base(), keepZero: true }) + `<div class="small">Type the real total of your cash, bank and mobile wallet. Pocketta fixes the rest.</div>`,
+    onSave: (root) => { const v = num(root, 'bal'); if (v == null || isNaN(v)) return 'Type a number'; R.setBalance(v); },
+  }),
   'edit-inst': (el) => instEditor(R.byId(R.data.installments, +el.dataset.id)),
   'pay-inst': (el) => { const i = R.byId(R.data.installments, +el.dataset.id); if (i) { R.payInstallment(i); toast('Paid'); } },
   'edit-circle': (el) => circleEditor(R.byId(R.data.circles, +el.dataset.id)),
@@ -1965,6 +1972,8 @@ const actions = {
     s.salary = num(root, 'salary') || 0;
     s.salaryDay = Math.min(Math.max(parseInt(val(root, 'salaryDay')) || 1, 1), 31);
     s.savingsPerMonth = num(root, 'savings') || 0;
+    const bal = num(root, 'balance');
+    if (bal > 0) R.setBalance(bal);
     s.onboarded = true;
     R.changed();
     R.ensureSalary();

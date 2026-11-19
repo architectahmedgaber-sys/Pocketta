@@ -1,5 +1,5 @@
 // Offline support: keep the app's files on the phone, update them in the background.
-const CACHE = 'pocketta-v1.15.0';
+const CACHE = 'pocketta-v1.15.1';
 const FILES = ['./', './index.html', './styles.css', './manifest.webmanifest', './js/app.js', './js/core.js', './js/store.js', './js/share.js', './js/i18n.js', './js/ar-dict.js', './js/plan.js', './js/ai.js', './js/countries.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
