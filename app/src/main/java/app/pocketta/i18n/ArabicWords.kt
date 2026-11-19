@@ -429,6 +429,8 @@ object ArabicWords {
         "Backup" to "النسخ الاحتياطي",
         "Everything is on this phone only. Pick a backup file once (Google Drive works) and Pocketta keeps it up to date by itself." to "كل حاجة على الموبايل ده بس. اختار ملف نسخة احتياطية مرة واحدة (جوجل درايف شغال) وPocketta بيحدّثه لوحده.",
         "No backup yet" to "مفيش نسخة احتياطية لسه",
+        "Download as a file" to "نزّله كملف",
+        "Could not save the file" to "معرفتش أحفظ الملف",
         "Protect your data" to "احمي بياناتك",
         "Your data is locked on your phone before it goes to the cloud. Choose an encryption password. You will type it once on each new device." to "بياناتك بتتقفل على موبايلك قبل ما تروح السحابة. اختار كلمة سر للتشفير. هتكتبها مرة واحدة على كل جهاز جديد.",
         "Encryption password" to "كلمة سر التشفير",

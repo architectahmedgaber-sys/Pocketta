@@ -9,7 +9,7 @@ import * as Sync from './sync.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.17.0';
+const VERSION = '1.17.1';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -1699,6 +1699,7 @@ function syncSetup({ recovery }) {
         field('p1', 'Encryption password (8 or more)', '', { type: 'password' }) + field('p2', 'Type it again', '', { type: 'password' }) +
         `<div class="label">Recovery key</div><div class="recovery">${esc(recovery)}</div>
         <button type="button" class="btn text" data-act="copy-text" data-text="${esc(recovery)}">Copy</button>
+        <button type="button" class="btn text" data-act="download-text" data-text="${esc(recovery)}">Download as a file</button>
         <p class="small">Save it somewhere safe (a screenshot, or WhatsApp to yourself). If you forget the password, this key is the only way back. With neither, your cloud copy is lost for good. The data on your devices stays.</p>` +
         check('saved', 'I saved the recovery key'),
       saveLabel: 'Lock and continue',
@@ -2076,6 +2077,17 @@ const actions = {
   'pin-set': () => pinSheet(),
   'pin-off': () => confirmSheet('Turn off the PIN?', 'Anyone with your phone can open Pocketta.', 'Turn off', () => { R.S().pinSalt = ''; R.setSetting('pinHash', ''); }),
   'sync-in': () => Sync.signIn(),
+  'download-text': (el) => {
+    try {
+      const txt = 'Pocketta recovery key\n\n' + el.dataset.text + '\n\nKeep this file somewhere safe (not only on this device). With it you can open your cloud backup if you forget your encryption password. Anyone who has it and your Google account can open your backup.\n';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }));
+      a.download = 'pocketta-recovery-key.txt';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      toast('Saved to your downloads');
+    } catch (e) { toast('Could not save the file'); }
+  },
   'copy-text': (el) => { navigator.clipboard?.writeText(el.dataset.text).then(() => toast('Copied')).catch(() => {}); },
   'sync-now': () => Sync.syncNow(),
   'sync-out': () => confirmSheet('Sign out?', 'Your data stays on this device. Sync stops until you sign in again.', 'Sign out', () => Sync.signOut()),
