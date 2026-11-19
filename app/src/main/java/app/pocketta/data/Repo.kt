@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
 import app.pocketta.core.Budget
+import app.pocketta.core.Money
 import app.pocketta.core.BudgetInput
 import app.pocketta.core.BudgetResult
 import app.pocketta.core.Circle
@@ -156,7 +157,7 @@ class Repo private constructor(private val app: Context) {
             dao.put(SettingRow("ratesFetchedAt", "0"))
             dao.put(SettingRow("autoCurrencies", (p.autoCurrencies.filter { it != cur } + (if (cur == "USD") emptyList() else listOf("USD"))).distinct().joinToString(",")))
         }
-        app.pocketta.core.Money.setCurrency(cur)
+        Money.setCurrency(cur)
         changed()
     }
 
