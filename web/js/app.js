@@ -1111,7 +1111,7 @@ function loansTab() {
 }
 
 function newLoan() {
-  const body = chips('dir', [['LENT', 'I lent money'], ['BORROWED', 'I borrowed money']], 'LENT', 'seg') +
+  const body = label('Pick one first') + chips('dir', [['BORROWED', 'I borrowed money (I owe)'], ['LENT', 'I lent money (they owe me)']], '', 'seg') +
     field('person', 'To / from whom', '') + numField('amount', 'Amount', null, { suffix: base() }) +
     dateField('date', 'Date', C.todayEpoch()) + dateField('due', 'Pay back by (optional)', null) + field('note', 'Note (optional)', '') +
     check('record', 'Record the money in my wallet too', true) + label('Wallet') + chips('wallet', walletOpts(), R.wallets()[0]?.id ?? '');
@@ -1119,6 +1119,7 @@ function newLoan() {
     title: 'New loan', body,
     onSave: (root) => {
       const person = val(root, 'person').trim(), a = num(root, 'amount');
+      if (!chipVal(root, 'dir')) return 'Pick: I borrowed or I lent';
       if (!person) return 'Who is it?';
       if (!(a > 0)) return 'Type the amount';
       R.addLoan({ person, lent: chipVal(root, 'dir') === 'LENT', amount: a, walletId: +chipVal(root, 'wallet') || null, day: C.fromIso(val(root, 'date')) ?? C.todayEpoch(), due: C.fromIso(val(root, 'due')), note: val(root, 'note').trim(), record: checked(root, 'record') });
