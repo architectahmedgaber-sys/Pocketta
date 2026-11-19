@@ -7,7 +7,7 @@ import * as AI from './ai.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.12.2';
+const VERSION = '1.13.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -26,7 +26,9 @@ const ICON = {
 };
 const icon = (n, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path d="${ICON[n]}" fill="currentColor"/></svg>`;
 
-const TABS = [['home', 'Today'], ['spend', 'Spending'], ['commit', 'Commitments']];
+const TABS = [['home', 'Today'], ['spend', 'Spending'], ['assistant', 'Miqrish'], ['commit', 'Commitments'], ['more', 'More']];
+// Pages that draw their own top bar (so they are not wrapped in the usual page container).
+const SELF_WRAPPED = new Set(['more', 'assistant']);
 
 // ---------- UI state ----------
 
@@ -132,11 +134,12 @@ function render() {
   if (ui.locked) { app.innerHTML = lockScreen(); $('#pin')?.focus(); return; }
   if (!R.S().onboarded) { app.innerHTML = onboarding(); return; }
   const c = cur();
-  const pages = { home, spend, commit, more, add, income, wallets, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage, monthPlanPage, assistantPage };
+  const pages = { home, spend, commit, more, add, income, wallets, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage, monthPlanPage, assistant: assistantPage };
   const page = pages[c.r === 'currencies' ? 'currencyPage' : c.r] || home;
   if (isTab(c.r)) {
-    app.innerHTML = `<main class="page wide">${page(c)}</main>
-      <nav class="tabs">${TABS.map(([r, l]) => `<button class="tab ${c.r === r ? 'on' : ''}" data-act="tab" data-r="${r}"><span class="ti">${icon(r)}</span><span>${l}</span></button>`).join('')}</nav>`;
+    const tabIcon = (r) => (r === 'assistant' ? '<span class="coin">🪙</span>' : icon(r));
+    app.innerHTML = (SELF_WRAPPED.has(c.r) ? page(c) : `<main class="page wide">${page(c)}</main>`) +
+      `<nav class="tabs">${TABS.map(([r, l]) => `<button class="tab ${r === 'assistant' ? 'center' : ''} ${c.r === r ? 'on' : ''}" data-act="tab" data-r="${r}"><span class="ti">${tabIcon(r)}</span><span>${esc(l)}</span></button>`).join('')}</nav>`;
   } else {
     app.innerHTML = page(c);
   }
@@ -1235,7 +1238,7 @@ function aiSession() {
   if (!ch.session) {
     ch.session = AI.createSession({
       confirm: (what) => new Promise((resolve) => sheet({ title: 'Save this?', body: `<p>${esc(what)}</p>`, saveLabel: 'Yes, save', onSave: () => { resolve(true); }, onClose: () => resolve(false) })),
-      show: (role, text) => { ch.bubbles.push([role, text]); if (cur().r === 'assistantPage') render(); },
+      show: (role, text) => { ch.bubbles.push([role, text]); if (cur().r === 'assistant') render(); },
     });
   }
   return ch.session;
@@ -1396,7 +1399,6 @@ function more() {
   const big = (emoji, title, sub, r) => `<div class="card bigcard tap" data-act="open" data-r="${r}"><span class="bigicon">${emoji}</span>
     <div class="grow"><div class="mid">${esc(title)}</div><div class="small">${esc(sub)}</div></div><span class="chev">›</span></div>`;
   return topbar('Settings & more') + `<main class="page more">` +
-    big('🪙', 'Miqrish', 'Your AI money advisor. Chat to add, change and calculate, with your own key', 'assistantPage') +
     big('📅', 'Month plan', 'Every month like your spreadsheet: income, installments, living, what is left', 'monthPlanPage') +
     big('🐷', 'Piggy bank', 'Everything you saved, month by month', 'piggyPage') +
     big('🎯', 'Goals', 'Umra, a car, a laptop, each with its own date', 'goalsPage') +
@@ -1628,7 +1630,7 @@ function afterRender(c) {
       }
     }
   }
-  if (c.r === 'assistantPage') { const el = $('#chat'); if (el) window.scrollTo(0, document.body.scrollHeight); }
+  if (c.r === 'assistant') { const el = $('#chat'); if (el) window.scrollTo(0, document.body.scrollHeight); }
   if (c.r === 'monthPlanPage' && !ui.mp.scrolled) { ui.mp.scrolled = true; $('#mp-now')?.scrollIntoView({ block: 'center' }); }
   if (c.r === 'spend') {
     const s = $('#spend-search');
