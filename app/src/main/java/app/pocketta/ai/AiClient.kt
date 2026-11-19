@@ -36,7 +36,16 @@ object AiClient {
         val key = cfg.key(p)
         val model = cfg.model(p)
         return when (p) {
-            AiProvider.GEMINI -> gemini(key, model, system, history, tools)
+            AiProvider.GEMINI -> try {
+                gemini(key, model, system, history, tools)
+            } catch (e: AiError) {
+                // The saved model name may not exist for this key (names change). Find one that does and try once more.
+                if (e.code != 404) throw e
+                val found = geminiPick(key)
+                if (found == null || found == model) throw e
+                cfg.setModel(AiProvider.GEMINI, found)
+                gemini(key, found, system, history, tools)
+            }
             AiProvider.CLAUDE -> claude(key, model, system, history, tools)
             AiProvider.OPENAI -> openai(key, model, system, history, tools)
         }
@@ -45,6 +54,35 @@ object AiClient {
     private fun parseArgs(s: String?): JSONObject = try { JSONObject(if (s.isNullOrBlank()) "{}" else s) } catch (e: Exception) { JSONObject() }
 
     // ---------- Gemini ----------
+
+    /** Asks Gemini which models this key can use and picks a fast one. Returns null when none is found. Throws [AiError] when the key is refused. */
+    suspend fun geminiPick(key: String): String? = withContext(Dispatchers.IO) {
+        val c = URL("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200").openConnection() as HttpURLConnection
+        try {
+            c.connectTimeout = 20000
+            c.readTimeout = 30000
+            c.setRequestProperty("x-goog-api-key", key)
+            val code = c.responseCode
+            val text = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) throw AiError(code, text.take(500))
+            val arr = JSONObject(text).optJSONArray("models") ?: JSONArray()
+            val bad = Regex("lite|image|tts|live|audio|embedding|thinking|exp|vision|robotics|computer")
+            val names = ArrayList<String>()
+            for (i in 0 until arr.length()) {
+                val m = arr.getJSONObject(i)
+                val methods = m.optJSONArray("supportedGenerationMethods") ?: continue
+                var ok = false
+                for (j in 0 until methods.length()) if (methods.getString(j) == "generateContent") ok = true
+                val n = m.optString("name").removePrefix("models/")
+                if (ok && n.startsWith("gemini-") && !bad.containsMatchIn(n)) names += n
+            }
+            fun rank(n: String) = (if (n.contains("flash")) 0 else 5) + (if (Regex("preview|-\\d{3}$").containsMatchIn(n)) 1 else 0)
+            fun ver(n: String) = Regex("gemini-(\\d+(?:\\.\\d+)?)").find(n)?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
+            names.sortedWith(compareBy<String> { rank(it) }.thenByDescending { ver(it) }).firstOrNull()
+        } finally {
+            c.disconnect()
+        }
+    }
 
     private suspend fun gemini(key: String, model: String, system: String, history: List<AiMsg>, tools: List<AiTool>): AiReply {
         val contents = JSONArray()

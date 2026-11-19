@@ -4,7 +4,7 @@ import * as C from './core.js';
 import * as R from './store.js';
 
 export const PROVIDERS = {
-  GEMINI: { label: 'Gemini (Google)', model: 'gemini-2.5-flash', help: 'aistudio.google.com/apikey' },
+  GEMINI: { label: 'Gemini (Google)', model: 'gemini-flash-latest', help: 'aistudio.google.com/apikey' },
   CLAUDE: { label: 'Claude (Anthropic)', model: 'claude-haiku-5-5', help: 'console.anthropic.com' },
   OPENAI: { label: 'ChatGPT (OpenAI)', model: 'gpt-4o-mini', help: 'platform.openai.com/api-keys' },
 };
@@ -53,7 +53,12 @@ const schema = (t) => {
 
 export class AiError extends Error {
   constructor(code, body) { super(`AI request failed (${code})`); this.code = code; this.body = body; }
-  friendly() {
+  /** The company's own message, short, so a person can see the real reason. */
+  detail() {
+    try { const j = JSON.parse(this.body); const m = j.error?.message || j[0]?.error?.message || ''; return String(m).replace(/\s+/g, ' ').slice(0, 160); } catch { return ''; }
+  }
+  friendly() { const d = this.detail(); return this.base() + (d ? ` (${d})` : ''); }
+  base() {
     const c = this.code;
     if (c === 400) return 'The company did not accept the request. Check the model name in the assistant settings.';
     if (c === 401 || c === 403) return 'The key was refused. Check that you pasted it fully and that it is still active.';
@@ -74,9 +79,32 @@ async function post(url, headers, body) {
 // history items: {role:'user',text} | {role:'assistant',text,calls:[{id,name,args}]} | {role:'results',results:[{callId,name,content}]}
 async function chat(system, history) {
   const p = cfg.provider(), key = cfg.key(p), model = cfg.model(p);
-  if (p === 'GEMINI') return gemini(key, model, system, history);
+  if (p === 'GEMINI') {
+    try { return await gemini(key, model, system, history); }
+    catch (e) {
+      // The saved model name may not exist for this key (names change). Find one that does and try once more.
+      if (!(e instanceof AiError) || e.code !== 404) throw e;
+      const found = await geminiPick(key);
+      if (!found || found === model) throw e;
+      cfg.setModel('GEMINI', found);
+      return gemini(key, found, system, history);
+    }
+  }
   if (p === 'CLAUDE') return claude(key, model, system, history);
   return openai(key, model, system, history);
+}
+
+/** Asks Gemini which models this key can use and picks a fast one. Returns the model name or null. */
+export async function geminiPick(key) {
+  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': key } });
+  const text = await res.text();
+  if (!res.ok) throw new AiError(res.status, text.slice(0, 500));
+  const names = (JSON.parse(text).models || []).filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map((m) => String(m.name).replace(/^models\//, '')).filter((n) => /^gemini-/.test(n) && !/(lite|image|tts|live|audio|embedding|thinking|exp|vision|robotics|computer)/.test(n));
+  const rank = (n) => (/flash/.test(n) ? 0 : 5) + (/preview|-\d{3}$/.test(n) ? 1 : 0);
+  const ver = (n) => parseFloat((/gemini-(\d+(?:\.\d+)?)/.exec(n) || [0, 0])[1]);
+  names.sort((a, b) => rank(a) - rank(b) || ver(b) - ver(a));
+  return names[0] || null;
 }
 
 async function gemini(key, model, system, history) {

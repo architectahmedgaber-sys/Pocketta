@@ -322,6 +322,8 @@ object ArabicWords {
         "Total #" to "الإجمالي #",
         "I lent money (they owe me)" to "أنا سلّفت حد فلوس (هو اللي هيرجّعها)",
         "Pick one first" to "اختار الأول",
+        "Checking the key..." to "براجع المفتاح...",
+        "Could not reach Google. Check your internet." to "مقدرتش أوصل لجوجل. اتأكد من النت.",
         "More" to "المزيد",
         "☀️ Light" to "☀️ فاتح",
         "🌙 Dark" to "🌙 داكن",
