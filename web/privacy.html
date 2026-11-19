@@ -35,8 +35,8 @@
 <ul>
 <li><b>What we get from Google:</b> only your email address and name (the basic sign-in information). We do not request access to your Gmail, Drive, contacts or any other Google data.</li>
 <li><b>What we store:</b> a backup copy of your Pocketta data (your transactions, bills, goals, settings and similar entries) in a Supabase database, linked to your account. The copy is <b>end-to-end encrypted</b>: it is locked on your device before it is sent, so what is stored is unreadable text. We also keep your email, the time of the last change, the size of the backup and the name of the device type (phone or computer), which are not encrypted.</li>
-<li><b>Who can read it:</b> only you. The key is made on your device from an encryption password that you choose (different from your Google password) and is never sent to us. Neither the app owner nor Supabase can open your backup. Database rules (row-level security) also stop other users from even fetching it.</li>
-<li><b>If you forget the password:</b> you can use the recovery key that the app shows you once when you set it up. If you lose both the password and the recovery key, <b>nobody can recover the cloud copy, including us</b>. The data that is still on your devices is not affected, and you can delete the cloud copy and upload again.</li>
+<li><b>Who can read it:</b> only you. The encryption key is created by the app on your device and is never sent to us. You keep a copy (copied or saved as a file), and a new device asks for it once. Neither the app owner nor Supabase can open your backup. Database rules (row-level security) also stop other users from even fetching it.</li>
+<li><b>If you lose the key:</b> the app shows it to you once when you turn on sync, so keep the copy or file safe. If you lose it, <b>nobody can recover the cloud copy, including us</b>. The data that is still on your devices is not affected, and you can delete the cloud copy and upload again.</li>
 <li><b>How it travels:</b> over HTTPS.</li>
 </ul>
 
@@ -76,8 +76,8 @@
 <ul>
 <li><b>اللي بنستلمه من جوجل:</b> بريدك الإلكتروني واسمك بس (بيانات تسجيل الدخول الأساسية). مبنطلبش أي صلاحية على Gmail أو Drive أو جهات الاتصال أو أي بيانات جوجل تانية.</li>
 <li><b>اللي بنخزنه:</b> نسخة احتياطية من بيانات Pocketta (المعاملات والفواتير والأهداف والإعدادات وما شابه) في قاعدة بيانات Supabase مربوطة بحسابك. النسخة <b>مشفرة من طرف لطرف</b>: بتتقفل على جهازك قبل ما تتبعت، فاللي بيتخزن كلام مش مقروء. وبنحتفظ كمان بإيميلك ووقت آخر تعديل وحجم النسخة ونوع الجهاز (موبايل أو كمبيوتر)، ودول مش مشفرين.</li>
-<li><b>مين يقدر يقراها:</b> إنت بس. المفتاح بيتعمل على جهازك من كلمة سر تشفير بتختارها (غير كلمة سر جوجل) ومبيتبعتش لينا أبدًا. لا صاحب التطبيق ولا Supabase يقدروا يفتحوا نسختك. وكمان قواعد قاعدة البيانات (row-level security) بتمنع المستخدمين التانيين من مجرد جلبها.</li>
-<li><b>لو نسيت كلمة السر:</b> تقدر تستخدم مفتاح الاسترجاع اللي التطبيق بيورهولك مرة واحدة وقت الإعداد. لو ضاعت كلمة السر ومفتاح الاسترجاع <b>محدش يقدر يرجع نسخة السحابة، حتى إحنا</b>. البيانات اللي لسه على أجهزتك مبتتأثرش، وتقدر تمسح نسخة السحابة وترفع من جديد.</li>
+<li><b>مين يقدر يقراها:</b> إنت بس. مفتاح التشفير بيتعمل بواسطة التطبيق على جهازك ومبيتبعتش لينا أبدًا. بتحتفظ بنسخة منه (منسوخة أو محفوظة كملف)، والجهاز الجديد بيطلبه مرة واحدة. لا صاحب التطبيق ولا Supabase يقدروا يفتحوا نسختك. وكمان قواعد قاعدة البيانات (row-level security) بتمنع المستخدمين التانيين من مجرد جلبها.</li>
+<li><b>لو ضاع المفتاح:</b> التطبيق بيورهولك مرة واحدة وقت تشغيل المزامنة، فاحفظ النسخة أو الملف في مكان آمن. لو ضاع <b>محدش يقدر يرجع نسخة السحابة، حتى إحنا</b>. البيانات اللي لسه على أجهزتك مبتتأثرش، وتقدر تمسح نسخة السحابة وترفع من جديد.</li>
 <li><b>بتتنقل إزاي:</b> عن طريق HTTPS.</li>
 </ul>
 
