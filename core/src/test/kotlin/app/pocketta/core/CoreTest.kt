@@ -271,4 +271,39 @@ class CoreTest {
         assertEquals(19, GoalList.monthsSoonerWith(250000.0, 22000.0, 3000.0, 1000.0))
         assertEquals(null, GoalList.monthsSoonerWith(100.0, 0.0, 0.0, 50.0))
     }
+
+    @Test fun badges() {
+        assertEquals("N", Badges.forName("Netflix Premium", CKind.SUB).letter)
+        assertEquals("N", Badges.forName("نتفليكس", CKind.SUB).letter)
+        assertEquals("S", Badges.forName("شاهد VIP", CKind.SUB).letter)
+        assertEquals(0xFFD97757, Badges.forName("Claude Pro", CKind.SUB).color)
+        assertEquals("WE", Badges.forName("WE internet", CKind.BILL).letter)
+        assertEquals("WE", Badges.forName("باقة وي", CKind.BILL).letter)
+        assertNull(Badges.forName("Water bill", CKind.BILL).letter)
+        assertEquals("💧", Badges.forName("Water bill", CKind.BILL).emoji)
+        assertEquals("⚡", Badges.forName("فاتورة الكهرباء", CKind.BILL).emoji)
+        assertEquals("🔑", Badges.forName("Rent", CKind.BILL).emoji)
+        assertEquals("💰", Badges.forName("Salary", CKind.INCOME).emoji)
+        assertEquals("📆", Badges.forName("Fridge", CKind.INSTALLMENT).emoji)
+        assertEquals("🔁", Badges.forName("Mystery app", CKind.SUB).emoji)
+    }
+
+    @Test fun commitmentsTotals() {
+        val d = LocalDate.of(2026, 11, 20)
+        val items = listOf(
+            CItem(CKind.BILL, 1, "Rent", "", 5000.0, d, paid = false),
+            CItem(CKind.SUB, 2, "Netflix", "", 200.0, d.plusDays(3), paid = false),
+            CItem(CKind.CARD, 3, "CIB card", "", 1000.0, d.minusDays(2), paid = false),
+            CItem(CKind.BILL, 4, "Internet", "", 300.0, d.minusDays(5), paid = true),
+            CItem(CKind.INCOME, 0, "Salary", "", 20000.0, d.plusDays(5), paid = false, incoming = true),
+        )
+        assertEquals(6200.0, Commitments.leftToPay(items), 0.001)
+        assertEquals(3, Commitments.leftCount(items))
+        assertEquals(listOf("CIB card"), Commitments.late(items, d).map { it.name })
+        assertEquals(listOf("Rent", "Netflix", "Salary"), Commitments.later(items, d).map { it.name })
+        assertEquals(listOf("Internet"), Commitments.done(items).map { it.name })
+        assertEquals(listOf("Salary"), items.filter { Commitments.matches(CFilter.INCOME, it) }.map { it.name })
+        assertEquals(listOf("Rent", "Netflix", "Internet"), items.filter { Commitments.matches(CFilter.BILLS, it) }.map { it.name })
+        assertEquals(listOf("CIB card"), items.filter { Commitments.matches(CFilter.CARDS, it) }.map { it.name })
+    }
 }

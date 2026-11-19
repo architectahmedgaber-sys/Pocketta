@@ -5,7 +5,7 @@ import { startArabic } from './i18n.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.10.0';
+const VERSION = '1.11.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -752,7 +752,7 @@ function billsTab() {
 }
 
 function billEditor(b) {
-  const isNew = !b;
+  const isNew = !b || !b.id;
   const today = C.todayEpoch();
   b = b || { id: 0, name: '', amount: 0, currency: base(), frequency: 'MONTHLY', everyN: 30, anchorDay: C.ymd(today).d, nextDue: today, categoryId: null, walletId: null, remindDays: 1, variable: false, kind: 'BILL' };
   const body = chips('kind', [['BILL', 'Bill'], ['SUB', 'Subscription']], b.kind, 'seg') +
@@ -807,9 +807,160 @@ function payVariableBill(b) {
 // ---------- Commitments: bills, installments, gam'eya, loans ----------
 
 function commit() {
-  const tabs = ['Bills', 'Installments', "Gam'eya", 'Loans'];
+  const tabs = ['This month', 'Bills', 'Installments', "Gam'eya", 'Loans'];
   return `<h1 class="title pad-t">Commitments</h1><div class="subtabs">${tabs.map((t, i) => `<button class="${ui.commitTab === i ? 'on' : ''}" data-act="commit-tab" data-i="${i}">${t}</button>`).join('')}</div>` +
-    [billsTab, installmentsTab, circlesTab, loansTab][ui.commitTab]();
+    [commitOverview, billsTab, installmentsTab, circlesTab, loansTab][ui.commitTab]();
+}
+
+// ---------- Commitments overview: left to pay, calendar, later / paid ----------
+
+const WEEK = ['Sa', 'Su', 'Mo', 'Tu', 'We', 'Th', 'Fr'];
+const iconStore = {
+  get() { try { return JSON.parse(localStorage.getItem('pocketta.icons') || '{}'); } catch { return {}; } },
+  set(k, v) {
+    const m = iconStore.get();
+    if (v) m[k] = v; else delete m[k];
+    try { localStorage.setItem('pocketta.icons', JSON.stringify(m)); } catch { toast('Not enough room to keep the picture'); }
+  },
+};
+const iconKey = (i) => ({ BILL: 'b', SUB: 'b', INSTALLMENT: 'i', CARD: 'i', CIRCLE: 'c', LOAN: 'l' }[i.kind] || 's') + (i.kind === 'INCOME' ? '' : i.refId);
+
+function commitBadge(i, size = 44) {
+  const img = iconStore.get()[iconKey(i)];
+  const b = C.badgeFor(i.name, i.kind);
+  const st = `width:${size}px;height:${size}px;border-radius:${Math.round(size * 0.3)}px`;
+  if (img) return `<img class="cbadge" style="${st}" src="${img}" alt="">`;
+  if (b.letter) return `<span class="cbadge" style="${st};background:${b.color};font-size:${Math.round(size * (b.letter.length > 1 ? 0.34 : 0.46))}px">${esc(b.letter)}</span>`;
+  return `<span class="cbadge emo" style="${st};font-size:${Math.round(size * 0.5)}px">${b.emoji}</span>`;
+}
+
+function commitItems() {
+  const s = R.S(), today = C.todayEpoch(), cycle = C.cycleFor(today, s.cycleStart);
+  const out = [];
+  const push = (o) => out.push({ incoming: false, payable: false, paid: false, ...o });
+  for (const b of R.data.bills) {
+    C.occurrences(b.nextDue, b.frequency, b.everyN, b.nextDue, cycle.nextStart, b.anchorDay).forEach((d, idx) =>
+      push({ kind: b.kind === 'SUB' ? 'SUB' : 'BILL', refId: b.id, name: b.name, sub: C.describeFreq(b.frequency, b.everyN), amount: b.amount * R.rateOf(b.currency), date: d, payable: idx === 0 }));
+  }
+  for (const i of R.data.installments) {
+    const kind = String(i.type).toLowerCase() === 'credit card' ? 'CARD' : 'INSTALLMENT';
+    C.plan(i.amount, i.total, i.paid, i.firstDue).unpaidDueIn(-1e9, cycle.nextStart).forEach((d, idx) =>
+      push({ kind, refId: i.id, name: i.name, sub: `${i.paid + idx + 1} of ${i.total}`, amount: i.amount, date: d, payable: idx === 0 }));
+  }
+  for (const c of R.data.circles) {
+    C.circle(c).plan.unpaidDueIn(-1e9, cycle.nextStart).forEach((d, idx) =>
+      push({ kind: 'CIRCLE', refId: c.id, name: c.name, sub: `Gam'eya · ${c.paid + idx + 1} of ${c.months}`, amount: c.share, date: d, payable: idx === 0 }));
+  }
+  for (const l of R.data.loans) {
+    if (l.closed || l.dueDay == null || l.dueDay >= cycle.nextStart) continue;
+    const lent = l.direction === 'LENT';
+    push({ kind: 'LOAN', refId: l.id, name: l.person, sub: lent ? 'They owe you' : 'You owe', amount: R.remaining(l), date: l.dueDay, incoming: lent });
+  }
+  const inCycle = R.data.txns.filter((t) => cycle.contains(t.epochDay));
+  for (const t of inCycle) {
+    if (t.type !== 'EXPENSE') continue;
+    let kind;
+    if (t.source === 'BILL') kind = R.data.bills.find((b) => b.id === t.sourceId)?.kind === 'SUB' ? 'SUB' : 'BILL';
+    else if (t.source === 'INSTALLMENT') kind = String(R.data.installments.find((i) => i.id === t.sourceId)?.type).toLowerCase() === 'credit card' ? 'CARD' : 'INSTALLMENT';
+    else if (t.source === 'CIRCLE') kind = 'CIRCLE';
+    else continue;
+    push({ kind, refId: t.sourceId, name: t.note, sub: 'Paid', amount: t.amount * (t.rate || 1), date: t.epochDay, paid: true });
+  }
+  const got = inCycle.find((t) => t.source === 'SALARY');
+  if (got) push({ kind: 'INCOME', refId: 0, name: 'Salary', sub: 'Received', amount: got.amount * (got.rate || 1), date: got.epochDay, paid: true, incoming: true });
+  else if (s.salary > 0) {
+    const d = R.salaryDateIn(cycle, s.salaryDay);
+    if (d != null) push({ kind: 'INCOME', refId: 0, name: 'Salary', sub: 'Expected', amount: s.salary, date: d, incoming: true });
+  }
+  return { out, cycle, today };
+}
+
+function commitOverview() {
+  const { out: all, cycle, today } = commitItems();
+  ui.cFilter = ui.cFilter || 'ALL';
+  const filtered = all.filter((i) => C.commitMatches(ui.cFilter, i));
+  const shown = ui.cDay != null ? filtered.filter((i) => i.date === ui.cDay) : filtered;
+  const left = C.commitLeft(all), n = C.commitLeftCount(all);
+  const sd = C.ymd(cycle.start);
+  const monthName = sd.d === 1 ? C.fmtMonth(cycle.start) : `${C.fmtDay(cycle.start)} – ${C.fmtDay(cycle.end)}`;
+  const line = (i) => {
+    const btn = i.payable && !i.paid && !i.incoming ? `<button class="btn text" data-act="commit-pay" data-k="${i.kind}" data-id="${i.refId}">Paid</button>` : '';
+    return `<div class="row ${i.kind === 'INCOME' ? '' : 'tap'}" ${i.kind === 'INCOME' ? '' : `data-act="commit-open" data-k="${i.kind}" data-id="${i.refId}"`}>
+      <button class="cbtn" data-act="commit-icon" data-k="${i.kind}" data-id="${i.refId}" data-name="${esc(i.name)}" aria-label="Change picture">${commitBadge(i)}</button>
+      <div class="row-main"><div class="row-title"><b>${esc(i.name)}</b></div><div class="row-sub">${esc(C.fmtWeekday(i.date))} · ${esc(i.sub)}</div></div>
+      <b class="${i.incoming ? 'good-t' : i.paid ? 'muted' : ''}">${i.incoming ? '+' : ''}${C.fmt(i.amount)}</b>${btn}</div>`;
+  };
+  const byDay = {};
+  filtered.forEach((i) => (byDay[i.date] = byDay[i.date] || []).push(i));
+  const offset = (C.ymd(cycle.start).wd + 1) % 7;
+  let cells = WEEK.map((w) => `<div class="cal-w">${w}</div>`).join('');
+  for (let k = 0; k < offset; k++) cells += '<div></div>';
+  for (let k = 0; k < cycle.length; k++) {
+    const d = cycle.start + k, its = byDay[d] || [];
+    cells += `<button class="cal-d ${d === today ? 'today' : ''} ${ui.cDay === d ? 'sel' : ''}" data-act="commit-day" data-d="${d}"><span>${C.ymd(d).d}</span>
+      <span class="cal-i">${its.slice(0, 2).map((i) => commitBadge(i, 17)).join('')}</span>${its.length > 2 ? `<small>+${its.length - 2}</small>` : ''}</button>`;
+  }
+  const late = C.commitLate(shown, today), later = C.commitLater(shown, today), done = C.commitDone(shown);
+  let html = card(`${label('Left to pay this month')}<div class="big hero-n">${money(left)} ${base()}</div>
+    <div>${n === 0 ? 'Nothing left to pay. Well done!' : `${n} payments to go`}</div><div class="small">${esc(monthName)}</div>`, 'primary');
+  html += `<div class="fchips">${C.COMMIT_FILTERS.map(([v, l]) => `<button class="chip ${ui.cFilter === v ? 'on' : ''}" data-act="commit-filter" data-v="${v}">${l}</button>`).join('')}</div>`;
+  html += card(`<div class="cal">${cells}</div>`);
+  if (ui.cDay != null) html += `<div class="row-flex pad-t"><div class="grow small">Showing ${esc(C.fmtDay(ui.cDay))}</div><button class="btn text" data-act="commit-day" data-d="${ui.cDay}">Show all</button></div>`;
+  if (late.length) html += `<div class="day-h bad-t">Late</div>` + late.map(line).join('');
+  html += `<div class="day-h">Later this month</div>` + (later.length ? later.map(line).join('') : '<p class="empty">Nothing here.</p>');
+  if (done.length) html += `<div class="day-h">Paid</div>` + done.map(line).join('');
+  return html + '<div class="spacer"></div>' + fab('Add', 'commit-add');
+}
+
+function commitAddSheet() {
+  const types = [['bill', 'Bill', '🧾'], ['sub', 'Subscription', '🔁'], ['inst', 'Installment', '📆'], ['card', 'Credit card', '💳'], ['circle', "Gam'eya", '🤝'], ['loan', 'Loan', '💸']];
+  const { el, close } = sheet({
+    title: 'Add', body: `<div class="addgrid">${types.map(([k, l, e]) => `<button type="button" class="addtype" data-new="${k}"><span>${e}</span>${l}</button>`).join('')}</div>`,
+  });
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-new]');
+    if (!b) return;
+    close();
+    const k = b.dataset.new, today = C.todayEpoch();
+    setTimeout(() => {
+      if (k === 'bill') billEditor(null);
+      else if (k === 'sub') billEditor({ id: 0, name: '', amount: 0, currency: base(), frequency: 'MONTHLY', everyN: 30, anchorDay: C.ymd(today).d, nextDue: today, categoryId: null, walletId: null, remindDays: 1, variable: false, kind: 'SUB' });
+      else if (k === 'inst') instEditor(null);
+      else if (k === 'card') instEditor({ id: 0, name: '', type: 'Credit card', provider: '', amount: 0, total: 12, paid: 0, firstDue: today, walletId: null, remindDays: 1 });
+      else if (k === 'circle') circleEditor(null);
+      else newLoan();
+    }, 220);
+  });
+}
+
+function commitIconSheet(i) {
+  const key = iconKey(i), has = !!iconStore.get()[key];
+  const { el, close } = sheet({
+    title: `Picture for ${i.name}`,
+    body: `<div class="row-flex gap16">${commitBadge(i, 64)}<div class="small">Pick a photo or logo from your gallery to show here.</div></div>
+      <input type="file" accept="image/*" hidden id="cpick">
+      <div class="btns"><button type="button" class="btn outline" data-pick="1">Pick from gallery</button>${has ? '<button type="button" class="btn text" data-pick="0">Use default</button>' : ''}</div>`,
+  });
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pick]');
+    if (!b) return;
+    if (b.dataset.pick === '0') { iconStore.set(key, null); close(); render(); return; }
+    $('#cpick', el).click();
+  });
+  $('#cpick', el).addEventListener('change', (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const url = URL.createObjectURL(f), img = new Image();
+    img.onload = () => {
+      const side = Math.min(img.width, img.height), cv = document.createElement('canvas');
+      cv.width = cv.height = 96;
+      cv.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 96, 96);
+      iconStore.set(key, cv.toDataURL('image/png'));
+      URL.revokeObjectURL(url); close(); render();
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); toast('Could not read that picture'); };
+    img.src = url;
+  });
 }
 
 function installmentsTab() {
@@ -834,7 +985,7 @@ function installmentsTab() {
     })}<div class="row-bar">${progress(p.progress)}</div></div>`;
   };
   html += active.map((i) => instRow(i.name + (i.provider ? ` · ${i.provider}` : ''), `${i.type} · ${i.paid} of ${i.total} · ends ${C.fmtMonthYear(pl(i).endDate)}`, pl(i), i.amount, 'edit-inst', i.id, 'pay-inst')).join('');
-  html += circles.filter((c) => c.paid < c.months).map((c) => instRow(c.name, `Gam'eya share · ${c.paid} of ${c.months}`, C.circle(c).plan, c.share, 'commit-tab" data-i="2', c.id, 'pay-circle')).join('');
+  html += circles.filter((c) => c.paid < c.months).map((c) => instRow(c.name, `Gam'eya share · ${c.paid} of ${c.months}`, C.circle(c).plan, c.share, 'commit-tab" data-i="3', c.id, 'pay-circle')).join('');
   if (finished.length) html += `<div class="day-h">Finished</div>` + finished.map((i) => row(i.name, `${i.type} · paid off`, { icon: i.name, act: 'edit-inst', data: `data-id="${i.id}"`, trailing: pill('done', 'good') })).join('');
   return html + '<div class="spacer"></div>' + fab('Installment', 'edit-inst', 'data-id="0"');
 }
@@ -843,7 +994,7 @@ const INST_TYPES = ['Consumer finance', 'Credit card', 'Phone / device', 'Car', 
 const PROVIDERS = ['valU', 'Aman', 'Contact', 'Souhoola', 'Halan', 'Sympl', 'Bank'];
 
 function instEditor(it) {
-  const isNew = !it;
+  const isNew = !it || !it.id;
   it = it || { id: 0, name: '', type: 'Consumer finance', provider: '', amount: 0, total: 12, paid: 0, firstDue: C.todayEpoch(), walletId: null, remindDays: 1 };
   const types = [...new Set([...INST_TYPES, ...R.data.installments.map((x) => x.type)])];
   const body = field('name', 'What is it (fridge, laptop...)', it.name) +
@@ -1464,6 +1615,23 @@ const actions = {
   'pay-bill': (el) => { const b = R.byId(R.data.bills, +el.dataset.id); if (!b) return; if (b.variable) payVariableBill(b); else { R.payBill(b); toast(`${b.name} paid`); } },
   'skip-bill': (el) => { const b = R.byId(R.data.bills, +el.dataset.id); if (b) { R.skipBill(b); document.querySelector('.scrim [data-s="cancel"]')?.click(); toast('Skipped to the next date'); } },
   'commit-tab': (el) => { ui.commitTab = +el.dataset.i; render(); },
+  'commit-filter': (el) => { ui.cFilter = el.dataset.v; ui.cDay = null; render(); },
+  'commit-day': (el) => { const d = +el.dataset.d; ui.cDay = ui.cDay === d ? null : d; render(); },
+  'commit-add': () => commitAddSheet(),
+  'commit-icon': (el) => commitIconSheet({ kind: el.dataset.k, refId: +el.dataset.id, name: el.dataset.name }),
+  'commit-pay': (el) => {
+    const id = +el.dataset.id;
+    if (el.dataset.k === 'BILL' || el.dataset.k === 'SUB') actions['pay-bill']({ dataset: { id } });
+    else if (el.dataset.k === 'CIRCLE') actions['pay-circle']({ dataset: { id } });
+    else actions['pay-inst']({ dataset: { id } });
+  },
+  'commit-open': (el) => {
+    const id = +el.dataset.id, k = el.dataset.k;
+    if (k === 'BILL' || k === 'SUB') actions['edit-bill']({ dataset: { id } });
+    else if (k === 'CIRCLE') actions['edit-circle']({ dataset: { id } });
+    else if (k === 'LOAN') actions['open-loan']({ dataset: { id } });
+    else actions['edit-inst']({ dataset: { id } });
+  },
   'edit-inst': (el) => instEditor(R.byId(R.data.installments, +el.dataset.id)),
   'pay-inst': (el) => { const i = R.byId(R.data.installments, +el.dataset.id); if (i) { R.payInstallment(i); toast('Paid'); } },
   'edit-circle': (el) => circleEditor(R.byId(R.data.circles, +el.dataset.id)),

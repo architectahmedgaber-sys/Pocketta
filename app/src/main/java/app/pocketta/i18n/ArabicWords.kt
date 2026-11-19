@@ -525,5 +525,12 @@ object ArabicWords {
         "Bank messages" to "رسايل البنك",
         "Suggest expenses from bank messages" to "اقترح مصروفات من رسايل البنك",
         "When a bank text looks like spending, a notification offers to add it. Read on this phone only, never sent anywhere. You confirm every one." to "لما رسالة بنك تبان إنها مصروف، بيجيلك إشعار يقترح تسجله. بتتقرا على التليفون بس ومبتتبعتش لأي حتة. وانت اللي بتأكد كل واحدة.",
+        // Commitments overview
+        "This month" to "الشهر ده", "Left to pay this month" to "فاضل تدفعه الشهر ده",
+        "Nothing left to pay. Well done!" to "مفيش حاجة فاضلة تدفعها. برافو!", "# payments to go" to "# دفعات فاضلة",
+        "Later this month" to "بعد كده الشهر ده", "Nothing here." to "مفيش حاجة هنا.", "Show all" to "اعرض الكل",
+        "Cards" to "الكروت", "All" to "الكل", "Received" to "اتسلّم", "Expected" to "متوقع",
+        "Pick from gallery" to "اختار من المعرض", "Use default" to "ارجع للأيقونة الأصلية",
+        "Pick a photo or logo from your gallery to show here." to "اختار صورة أو لوجو من المعرض عشان تظهر هنا.",
     )
 }

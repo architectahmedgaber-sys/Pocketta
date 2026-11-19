@@ -22,6 +22,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TextButton
@@ -60,15 +61,16 @@ fun CommitmentsScreen(repo: Repo, prefs: Prefs, modifier: Modifier) {
     var tab by remember { mutableIntStateOf(0) }
     Column(modifier.fillMaxSize()) {
         Text("Commitments", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 8.dp))
-        TabRow(selectedTabIndex = tab, containerColor = androidx.compose.ui.graphics.Color.Transparent) {
-            listOf("Bills", "Installments", "Gam'eya", "Loans").forEachIndexed { i, t ->
+        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp, containerColor = androidx.compose.ui.graphics.Color.Transparent) {
+            listOf("This month", "Bills", "Installments", "Gam'eya", "Loans").forEachIndexed { i, t ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t, maxLines = 1) })
             }
         }
         when (tab) {
-            0 -> BillsScreen(repo, prefs, Modifier)
-            1 -> InstallmentsTab(repo, prefs) { tab = 2 }
-            2 -> CirclesTab(repo, prefs)
+            0 -> CommitOverview(repo, prefs, Modifier)
+            1 -> BillsScreen(repo, prefs, Modifier)
+            2 -> InstallmentsTab(repo, prefs) { tab = 3 }
+            3 -> CirclesTab(repo, prefs)
             else -> LoansTab(repo, prefs)
         }
     }
@@ -169,11 +171,11 @@ private fun InstallmentRow(
     }
 }
 
-private val defaultTypes = listOf("Consumer finance", "Credit card", "Phone / device", "Car", "Apartment")
+internal val defaultTypes = listOf("Consumer finance", "Credit card", "Phone / device", "Car", "Apartment")
 private val providers = listOf("valU", "Aman", "Contact", "Souhoola", "Halan", "Sympl", "Bank")
 
 @Composable
-private fun InstallmentEditor(repo: Repo, inst: Installment, usedTypes: List<String>, onClose: () -> Unit) {
+internal fun InstallmentEditor(repo: Repo, inst: Installment, usedTypes: List<String>, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val walletsFlow = remember { repo.dao.walletsFlow() }
     val wallets by walletsFlow.collectAsState(initial = emptyList())
@@ -318,7 +320,7 @@ private fun Turns(c: CircleEntity) {
 }
 
 @Composable
-private fun CircleEditor(repo: Repo, c: CircleEntity, onClose: () -> Unit) {
+internal fun CircleEditor(repo: Repo, c: CircleEntity, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val walletsFlow = remember { repo.dao.walletsFlow() }
     val wallets by walletsFlow.collectAsState(initial = emptyList())
@@ -432,7 +434,7 @@ private fun LoansTab(repo: Repo, prefs: Prefs) {
 }
 
 @Composable
-private fun NewLoanDialog(repo: Repo, prefs: Prefs, onClose: () -> Unit) {
+internal fun NewLoanDialog(repo: Repo, prefs: Prefs, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val walletsFlow = remember { repo.dao.walletsFlow() }
     val wallets by walletsFlow.collectAsState(initial = emptyList())
@@ -471,7 +473,7 @@ private fun NewLoanDialog(repo: Repo, prefs: Prefs, onClose: () -> Unit) {
 }
 
 @Composable
-private fun LoanDialog(repo: Repo, prefs: Prefs, loan: Loan, onClose: () -> Unit) {
+internal fun LoanDialog(repo: Repo, prefs: Prefs, loan: Loan, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var pay by remember { mutableStateOf(numText(loan.remaining)) }

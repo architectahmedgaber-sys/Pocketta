@@ -359,3 +359,76 @@ export function monthsSoonerWith(g, extra) {
   return before == null || after == null ? null : Math.max(0, before - after);
 }
 export const fmtMonthName = (y, m) => MONTHS[m - 1];
+
+// ---------- Commitments overview (kept in step with core/Commitments.kt) ----------
+
+// Item kinds: BILL, SUB, INSTALLMENT, CARD, CIRCLE, LOAN, INCOME.
+export const COMMIT_FILTERS = [['ALL', 'All'], ['BILLS', 'Bills'], ['INSTALLMENTS', 'Installments'], ['CIRCLE', "Gam'eya"], ['CARDS', 'Cards'], ['INCOME', 'Income']];
+
+export function commitMatches(filter, i) {
+  switch (filter) {
+    case 'BILLS': return i.kind === 'BILL' || i.kind === 'SUB';
+    case 'INSTALLMENTS': return i.kind === 'INSTALLMENT';
+    case 'CIRCLE': return i.kind === 'CIRCLE';
+    case 'CARDS': return i.kind === 'CARD';
+    case 'INCOME': return !!i.incoming;
+    default: return true;
+  }
+}
+export const commitLeft = (items) => items.filter((i) => !i.paid && !i.incoming).reduce((a, i) => a + i.amount, 0);
+export const commitLeftCount = (items) => items.filter((i) => !i.paid && !i.incoming).length;
+export const commitLate = (items, today) => items.filter((i) => !i.paid && i.date < today).sort((a, b) => a.date - b.date);
+export const commitLater = (items, today) => items.filter((i) => !i.paid && i.date >= today).sort((a, b) => a.date - b.date);
+export const commitDone = (items) => items.filter((i) => i.paid).sort((a, b) => b.date - a.date);
+
+// Brand marks: our own coloured square + letter, never the official logos.
+const BRANDS = [
+  ['N', '#E50914', ['netflix', 'نتفليكس', 'نتفلكس']],
+  ['S', '#00B386', ['shahid', 'شاهد']],
+  ['Y', '#FF0000', ['youtube', 'يوتيوب']],
+  ['S', '#1DB954', ['spotify', 'سبوتيفاي', 'سبوتفاي']],
+  ['A', '#6C2BD9', ['anghami', 'انغامي', 'انجامي']],
+  ['D+', '#113CCF', ['disney', 'ديزني']],
+  ['O+', '#222B45', ['osn', 'اوسن']],
+  ['C', '#D97757', ['claude', 'كلود']],
+  ['G', '#10A37F', ['chatgpt', 'openai', 'شات جي بي تي', 'شات جيبيتي']],
+  ['G', '#4285F4', ['gemini', 'جيميني', 'جمناي']],
+  ['N', '#111111', ['notion', 'نوشن']],
+  ['C', '#00B8C4', ['canva', 'كانفا']],
+  ['A', '#FA0F00', ['adobe', 'ادوبي', 'creative cloud']],
+  ['i', '#3693F3', ['icloud', 'ايكلاود', 'ايكلود']],
+  ['G1', '#34A853', ['google one', 'جوجل ون', 'google drive', 'جوجل درايف']],
+  ['M', '#D83B01', ['microsoft', 'office 365', 'm365', 'مايكروسوفت']],
+  ['P+', '#003791', ['playstation', 'ps plus', 'psn', 'بلايستيشن', 'بلاي ستيشن']],
+  ['X', '#107C10', ['xbox', 'اكس بوكس']],
+  ['S', '#1B2838', ['steam', 'ستيم']],
+  ['V', '#E60000', ['vodafone', 'فودافون']],
+  ['O', '#FF7900', ['orange', 'اورنج']],
+  ['e', '#6CBE45', ['etisalat', 'اتصالات']],
+  ['WE', '#5B2D90', ['we', 'وي']],
+];
+const TOPICS = [
+  [['electric', 'كهربا', 'كهرباء'], '⚡'], [['water', 'مياه', 'ميه', 'مية'], '💧'], [['gas', 'غاز'], '🔥'],
+  [['internet', 'wifi', 'انترنت', 'نت'], '🌐'], [['rent', 'ايجار', 'إيجار'], '🔑'],
+  [['school', 'tuition', 'مدرسه', 'مصاريف', 'حضانه'], '🎓'], [['club', 'gym', 'نادي', 'جيم'], '🏋️'],
+  [['insurance', 'تامين'], '🛡️'], [['mobile', 'phone', 'موبايل', 'كارت شحن'], '📱'],
+  [['doctor', 'clinic', 'دكتور', 'عياده'], '🩺'], [['garage', 'parking', 'جراج'], '🅿️'],
+  [['zakat', 'charity', 'زكاه', 'صدقه'], '🤲'], [['salary', 'payroll', 'مرتب', 'مرتبي', 'راتب'], '💰'],
+];
+const KIND_EMOJI = { BILL: '🧾', SUB: '🔁', INSTALLMENT: '📆', CARD: '💳', CIRCLE: '🤝', LOAN: '💸', INCOME: '💰' };
+
+export function normalizeName(s) {
+  return String(s ?? '').toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[ً-ٟـ]/g, '');
+}
+/** { letter, color, emoji }: letter is null unless the name is a known service. */
+export function badgeFor(name, kind) {
+  const text = normalizeName(name);
+  const tokens = text.split(/[^\p{L}\p{N}+]+/u).filter(Boolean);
+  const hit = (k) => { const key = normalizeName(k); return key.length <= 3 ? tokens.includes(key) : text.includes(key); };
+  if (kind !== 'INCOME') {
+    const b = BRANDS.find(([, , keys]) => keys.some(hit));
+    if (b) return { letter: b[0], color: b[1], emoji: KIND_EMOJI[kind] };
+  }
+  const t = TOPICS.find(([keys]) => keys.some(hit));
+  return { letter: null, color: null, emoji: t ? t[1] : KIND_EMOJI[kind] };
+}

@@ -106,20 +106,25 @@ fun BillsScreen(repo: Repo, prefs: Prefs, modifier: Modifier) {
         )
     }
     editing?.let { BillEditor(repo, prefs, it) { editing = null } }
-    paying?.let { b ->
-        var amount by remember(b.id) { mutableStateOf("") }
-        LaunchedEffect(b.id) { amount = numText(repo.estimate(b)) }
-        FormDialog("Pay ${b.name}", onDismiss = { paying = null }, saveLabel = "Paid", saveEnabled = (parseNumber(amount) ?: 0.0) > 0, onSave = {
-            parseNumber(amount)?.let { v -> scope.launch { repo.payBill(b, v) } }
-            paying = null
-        }) {
-            NumberField("Amount this time", amount, { amount = it }, suffix = b.currency)
-        }
+    paying?.let { b -> PayBillDialog(repo, b) { paying = null } }
+}
+
+/** Asks for this time's amount of a bill whose amount changes (electricity), then marks it paid. */
+@Composable
+internal fun PayBillDialog(repo: Repo, b: Bill, onClose: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var amount by remember(b.id) { mutableStateOf("") }
+    LaunchedEffect(b.id) { amount = numText(repo.estimate(b)) }
+    FormDialog("Pay ${b.name}", onDismiss = onClose, saveLabel = "Paid", saveEnabled = (parseNumber(amount) ?: 0.0) > 0, onSave = {
+        parseNumber(amount)?.let { v -> scope.launch { repo.payBill(b, v) } }
+        onClose()
+    }) {
+        NumberField("Amount this time", amount, { amount = it }, suffix = b.currency)
     }
 }
 
 @Composable
-private fun BillEditor(repo: Repo, prefs: Prefs, bill: Bill, onClose: () -> Unit) {
+internal fun BillEditor(repo: Repo, prefs: Prefs, bill: Bill, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val walletsFlow = remember { repo.dao.walletsFlow() }
     val wallets by walletsFlow.collectAsState(initial = emptyList())
