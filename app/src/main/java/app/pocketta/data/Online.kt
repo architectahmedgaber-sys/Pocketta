@@ -41,20 +41,24 @@ object Online {
         if (!force && System.currentTimeMillis() - p.ratesFetchedAt < 6 * 3_600_000L) return@withContext true
         runCatching {
             val j = JSONObject(get(RATES_URL))
-            val rates = j.getJSONObject("rates")
-            val m = HashMap<String, Double>()
-            for (k in rates.keys()) {
-                val v = rates.optDouble(k)
-                if (!v.isNaN() && v > 0) m[k.uppercase()] = v
+            // The file is in EGP; turn it into the main currency (rate of X = EGP per X / EGP per main currency).
+            val base = p.baseCurrency
+            fun inBase(rates: Map<String, Double>, gold: Map<String, Double>): Pair<Map<String, Double>, Map<String, Double>> {
+                if (base == "EGP") return rates to gold
+                val f = rates[base] ?: error("no rate for $base")
+                val r = HashMap<String, Double>()
+                r["EGP"] = 1 / f
+                for ((k, v) in rates) if (k != base) r[k] = v / f
+                return r to gold.mapValues { it.value / f }
             }
-            val gold = HashMap<String, Double>()
-            j.optJSONObject("gold")?.let { g -> for (k in g.keys()) g.optDouble(k).takeIf { !it.isNaN() && it > 0 }?.let { gold[k] = it } }
+            val (m, gold) = inBase(readMap(j.getJSONObject("rates")), readMap(j.optJSONObject("gold")))
             if (m.isEmpty()) error("empty")
             // Yesterday's prices, for the up/down arrows: the file carries them, else keep what we had before the day changed.
             val prev = j.optJSONObject("previous")
             if (prev != null) {
-                repo.dao.put(SettingRow("prevOnlineRates", Prefs.formatRates(readMap(prev.optJSONObject("rates")))))
-                repo.dao.put(SettingRow("prevGold", Prefs.formatRates(readMap(prev.optJSONObject("gold")))))
+                val (pr, pg) = inBase(readMap(prev.optJSONObject("rates")), readMap(prev.optJSONObject("gold")))
+                repo.dao.put(SettingRow("prevOnlineRates", Prefs.formatRates(pr)))
+                repo.dao.put(SettingRow("prevGold", Prefs.formatRates(pg)))
             } else if (p.onlineRates.isNotEmpty() && p.ratesUpdated.take(10) != j.optString("updated").take(10)) {
                 repo.dao.put(SettingRow("prevOnlineRates", Prefs.formatRates(p.onlineRates)))
                 repo.dao.put(SettingRow("prevGold", Prefs.formatRates(p.gold)))

@@ -42,8 +42,8 @@ object SmsParser {
     private val skip = Regex("""(otp|one[- ]?time|verification|password|رمز|كود|تحقق|cvv)""", RegexOption.IGNORE_CASE)
     private val credit = Regex("""(credited|received|deposit|refund|salary|استلمت|إيداع|ايداع|تم اضافة|تم إضافة|راتب|مسترد)""", RegexOption.IGNORE_CASE)
     private val debit = Regex("""(purchase|spent|debited|withdraw|withdrawn|paid|payment|charged|مشتريات|شراء|سحب|خصم|دفع|عملية)""", RegexOption.IGNORE_CASE)
-    private const val CUR = """EGP|LE|L\.E\.?|USD|EUR|SAR|AED|جنيه|ج\.م\.?|ر\.س|\$"""
-    private const val NUM = """\d[\d,]*(?:\.\d{1,2})?"""
+    private const val CUR = """EGP|LE|L\.E\.?|USD|EUR|SAR|AED|JOD|ILS|NIS|LYD|TND|DZD|MAD|MRU|SDG|KWD|QAR|BHD|OMR|IQD|LBP|SYP|YER|جنيه|ج\.م\.?|ر\.س|د\.أ|د\.ك|د\.ب|ر\.ق|ر\.ع|₪|\$"""
+    private const val NUM = """\d[\d,]*(?:\.\d{1,3})?"""
     private val amountRx = Regex("""(?:($CUR)\s*($NUM)|($NUM)\s*($CUR))""", RegexOption.IGNORE_CASE)
     private val merchantRx = Regex("""(?:\bat|\bfrom|لدى|عند)\s+([A-Za-z0-9؀-ۿ][A-Za-z0-9؀-ۿ &'._*-]{1,30})""", RegexOption.IGNORE_CASE)
 
@@ -58,6 +58,12 @@ object SmsParser {
             "EGP", "LE", "L.E", "L.E.", "جنيه", "ج.م", "ج.م." -> "EGP"
             "$", "USD" -> "USD"
             "ر.س", "SAR" -> "SAR"
+            "د.أ" -> "JOD"
+            "₪", "NIS" -> "ILS"
+            "د.ك" -> "KWD"
+            "د.ب" -> "BHD"
+            "ر.ق" -> "QAR"
+            "ر.ع" -> "OMR"
             else -> cur.uppercase()
         }
         val rest = text.substring(m.range.last + 1)

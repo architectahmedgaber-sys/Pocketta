@@ -13,7 +13,7 @@ object PortableBackup {
     private val INTS = listOf("cycleStart", "salaryDay")
     private val LONGS = listOf("salaryWallet", "lastCategory", "lastWallet", "ratesFetchedAt")
     private val DOUBLES = listOf("salary", "savingsPerMonth", "goalAmount", "goalSaved", "piggyTarget", "livingBase", "household")
-    private val STRINGS = listOf("baseCurrency", "theme", "lang", "goalName", "ratesUpdated")
+    private val STRINGS = listOf("baseCurrency", "country", "theme", "lang", "goalName", "ratesUpdated")
     private val MAPS = listOf("rates", "onlineRates", "prevOnlineRates", "gold", "prevGold")
     private val SPECIAL = listOf("autoCurrencies", "goals", "piggy", "goldBuys", "wealthHistory", "salarySteps", "livingOverrides")
 
@@ -32,7 +32,7 @@ object PortableBackup {
         o.put("app", "pocketta"); o.put("v", 1)
         o.put("exportedAt", java.time.Instant.now().toString())
         val s = JSONObject()
-        s.put("onboarded", p.onboarded); s.put("cycleStart", p.cycleStart); s.put("baseCurrency", p.baseCurrency)
+        s.put("onboarded", p.onboarded); s.put("cycleStart", p.cycleStart); s.put("baseCurrency", p.baseCurrency); s.put("country", p.country)
         s.put("salary", p.salary); s.put("salaryDay", p.salaryDay); s.put("salaryWallet", p.salaryWallet)
         s.put("savingsPerMonth", p.savingsPerMonth); s.put("budgetAlert", p.budgetAlert)
         s.put("rates", map(p.rates)); s.put("lastCategory", p.lastCategory); s.put("lastWallet", p.lastWallet)

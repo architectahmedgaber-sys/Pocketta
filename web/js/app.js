@@ -2,6 +2,7 @@ import * as C from './core.js';
 import * as R from './store.js';
 import { shareMonth } from './share.js';
 import { startArabic } from './i18n.js';
+import { COUNTRIES, OTHER_CURRENCIES, FLAGS, CURRENCY_AR, decimalsOf } from './countries.js';
 import * as P from './plan.js';
 import * as AI from './ai.js';
 
@@ -1609,7 +1610,7 @@ function currencyPage() {
     card(label('Your own rates') + `<div class="small">A rate you type here always wins over the internet one.</div>` +
       rates.map(([c, r]) => `<div class="row-flex line"><span class="grow">1 ${esc(c)} = ${C.fmt(r)} ${esc(s.baseCurrency)}</span><button class="btn text" data-act="edit-rate" data-c="${esc(c)}">Edit</button><button class="btn text" data-act="del-rate" data-c="${esc(c)}">Remove</button></div>`).join('') +
       `<div class="two">${field('code', 'Code (USD)', '')}${numField('rate', 'Rate', null)}</div><button class="btn filled" data-act="save-rate">Save rate</button>`) +
-    card(label('Main currency') + `<div class="row-flex">${field('base', 'Code', s.baseCurrency)}<button class="btn text" data-act="save-base">Save</button></div><div class="small">Everything is totalled in this currency. Internet rates are in EGP.</div>`) + `</main>`;
+    card(label('Main currency') + mainCurrencyBody(s)) + `</main>`;
 }
 
 function goldCard() {
@@ -1661,10 +1662,48 @@ function settings() {
 
 // ---------- Onboarding & lock ----------
 
+// ---------- Country and currency ----------
+
+const isAr = () => R.S().lang === 'AR';
+const countryName = (c) => (isAr() ? c[1] : c[2]);
+const curName = (code, en) => (isAr() ? CURRENCY_AR[code] || code : en || code);
+function countryRows(selected) {
+  const row = (key, flag, name, cur, dec) => `<button type="button" class="crow ${key === selected ? 'on' : ''}" data-act="pick-country" data-k="${key}" data-q="${esc((name + ' ' + cur).toLowerCase())}"><span class="flag">${flag}</span><span class="grow">${esc(name)}</span><small>${esc(cur)}${dec === 3 ? ' · 3' : dec === 0 ? ' · 0' : ''}</small></button>`;
+  return COUNTRIES.map((c) => row(c[0], FLAGS[c[0]], countryName(c), c[3], c[4])).join('') +
+    OTHER_CURRENCIES.map((o) => row('CUR:' + o[0], FLAGS.XX, curName(o[0], o[2]), o[0], o[3])).join('');
+}
+const countrySearch = () => `<input class="csearch" type="search" placeholder="${isAr() ? 'ابحث عن بلدك' : 'Search your country'}" data-act-input="csearch" autocomplete="off">`;
+/** key -> [currency code, country code] for a row key like 'JO' or 'CUR:USD'. */
+function pickedCurrency(key) {
+  if (key.startsWith('CUR:')) return [key.slice(4), ''];
+  const c = COUNTRIES.find((x) => x[0] === key);
+  return c ? [c[3], c[0]] : ['EGP', 'EG'];
+}
+
+function mainCurrencyBody(s) {
+  const c = R.country(), cur = s.baseCurrency;
+  const where = c ? `${FLAGS[c[0]]} ${esc(countryName(c))} · ` : '';
+  return `<div class="row-flex"><b class="grow">${where}${esc(curName(cur))} (${esc(cur)})</b><button class="btn text" data-act="change-country">${isAr() ? 'تغيير' : 'Change'}</button></div>
+    <div class="small">${isAr() ? 'شكل الأرقام' : 'Numbers look like'}: <b>${esc(C.fmt(1234.5678))} ${esc(cur)}</b></div>
+    <div class="small">${isAr() ? 'كل حاجة بتتحسب بالعملة دي. أسعار الدولار والذهب من النت بتتحول ليها.' : 'Everything is totalled in this currency. Internet rates and gold are converted to it.'}</div>
+    <details class="small pad-t"><summary>${isAr() ? 'عملة تانية' : 'Another currency'}</summary><div class="row-flex">${field('base', 'Code', cur)}<button class="btn text" data-act="save-base">Save</button></div></details>`;
+}
+function countrySheet() {
+  const sel = R.country() ? R.country()[0] : 'CUR:' + R.S().baseCurrency;
+  sheet({
+    title: isAr() ? 'اختار بلدك' : 'Pick your country',
+    body: `${countrySearch()}<div class="clist" id="clist" data-sel="${esc(sel)}">${countryRows(sel)}</div>
+      <div class="small">${isAr() ? 'تغيير العملة مش بيحوّل مبالغك القديمة، بيغيّر الرمز وعدد الخانات بس.' : 'Changing the currency does not convert your old amounts, only the symbol and decimals.'}</div>`,
+    onSave: (root) => { const [cur, cc] = pickedCurrency($('#clist', root)?.dataset.sel || sel); R.setCurrency(cur, cc); toast('Saved'); },
+  });
+}
+
 function onboarding() {
   return `<main class="page onboard" id="onb"><h1 class="brand">Pocketta</h1>
     ${chips('lang', [['EN', 'English'], ['AR', 'العربية']], R.S().lang || 'EN', 'seg')}
     <p>Your money for the month: what you can spend today, your bills, installments, gam'eya and loans. Everything stays on your phone.</p>
+    <div class="field"><span>${isAr() ? 'بلدك' : 'Your country'}</span><div class="small">${isAr() ? 'منها هنظبط العملة. تقدر تغيّرها بعدين من الإعدادات.' : 'We set your currency from it. You can change it later in Settings.'}</div></div>
+    ${countrySearch()}<div class="clist" id="clist" data-sel="EG">${countryRows('EG')}</div>
     ${numField('salary', 'Monthly salary (optional)', null, { suffix: 'EGP' })}
     ${numField('salaryDay', 'Salary day of the month', 1, { int: true })}
     ${numField('start', 'My month starts on day', 1, { int: true })}
@@ -1892,7 +1931,15 @@ const actions = {
   },
   'edit-cat': (el) => catEditor(R.byId(R.data.categories, +el.dataset.id)),
   'add-sub': (el) => catEditor(null, +el.dataset.id),
-  'save-base': () => { const v = val($('#cur'), 'base').trim().toUpperCase().slice(0, 4); if (v) { R.setSetting('baseCurrency', v); toast('Saved'); } },
+  'pick-country': (el) => {
+    const list = el.closest('.clist'), key = el.dataset.k;
+    list.dataset.sel = key;
+    list.querySelectorAll('.crow').forEach((b) => b.classList.toggle('on', b === el));
+    const cur = pickedCurrency(key)[0];
+    document.querySelectorAll('#onb .input-wrap em').forEach((e) => { e.textContent = cur; });
+  },
+  'change-country': () => countrySheet(),
+  'save-base': () => { const v = val($('#cur'), 'base').trim().toUpperCase().slice(0, 4); if (v) { R.setCurrency(v, ''); toast('Saved'); } },
   'edit-rate': (el) => { const root = $('#cur'); $('[name="code"]', root).value = el.dataset.c; $('[name="rate"]', root).value = R.S().rates[el.dataset.c]; },
   'del-rate': (el) => { const r = { ...R.S().rates }; delete r[el.dataset.c]; R.setSetting('rates', r); },
   'save-rate': () => {
@@ -1910,6 +1957,8 @@ const actions = {
   wipe: () => confirmSheet('Delete all data?', 'Everything in Pocketta on this phone will be deleted. Save a backup first if you may need it.', 'Delete all', () => { R.wipe(); ui.stack = [{ r: 'home' }]; render(); }),
   start: () => {
     const root = $('#onb');
+    const [cur, cc] = pickedCurrency($('#clist')?.dataset.sel || 'EG');
+    R.setCurrency(cur, cc);
     R.ensureSeeded();
     const s = R.S();
     s.cycleStart = Math.min(Math.max(parseInt(val(root, 'start')) || 1, 1), 31);
@@ -1980,6 +2029,11 @@ document.addEventListener('input', async (e) => {
   else if (v.length >= 8) { e.target.value = ''; $('#pin-msg').textContent = 'Wrong PIN'; }
 });
 
+document.addEventListener('input', (e) => {
+  if (!e.target.classList || !e.target.classList.contains('csearch')) return;
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('.clist .crow').forEach((b) => { b.hidden = !!q && !b.dataset.q.includes(q); });
+});
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { ui.hiddenAt = Date.now(); return; }
   if (R.S().pinHash && ui.hiddenAt && Date.now() - ui.hiddenAt > 60000) { ui.locked = true; document.querySelectorAll('.scrim').forEach((x) => x.remove()); }

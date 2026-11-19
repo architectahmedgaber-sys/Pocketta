@@ -8,6 +8,8 @@ data class Prefs(
     val onboarded: Boolean = false,
     val cycleStart: Int = 1,
     val baseCurrency: String = "EGP",
+    /** Country picked in the app (old data has none: read from the currency, Egypt for EGP). */
+    val country: String = "",
     val salary: Double = 0.0,
     val salaryDay: Int = 1,
     val salaryWallet: Long = 0,
@@ -122,7 +124,8 @@ data class Prefs(
             return Prefs(
                 onboarded = b("onboarded", false),
                 cycleStart = i("cycleStart", 1),
-                baseCurrency = m["baseCurrency"] ?: "EGP",
+                baseCurrency = (m["baseCurrency"] ?: "EGP").also { app.pocketta.core.Money.setCurrency(it) },
+                country = m["country"].orEmpty(),
                 salary = d("salary", 0.0),
                 salaryDay = i("salaryDay", 1),
                 salaryWallet = l("salaryWallet", 0),

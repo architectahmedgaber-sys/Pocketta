@@ -231,7 +231,7 @@ fun TxnRow(t: Txn, categories: List<app.pocketta.data.Category>, walletNames: Ma
     }
     ListRow(title, sub, icon = categories.firstOrNull { it.id == t.categoryId }?.name ?: title, onClick = onClick) {
         val sign = when (t.type) { TxType.INCOME -> "+"; TxType.EXPENSE -> "−"; else -> "" }
-        val text = sign + Money.fmt(t.amount) + if (t.currency != "EGP") " ${t.currency}" else ""
+        val text = sign + Money.fmt(t.amount) + if (t.currency != Money.currency) " ${t.currency}" else ""
         Text(
             text, fontWeight = FontWeight.SemiBold,
             color = when (t.type) { TxType.INCOME -> Good; TxType.TRANSFER -> MaterialTheme.colorScheme.onSurfaceVariant; else -> MaterialTheme.colorScheme.onSurface },

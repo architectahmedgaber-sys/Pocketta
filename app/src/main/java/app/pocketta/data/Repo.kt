@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
 import app.pocketta.core.Budget
+import app.pocketta.core.Money
 import app.pocketta.core.BudgetInput
 import app.pocketta.core.BudgetResult
 import app.pocketta.core.Circle
@@ -141,6 +142,25 @@ class Repo private constructor(private val app: Context) {
         scope.launch { runCatching { Widgets.updateAll(app) } }
     }
 
+    /**
+     * Change the main currency. Old amounts are not converted: only the symbol and decimals change.
+     * Online rates and gold were converted into the old currency, so they are dropped (the caller fetches them again).
+     */
+    suspend fun setCurrency(currency: String, country: String) {
+        val p = prefs()
+        val cur = currency.trim().uppercase().take(4)
+        if (cur.isEmpty()) return
+        dao.put(SettingRow("country", country))
+        if (cur != p.baseCurrency) {
+            dao.put(SettingRow("baseCurrency", cur))
+            for (k in listOf("onlineRates", "prevOnlineRates", "gold", "prevGold")) dao.put(SettingRow(k, ""))
+            dao.put(SettingRow("ratesFetchedAt", "0"))
+            dao.put(SettingRow("autoCurrencies", (p.autoCurrencies.filter { it != cur } + (if (cur == "USD") emptyList() else listOf("USD"))).distinct().joinToString(",")))
+        }
+        Money.setCurrency(cur)
+        changed()
+    }
+
     suspend fun set(key: String, value: Any) {
         dao.put(SettingRow(key, value.toString()))
         changed()
@@ -150,9 +170,10 @@ class Repo private constructor(private val app: Context) {
 
     suspend fun ensureSeeded() {
         if (dao.wallets().isNotEmpty()) return
-        dao.insertWallet(Wallet(name = "Cash", type = "CASH", sort = 0))
-        dao.insertWallet(Wallet(name = "Bank account", type = "BANK", sort = 1))
-        dao.insertWallet(Wallet(name = "Vodafone Cash", type = "MOBILE", sort = 2))
+        val cur = prefs().baseCurrency
+        dao.insertWallet(Wallet(name = "Cash", type = "CASH", currency = cur, sort = 0))
+        dao.insertWallet(Wallet(name = "Bank account", type = "BANK", currency = cur, sort = 1))
+        dao.insertWallet(Wallet(name = if (cur == "EGP") "Vodafone Cash" else "Mobile wallet", type = "MOBILE", currency = cur, sort = 2))
         var sort = 0
         for ((name, subs) in EXPENSE_SEED) {
             val pid = dao.insertCategory(Category(name = name, kind = TxType.EXPENSE, sort = sort++))

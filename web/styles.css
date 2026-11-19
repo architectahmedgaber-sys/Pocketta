@@ -406,3 +406,12 @@ main:has(+ .tabs) .chatpage { padding-bottom: 170px; }
 .tagpick { margin-top: -6px; }
 
 .cal-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--primary,#1b7f5c);margin-inline-start:3px;vertical-align:middle}
+
+/* Country picker */
+.csearch { width: 100%; box-sizing: border-box; margin: 8px 0; padding: 12px 14px; border: 1px solid var(--outline); border-radius: 14px; background: var(--surface-v, transparent); color: inherit; font: inherit; }
+.clist { max-height: 46vh; overflow: auto; margin-bottom: 12px; }
+.crow { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; margin-bottom: 4px; border: 0; border-radius: 14px; background: transparent; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.crow[hidden] { display: none; }
+.crow.on { background: var(--primary-c); font-weight: 700; }
+.crow .flag { font-size: 22px; }
+.crow small { opacity: .7; direction: ltr; }

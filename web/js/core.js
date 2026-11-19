@@ -1,4 +1,5 @@
 // Pure money and date math, ported from the Android app's :core module.
+import { decimalsOf } from './countries.js';
 // Dates are "epoch days": whole days since 1970-01-01, in the phone's local calendar.
 
 const DAY = 86400000;
@@ -57,11 +58,17 @@ export function previousCycle(c, startDay) { return cycleFor(c.start - 1, startD
 
 // ---------- Money ----------
 
+let curDec = 2;
+/** Called when the main currency is known or changes, so every amount shows that currency's decimals. */
+export function setCurrencyFormat(cur) { curDec = decimalsOf(cur); }
 export function fmt(v) {
-  const r = Math.round(v * 100) / 100;
-  return r.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const f = 10 ** curDec;
+  return (Math.round(v * f) / f).toLocaleString('en-US', { maximumFractionDigits: curDec });
 }
-export function short(v) { return Math.round(v).toLocaleString('en-US'); }
+// Whole numbers, except for currencies worth a lot per unit (dinar, 3 decimals) where fils matter.
+export function short(v) {
+  return curDec >= 3 ? fmt(v) : Math.round(v).toLocaleString('en-US');
+}
 
 // ---------- Recurrence ----------
 
@@ -211,7 +218,7 @@ export function parseQuick(input) {
   if (m[2]) amount *= 1000;
   const note = (s.slice(0, m.index) + ' ' + s.slice(m.index + m[0].length))
     .replace(/\s+/g, ' ').trim()
-    .replace(/(^|\s)(EGP|egp|LE|le|L\.E\.?|جنيه|ج\.?م?)$/u, '').trim();
+    .replace(/(^|\s)(EGP|egp|LE|le|L\.E\.?|JOD|ILS|LYD|TND|DZD|MAD|MRU|SDG|SAR|AED|KWD|QAR|BHD|OMR|IQD|LBP|SYP|YER|USD|EUR|جنيه|دينار|شيكل|ريال|درهم|ليرة|ج\.?م?)$/iu, '').trim();
   return { amount, note };
 }
 const YESTERDAY = /(^|[^\p{L}])(yesterday|أمس|امس|امبارح|إمبارح)(?![\p{L}])/iu;
