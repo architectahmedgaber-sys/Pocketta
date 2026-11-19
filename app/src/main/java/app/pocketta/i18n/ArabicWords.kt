@@ -324,6 +324,7 @@ object ArabicWords {
         "Pick one first" to "اختار الأول",
         "Checking the key..." to "براجع المفتاح...",
         "Could not reach Google. Check your internet." to "مقدرتش أوصل لجوجل. اتأكد من النت.",
+        "Could not reach the company. Check your internet." to "مقدرتش أوصل للشركة. اتأكد من النت.",
         "More" to "المزيد",
         "☀️ Light" to "☀️ فاتح",
         "🌙 Dark" to "🌙 داكن",

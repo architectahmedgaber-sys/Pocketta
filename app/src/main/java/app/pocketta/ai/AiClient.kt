@@ -35,19 +35,52 @@ object AiClient {
         val p = cfg.provider
         val key = cfg.key(p)
         val model = cfg.model(p)
-        return when (p) {
-            AiProvider.GEMINI -> try {
-                gemini(key, model, system, history, tools)
-            } catch (e: AiError) {
-                // The saved model name may not exist for this key (names change). Find one that does and try once more.
-                if (e.code != 404) throw e
-                val found = geminiPick(key)
-                if (found == null || found == model) throw e
-                cfg.setModel(AiProvider.GEMINI, found)
-                gemini(key, found, system, history, tools)
+        suspend fun call(m: String): AiReply = when (p) {
+            AiProvider.GEMINI -> gemini(key, m, system, history, tools)
+            AiProvider.CLAUDE -> claude(key, m, system, history, tools)
+            AiProvider.OPENAI -> openai(key, m, system, history, tools)
+        }
+        return try {
+            call(model)
+        } catch (e: AiError) {
+            // The saved model name may not exist for this key (names change). Find one that does and try once more.
+            if (e.code != 404) throw e
+            val found = pickModel(p, key)
+            if (found == null || found == model) throw e
+            cfg.setModel(p, found)
+            call(found)
+        }
+    }
+
+    /** Asks the company which models this key can use and picks a fast one. Returns null when none is found. Throws [AiError] when the key is refused. */
+    suspend fun pickModel(p: AiProvider, key: String): String? {
+        if (p == AiProvider.GEMINI) return geminiPick(key)
+        return withContext(Dispatchers.IO) {
+            val claude = p == AiProvider.CLAUDE
+            val c = URL(if (claude) "https://api.anthropic.com/v1/models?limit=100" else "https://api.openai.com/v1/models").openConnection() as HttpURLConnection
+            try {
+                c.connectTimeout = 20000
+                c.readTimeout = 30000
+                if (claude) { c.setRequestProperty("x-api-key", key); c.setRequestProperty("anthropic-version", "2023-06-01") }
+                else c.setRequestProperty("Authorization", "Bearer $key")
+                val code = c.responseCode
+                val text = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                if (code !in 200..299) throw AiError(code, text.take(500))
+                val arr = JSONObject(text).optJSONArray("data") ?: JSONArray()
+                val bad = Regex("audio|realtime|transcribe|tts|image|search|instruct|codex|vision|embedding|moderation|chat-latest")
+                val names = ArrayList<String>()
+                for (i in 0 until arr.length()) {
+                    val id = arr.getJSONObject(i).optString("id")
+                    if (claude && id.startsWith("claude-")) names += id
+                    if (!claude && id.startsWith("gpt-") && !bad.containsMatchIn(id)) names += id
+                }
+                val fast = Regex(if (claude) "haiku" else "mini")
+                fun rank(n: String) = (if (fast.containsMatchIn(n)) 0 else 5) + (if (Regex("preview|-\\d{3,}$|\\d{4}-\\d{2}-\\d{2}").containsMatchIn(n)) 1 else 0)
+                fun ver(n: String) = Regex("(\\d+(?:\\.\\d+)?)").find(n)?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
+                names.sortedWith(compareBy<String> { rank(it) }.thenByDescending { ver(it) }).firstOrNull()
+            } finally {
+                c.disconnect()
             }
-            AiProvider.CLAUDE -> claude(key, model, system, history, tools)
-            AiProvider.OPENAI -> openai(key, model, system, history, tools)
         }
     }
 

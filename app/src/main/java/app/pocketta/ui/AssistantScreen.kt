@@ -188,21 +188,18 @@ private fun AssistantSettings(cfg: AiConfig, provider: AiProvider, onProvider: (
                 Button(
                     onClick = {
                         cfg.setKey(provider, key); cfg.setModel(provider, model)
-                        if (provider != AiProvider.GEMINI) onDone()
-                        else {
-                            // Check the key right away, so a wrong key is explained here and not in the middle of a chat.
-                            checking = true; status = "Checking the key..."
-                            scope.launch {
-                                try {
-                                    app.pocketta.ai.AiClient.geminiPick(key.trim())
-                                    status = ""; onDone()
-                                } catch (e: AiError) {
-                                    status = e.friendly()
-                                } catch (e: Exception) {
-                                    status = "Could not reach Google. Check your internet."
-                                }
-                                checking = false
+                        // Check the key right away, so a wrong key is explained here and not in the middle of a chat.
+                        checking = true; status = "Checking the key..."
+                        scope.launch {
+                            try {
+                                app.pocketta.ai.AiClient.pickModel(provider, key.trim())
+                                status = ""; onDone()
+                            } catch (e: AiError) {
+                                status = e.friendly()
+                            } catch (e: Exception) {
+                                status = "Could not reach the company. Check your internet."
                             }
+                            checking = false
                         }
                     },
                     enabled = key.isNotBlank() && !checking,

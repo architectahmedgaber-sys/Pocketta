@@ -79,19 +79,35 @@ async function post(url, headers, body) {
 // history items: {role:'user',text} | {role:'assistant',text,calls:[{id,name,args}]} | {role:'results',results:[{callId,name,content}]}
 async function chat(system, history) {
   const p = cfg.provider(), key = cfg.key(p), model = cfg.model(p);
-  if (p === 'GEMINI') {
-    try { return await gemini(key, model, system, history); }
-    catch (e) {
-      // The saved model name may not exist for this key (names change). Find one that does and try once more.
-      if (!(e instanceof AiError) || e.code !== 404) throw e;
-      const found = await geminiPick(key);
-      if (!found || found === model) throw e;
-      cfg.setModel('GEMINI', found);
-      return gemini(key, found, system, history);
-    }
+  const call = (m) => (p === 'GEMINI' ? gemini(key, m, system, history) : p === 'CLAUDE' ? claude(key, m, system, history) : openai(key, m, system, history));
+  try { return await call(model); }
+  catch (e) {
+    // The saved model name may not exist for this key (names change). Find one that does and try once more.
+    if (!(e instanceof AiError) || e.code !== 404) throw e;
+    const found = await pickModel(p, key);
+    if (!found || found === model) throw e;
+    cfg.setModel(p, found);
+    return call(found);
   }
-  if (p === 'CLAUDE') return claude(key, model, system, history);
-  return openai(key, model, system, history);
+}
+
+const rankName = (n, fast) => (fast.test(n) ? 0 : 5) + (/preview|-\d{3,}$|\d{4}-\d{2}-\d{2}/.test(n) ? 1 : 0);
+const verOf = (n) => parseFloat((/(\d+(?:\.\d+)?)/.exec(n) || [0, 0])[1]);
+
+/** Asks the company which models this key can use and picks a fast one. Returns null when none is found. Throws AiError when the key is refused. */
+export async function pickModel(p, key) {
+  if (p === 'GEMINI') return geminiPick(key);
+  const isClaude = p === 'CLAUDE';
+  const res = await fetch(isClaude ? 'https://api.anthropic.com/v1/models?limit=100' : 'https://api.openai.com/v1/models',
+    { headers: isClaude ? { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' } : { Authorization: `Bearer ${key}` } });
+  const text = await res.text();
+  if (!res.ok) throw new AiError(res.status, text.slice(0, 500));
+  const ids = (JSON.parse(text).data || []).map((m) => String(m.id));
+  const names = isClaude ? ids.filter((n) => /^claude-/.test(n))
+    : ids.filter((n) => /^gpt-/.test(n) && !/(audio|realtime|transcribe|tts|image|search|instruct|codex|vision|embedding|moderation|chat-latest)/.test(n));
+  const fast = isClaude ? /haiku/ : /mini/;
+  names.sort((a, b) => rankName(a, fast) - rankName(b, fast) || verOf(b) - verOf(a));
+  return names[0] || null;
 }
 
 /** Asks Gemini which models this key can use and picks a fast one. Returns the model name or null. */

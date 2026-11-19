@@ -1656,11 +1656,9 @@ const actions = {
     const root = $('#aiset'), p = AI.cfg.provider(), key = val(root, 'key').trim();
     if (!key) return toast('Paste your key first');
     AI.cfg.setKey(p, key); AI.cfg.setModel(p, val(root, 'model') || AI.PROVIDERS[p].model);
-    if (p === 'GEMINI') {
-      // Check the key right away, so a wrong key or model is explained here and not in the middle of a chat.
-      try { await AI.geminiPick(key); }
-      catch (e) { return toast(e instanceof AI.AiError ? e.friendly() : 'Could not reach Google. Check your internet.', 6000); }
-    }
+    // Check the key right away, so a wrong key is explained here and not in the middle of a chat.
+    try { await AI.pickModel(p, key); }
+    catch (e) { return toast(e instanceof AI.AiError ? e.friendly() : 'Could not reach the company. Check your internet.', 6000); }
     ui.chat.settings = false; ui.chat.session = null; render();
   },
   'ai-remove': () => { AI.cfg.setKey(AI.cfg.provider(), ''); render(); },
