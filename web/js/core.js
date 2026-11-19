@@ -302,3 +302,42 @@ export function wealthChange(history, today, days) {
   const old = [...history].reverse().find((p) => p[0] <= today - days);
   return last && old ? last[1] - old[1] : null;
 }
+
+// ---------- Piggy bank and extra goals ----------
+
+/** history = [[epochDay, amount], ...]; amount > 0 puts in, < 0 takes out. */
+export function piggyAdd(history, day, amount) {
+  if (!amount) return history;
+  return [...history, [day, Math.round(amount * 100) / 100]].sort((a, b) => a[0] - b[0]);
+}
+export const piggyTotal = (history) => history.reduce((s, p) => s + p[1], 0);
+/** Every month from the first entry to this month (empty months show 0), oldest first, with the running total. */
+export function piggyMonths(history, today) {
+  if (!history.length) return [];
+  const key = (ed) => { const { y, m } = ymd(ed); return y * 12 + (m - 1); };
+  const by = {};
+  for (const [d, a] of history) by[key(d)] = (by[key(d)] || 0) + a;
+  const first = key(history[0][0]), last = Math.max(key(today), key(history[history.length - 1][0]));
+  const out = [];
+  let running = 0;
+  for (let k = first; k <= last; k++) {
+    const saved = by[k] || 0;
+    running += saved;
+    out.push({ y: Math.floor(k / 12), m: (k % 12) + 1, saved, total: running });
+  }
+  return out;
+}
+export const piggyAverage = (months) => (months.length < 2 ? null : months.reduce((s, m) => s + m.saved, 0) / months.length);
+export const goalReached = (g) => g.target > 0 && g.saved >= g.target;
+export const goalFraction = (g) => (g.target > 0 ? Math.max(0, Math.min(1, g.saved / g.target)) : 0);
+export const goalMonthsLeft = (g) => monthsToGoal(g.target, g.saved, g.monthly);
+/** Reached goals last, then soonest first, goals with no date at the end. */
+export function goalsByFinish(list) {
+  return [...list].sort((a, b) => (goalReached(a) - goalReached(b)) || ((goalMonthsLeft(a) ?? 1e9) - (goalMonthsLeft(b) ?? 1e9)));
+}
+/** Months sooner a goal finishes with [extra] more each month, or null when it has no date now. */
+export function monthsSoonerWith(g, extra) {
+  const before = monthsToGoal(g.target, g.saved, g.monthly), after = monthsToGoal(g.target, g.saved, g.monthly + extra);
+  return before == null || after == null ? null : Math.max(0, before - after);
+}
+export const fmtMonthName = (y, m) => MONTHS[m - 1];

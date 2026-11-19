@@ -67,6 +67,7 @@ val FieldShape = RoundedCornerShape(14.dp)
 val dayFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 val dayYearFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)
 val monthFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("MMMM", Locale.US)
+val shortMonthFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM", Locale.US)
 val monthYearFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM yyyy", Locale.US)
 
 fun parseNumber(s: String): Double? = QuickText.normalizeDigits(s).replace(" ", "").toDoubleOrNull()

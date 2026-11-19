@@ -21,7 +21,7 @@ const DEFAULT_SETTINGS = {
   onboarded: false, cycleStart: 1, baseCurrency: 'EGP', salary: 0, salaryDay: 1, salaryWallet: 0,
   savingsPerMonth: 0, budgetAlert: true, rates: {}, lastCategory: 0, lastWallet: 0, pinHash: '', pinSalt: '', overAlert: '',
   // 1.3: look, savings goal, today's rates from the internet (your own rates still win)
-  theme: 'AUTO', goalName: '', goalAmount: 0, goalSaved: 0,
+  theme: 'AUTO', goalName: '', goalAmount: 0, goalSaved: 0, goals: [], piggy: [],
   lang: 'EN', goldBuys: [], monthEndReminder: true, monthEndDismissed: '',
   wealthHistory: [], autoRates: true, autoCurrencies: ['USD', 'EUR', 'SAR'], onlineRates: {}, prevOnlineRates: {}, gold: {}, prevGold: {}, ratesUpdated: '', ratesFetchedAt: 0,
 };
@@ -422,7 +422,7 @@ export function payUpcoming(u) {
 
 export function setAside() {
   return data.bills.filter((b) => C.isSpread(b.frequency, b.everyN))
-    .reduce((s, b) => s + C.monthlyShare(b.amount * rateOf(b.currency), b.frequency, b.everyN), 0) + (S().savingsPerMonth || 0);
+    .reduce((s, b) => s + C.monthlyShare(b.amount * rateOf(b.currency), b.frequency, b.everyN), 0) + (S().savingsPerMonth || 0) + (S().goals || []).reduce((a, g) => a + (g.monthly || 0), 0);
 }
 
 export function home(today = C.todayEpoch()) {
@@ -520,3 +520,32 @@ export function recordWealth(today = C.todayEpoch()) {
   data.settings.wealthHistory = next;
   persist();
 }
+
+// ---------- Piggy bank and goals ----------
+
+/** Puts [amount] into the piggy bank (negative takes it out), dated today. */
+export function piggyAdd(amount) {
+  if (!amount) return;
+  data.settings.piggy = C.piggyAdd(S().piggy || [], C.todayEpoch(), amount);
+  changed();
+}
+/** Adds to the main savings goal; the money also goes into the piggy bank. */
+export function addToMainGoal(amount) {
+  if (!(amount > 0)) return;
+  data.settings.goalSaved = (S().goalSaved || 0) + amount;
+  piggyAdd(amount);
+}
+/** Adds to one of the extra goals; the money also goes into the piggy bank. */
+export function addToGoal(id, amount) {
+  if (!(amount > 0)) return;
+  data.settings.goals = (S().goals || []).map((g) => (g.id === id ? { ...g, saved: g.saved + amount } : g));
+  piggyAdd(amount);
+}
+export function saveGoal(goal) {
+  const list = S().goals || [];
+  const id = goal.id > 0 ? goal.id : Math.max(0, ...list.map((g) => g.id)) + 1;
+  const next = { ...goal, id };
+  data.settings.goals = list.some((g) => g.id === id) ? list.map((g) => (g.id === id ? next : g)) : [...list, next];
+  changed();
+}
+export function deleteGoal(id) { data.settings.goals = (S().goals || []).filter((g) => g.id !== id); changed(); }

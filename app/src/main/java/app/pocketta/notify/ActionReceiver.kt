@@ -21,7 +21,7 @@ class ActionReceiver : BroadcastReceiver() {
                 try {
                     val repo = Repo.get(context)
                     val p = repo.prefs()
-                    if (amount > 0 && p.goalAmount > 0) repo.set("goalSaved", p.goalSaved + amount)
+                    if (amount > 0 && p.goalAmount > 0) repo.addToMainGoal(amount)
                     NotificationManagerCompat.from(context).cancel(notifId)
                 } finally {
                     job.finish()

@@ -210,7 +210,7 @@ fun GoalCard(repo: Repo, prefs: Prefs) {
             confirmButton = {
                 TextButton(onClick = {
                     val v = parseNumber(addText) ?: 0.0
-                    if (v > 0) scope.launch { repo.set("goalSaved", prefs.goalSaved + v) }
+                    if (v > 0) scope.launch { repo.addToMainGoal(v) }
                     addText = ""
                     adding = false
                 }) { Text("Save") }

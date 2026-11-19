@@ -337,3 +337,10 @@ p { margin: 0; }
 .gap8 { margin-top: 10px; }
 .pline { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
 .pline span:last-child { text-align: right; }
+
+/* Piggy bank */
+.card.primary .btn.filled { background: var(--on-primary-c); color: var(--primary-c); }
+.bars { display: flex; align-items: flex-end; gap: 10px; height: 150px; margin-top: 10px; }
+.barcol { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
+.barcol i { display: block; width: 100%; border-radius: 8px 8px 3px 3px; background: var(--primary); opacity: .4; }
+.barcol i.last { opacity: 1; }

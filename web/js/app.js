@@ -5,7 +5,7 @@ import { startArabic } from './i18n.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.8.1';
+const VERSION = '1.9.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -128,7 +128,7 @@ function render() {
   if (ui.locked) { app.innerHTML = lockScreen(); $('#pin')?.focus(); return; }
   if (!R.S().onboarded) { app.innerHTML = onboarding(); return; }
   const c = cur();
-  const pages = { home, spend, commit, more, add, income, wallets, categories, currencyPage, settings, plan, wealthPage };
+  const pages = { home, spend, commit, more, add, income, wallets, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage };
   const page = pages[c.r === 'currencies' ? 'currencyPage' : c.r] || home;
   if (isTab(c.r)) {
     app.innerHTML = `<main class="page wide">${page(c)}</main>
@@ -369,7 +369,86 @@ function monthEndCard(s) {
 function goalSheet() {
   sheet({
     title: 'Add to goal', body: numField('amount', 'Amount', null, { suffix: base() }),
-    onSave: (root) => { const v = num(root, 'amount'); if (v > 0) R.setSetting('goalSaved', R.S().goalSaved + v); },
+    onSave: (root) => { const v = num(root, 'amount'); if (v > 0) R.addToMainGoal(v); },
+  });
+}
+
+// ---------- Piggy bank and goals ----------
+
+function piggySheet(dir) {
+  const total = C.piggyTotal(R.S().piggy || []);
+  sheet({
+    title: dir > 0 ? 'Put in' : 'Take out',
+    body: numField('amount', 'Amount', null, { suffix: base() }) + (dir < 0 ? `<div class="small">In your piggy bank: ${money(total)} ${esc(base())}</div>` : ''),
+    onSave: (root) => { let v = num(root, 'amount'); if (dir < 0) v = Math.min(v, total); if (v > 0) R.piggyAdd(dir * v); },
+  });
+}
+function piggyPage() {
+  const s = R.S(), hist = s.piggy || [], total = C.piggyTotal(hist), months = C.piggyMonths(hist, C.todayEpoch());
+  const avg = C.piggyAverage(months);
+  const hero = card(`${label('In your piggy bank')}<div class="huge">${money(total)} ${esc(base())}</div>
+    ${avg != null ? `<div class="small">Saved over ${months.length} months, about ${money(avg)} a month</div>` : ''}
+    <div class="btns"><button class="btn filled" data-act="piggy-in">Put in</button><button class="btn tonal" data-act="piggy-out" ${total > 0 ? '' : 'disabled'}>Take out</button></div>`, 'primary');
+  let body = hero;
+  if (!months.length) body += card(`<div class="small">Nothing in your piggy bank yet. Tap Put in when you set money aside.</div>`);
+  else {
+    const shown = months.slice(-6), top = Math.max(1, ...shown.map((m) => m.saved));
+    body += card(`${label('Saved each month')}<div class="bars">${shown.map((m, i) => `<div class="barcol"><span class="small">${money(m.saved)}</span>
+      <i class="${i === shown.length - 1 ? 'last' : ''}" style="height:${Math.max(3, Math.round(96 * Math.max(0, m.saved) / top))}px"></i><span class="small">${esc(C.fmtMonthName(m.y, m.m).slice(0, 3))}</span></div>`).join('')}</div>`);
+    body += card(label('Month by month') + [...months].reverse().map((m, i) =>
+      `<div class="pline"><span><b>${esc(C.fmtMonthName(m.y, m.m))}</b>${i === 0 ? `<div class="small">so far</div>` : ''}</span>
+       <span style="text-align:end"><b class="${m.saved < 0 ? 'bad-t' : 'good-t'}">${m.saved > 0 ? '+' : m.saved < 0 ? '−' : ''}${money(Math.abs(m.saved))}</b><div class="small">Total ${money(m.total)}</div></span></div>`).join(''));
+  }
+  return topbar('Piggy bank') + `<main class="page">${body}</main>`;
+}
+function allGoals() {
+  const s = R.S();
+  const main = s.goalAmount > 0 ? [{ id: 0, name: s.goalName || 'Savings goal', target: s.goalAmount, saved: s.goalSaved || 0, monthly: s.savingsPerMonth || 0 }] : [];
+  return [...main, ...(s.goals || [])];
+}
+function goalsPage() {
+  const s = R.S(), goals = allGoals(), sorted = C.goalsByFinish(goals), today = C.todayEpoch();
+  const firstId = (sorted.find((g) => !C.goalReached(g) && C.goalMonthsLeft(g) != null) || {}).id;
+  const perMonth = goals.reduce((a, g) => a + (g.monthly || 0), 0);
+  const r = 26, c = 2 * Math.PI * r;
+  let body = card(`<div class="row-flex"><div class="grow">${label('Piggy bank')}<div class="mid">${money(C.piggyTotal(s.piggy || []))} ${esc(base())}</div></div><span class="chev">›</span></div>`, 'tonal tap', 'data-act="open" data-r="piggyPage"');
+  if (!goals.length) body += card(`<div class="small">No goals yet. Add one (Umra, a car, a laptop) and see when you will reach it.</div><div class="btns"><button class="btn filled" data-act="goal-new">Add a goal</button></div>`);
+  else {
+    body += `<div class="small">${goals.length === 1 ? `1 goal. You put ${money(perMonth)} a month towards it.` : `${goals.length} goals. You put ${money(perMonth)} a month towards them.`}</div>`;
+    body += sorted.map((g) => {
+      const f = C.goalFraction(g), done = C.goalReached(g), m = C.goalMonthsLeft(g), sooner = C.monthsSoonerWith(g, 1000);
+      return card(`<div class="row-flex gap16" data-act="goal-edit" data-id="${g.id}"><div class="goal" style="width:72px;height:72px"><svg viewBox="0 0 72 72" width="72" height="72"><circle cx="36" cy="36" r="${r}" class="gt" style="stroke-width:9"/>
+        <circle cx="36" cy="36" r="${r}" class="gr" style="stroke:${done ? 'var(--good)' : 'var(--primary)'};stroke-width:9" stroke-dasharray="${f * c} ${c}" transform="rotate(-90 36 36)"/></svg><b style="font-size:15px">${Math.floor(f * 100)}%</b></div>
+        <div class="grow">${g.id === firstId && goals.length > 1 ? `<div class="label good-t">Finishes first</div>` : ''}<div class="mid">${esc(g.name)}</div>
+        <div class="small">${money(g.saved)} of ${money(g.target)} ${esc(base())}</div>
+        ${done ? `<div class="good-t b">Goal reached!</div>` : `${g.monthly > 0 ? `<div class="small">${money(g.monthly)} a month</div>` : ''}
+          ${m != null ? `<div class="b">Done by ${esc(C.fmtMonthYear(C.goalDateAfter(today, m)))}</div>` : `<div class="small">No date yet. Put an amount towards it each month.</div>`}
+          ${sooner != null && sooner >= 6 ? `<div class="small">Add 1,000 a month and it moves up ${sooner} months</div>` : ''}`}</div></div>
+        ${done ? '' : `<div class="btns"><button class="btn text" data-act="goal-addto" data-id="${g.id}">Add to goal</button></div>`}`, g.id === firstId && goals.length > 1 ? 'primary' : '');
+    }).join('');
+  }
+  return topbar('Goals', `<button class="btn text" data-act="goal-new">Add a goal</button>`) + `<main class="page">${body}</main>`;
+}
+function goalAddSheet(id) {
+  sheet({
+    title: 'Add to goal', body: numField('amount', 'Amount', null, { suffix: base() }) + `<div class="small">Also goes into your piggy bank</div>`,
+    onSave: (root) => { const v = num(root, 'amount'); if (v > 0) { if (id === 0) R.addToMainGoal(v); else R.addToGoal(id, v); } },
+  });
+}
+function goalEditSheet(id) {
+  const s = R.S(), g = id == null ? null : allGoals().find((x) => x.id === id);
+  sheet({
+    title: g ? 'Edit goal' : 'New goal',
+    body: field('gName', 'Goal name', g ? (id === 0 ? s.goalName : g.name) : '') + numField('gTarget', 'Goal amount', g?.target, { suffix: base() }) +
+      numField('gSaved', 'Saved so far', g?.saved, { suffix: base() }) + numField('gMonthly', 'Put towards it each month', g?.monthly, { suffix: base() }),
+    onDelete: g ? () => { if (id === 0) { s.goalName = ''; s.goalAmount = 0; s.goalSaved = 0; R.changed(); } else R.deleteGoal(id); } : null,
+    deleteLabel: 'Delete this goal',
+    onSave: (root) => {
+      const target = num(root, 'gTarget'), saved = num(root, 'gSaved') || 0, monthly = num(root, 'gMonthly') || 0, name = val(root, 'gName').trim();
+      if (!(target > 0)) return 'Type the goal amount';
+      if (id === 0) { s.goalName = name; s.goalAmount = target; s.goalSaved = saved; s.savingsPerMonth = monthly; R.changed(); }
+      else R.saveGoal({ id: g ? id : 0, name: name || 'Savings goal', target, saved, monthly });
+    },
   });
 }
 
@@ -1029,6 +1108,8 @@ function more() {
   const big = (emoji, title, sub, r) => `<div class="card bigcard tap" data-act="open" data-r="${r}"><span class="bigicon">${emoji}</span>
     <div class="grow"><div class="mid">${esc(title)}</div><div class="small">${esc(sub)}</div></div><span class="chev">›</span></div>`;
   return topbar('Settings & more') + `<main class="page more">` +
+    big('🐷', 'Piggy bank', 'Everything you saved, month by month', 'piggyPage') +
+    big('🎯', 'Goals', 'Umra, a car, a laptop, each with its own date', 'goalsPage') +
     big('🏦', 'Everything I own', 'Wallets and gold in one number, in dollars and gold, and how it changed', 'wealthPage') +
     big('🧮', 'Plan ahead', 'Can I afford this? What if I save? When money runs short', 'plan') +
     big('💰', 'Income & salary', 'Your monthly salary, other income, money set aside', 'income') +
@@ -1290,7 +1371,12 @@ const actions = {
   'plan-pct': (el) => { ui.plan.pct = +el.dataset.val; $('#sim-out').innerHTML = simOut(); },
   'conv-swap': () => { const { from, to } = convCompute(); ui.conv.from = to[0]; ui.conv.to = from[0]; render(); },
   'goal-add': () => goalSheet(),
-  'month-move': () => { const m = ui.monthEnd; if (!m) return; R.S().goalSaved += m.amt; R.S().monthEndDismissed = m.key; R.changed(); toast('Moved to your goal'); },
+  'piggy-in': () => piggySheet(1),
+  'piggy-out': () => piggySheet(-1),
+  'goal-new': () => goalEditSheet(null),
+  'goal-edit': (el) => goalEditSheet(+el.dataset.id),
+  'goal-addto': (el) => goalAddSheet(+el.dataset.id),
+  'month-move': () => { const m = ui.monthEnd; if (!m) return; R.S().monthEndDismissed = m.key; R.addToMainGoal(m.amt); toast('Moved to your goal'); },
   'month-skip': () => { if (ui.monthEnd) R.setSetting('monthEndDismissed', ui.monthEnd.key); },
   'toggle-monthend': (el) => R.setSetting('monthEndReminder', el.checked),
   'gold-add': () => {

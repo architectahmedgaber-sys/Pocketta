@@ -52,6 +52,8 @@ fun MoreScreen(nav: Nav, modifier: Modifier) {
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        MoreCard("🐷", "Piggy bank", "Everything you saved, month by month") { nav.open(Route.Piggy) }
+        MoreCard("🎯", "Goals", "Umra, a car, a laptop, each with its own date") { nav.open(Route.Goals) }
         MoreCard("🏦", "Everything I own", "Wallets and gold in one number, in dollars and gold, and how it changed") { nav.open(Route.Wealth) }
         MoreCard("🧮", "Plan ahead", "Can I afford this? What if I save? When money runs short") { nav.open(Route.Plan) }
         MoreCard("💰", "Income & salary", "Your monthly salary, other income, money set aside") { nav.open(Route.Income) }

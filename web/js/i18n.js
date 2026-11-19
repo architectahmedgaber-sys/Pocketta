@@ -93,6 +93,34 @@ const EXTRA = {
   "Prices are rising": "الأسعار بتزيد",
   "At this pace, compared with your average of the last 3 months": "بالمعدل ده، مقارنة بمتوسط آخر 3 شهور",
   "Keep going, next week is a fresh start.": "كمّل، والأسبوع الجاي بداية جديدة.",
+  // Piggy bank and goals
+  "Piggy bank": "الحصالة",
+  "Everything you saved, month by month": "كل اللي وفرته، شهر بشهر",
+  "Goals": "الأهداف",
+  "Umra, a car, a laptop, each with its own date": "عمرة، عربية، لابتوب، وكل واحد له ميعاده",
+  "In your piggy bank": "في الحصالة",
+  "In your piggy bank: #": "في الحصالة: #",
+  "Put in": "حط فيها",
+  "Take out": "اسحب",
+  "Saved each month": "اللي وفرته كل شهر",
+  "Month by month": "شهر بشهر",
+  "so far": "لحد دلوقتي",
+  "Saved over # months, about # a month": "وفرت على # شهور، حوالي # في الشهر",
+  "Nothing in your piggy bank yet. Tap Put in when you set money aside.": "الحصالة فاضية لسه. دوس \"حط فيها\" لما تحوّش فلوس.",
+  "# of #": "# من #",
+  "# a month": "# في الشهر",
+  "# goal. You put # a month towards it.": "# هدف. بتحط # في الشهر عليه.",
+  "# goals. You put # a month towards them.": "# أهداف. بتحط # في الشهر عليهم.",
+  "Finishes first": "هيخلص الأول",
+  "No date yet. Put an amount towards it each month.": "مفيش ميعاد لسه. حط مبلغ ليه كل شهر.",
+  "Add # a month and it moves up # months": "زوّد # في الشهر وهيتقدم # شهور",
+  "No goals yet. Add one (Umra, a car, a laptop) and see when you will reach it.": "مفيش أهداف لسه. ضيف واحد (عمرة، عربية، لابتوب) وشوف هتوصله إمتى.",
+  "Add a goal": "ضيف هدف",
+  "New goal": "هدف جديد",
+  "Edit goal": "تعديل الهدف",
+  "Put towards it each month": "اللي بتحطه عليه كل شهر",
+  "Delete this goal": "امسح الهدف ده",
+  "Also goes into your piggy bank": "وبيتحط كمان في الحصالة",
   'Currency': 'العملة', 'Or pick a day': 'أو اختار يوم', 'English': 'English',
 };
 const hasLetters = /[A-Za-z]/;
@@ -102,6 +130,7 @@ const monthsRe = new RegExp('\\b(' + Object.keys(MONTHS).join('|') + ')\\b', 'g'
 const monthDay = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b/g;
 const daysRe = /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|AM|PM)\b/g;
 const EXTRA_RULES = [
+  ["Done by (.+)", "هيخلص في @1"],
   ["You spent (\\S+) (\\S+) this week\\.", "صرفت @1 @2 الأسبوع ده."],
   ["You spent (\\S+) (\\S+) this week, (\\d+)% more than last week\\.", "صرفت @1 @2 الأسبوع ده، أكتر بـ @3% من الأسبوع اللي فات."],
   ["You spent (\\S+) (\\S+) this week, (\\d+)% less than last week\\.", "صرفت @1 @2 الأسبوع ده، أقل بـ @3% من الأسبوع اللي فات."],
