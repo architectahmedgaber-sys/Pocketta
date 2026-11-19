@@ -404,3 +404,5 @@ main:has(+ .tabs) .chatpage { padding-bottom: 170px; }
 .tipline { margin-top: 6px; font-weight: 600; }
 .pre { white-space: pre-line; }
 .tagpick { margin-top: -6px; }
+
+.cal-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--primary,#1b7f5c);margin-inline-start:3px;vertical-align:middle}

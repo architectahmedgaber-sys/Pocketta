@@ -7,7 +7,7 @@ import * as AI from './ai.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.14.0';
+const VERSION = '1.14.1';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -774,7 +774,7 @@ function initAdd(c, t) {
     const cat = R.byId(R.data.categories, t.categoryId);
     return { type: t.type, input: String(t.amount), noteField: t.note, categoryId: t.categoryId, parentId: cat ? (cat.parentId ?? cat.id) : null, byHand: true, walletId: t.walletId, toWalletId: t.toWalletId, currency: t.currency, date: t.epochDay, person: '', due: null, tags: t.tags || [] };
   }
-  const st = { type: c.type === 'INCOME' ? 'INCOME' : 'EXPENSE', input: '', noteField: '', categoryId: null, parentId: null, byHand: false, walletId: 0, toWalletId: null, currency: s.baseCurrency, date: C.todayEpoch(), person: '', due: null, tags: [] };
+  const st = { type: c.type === 'INCOME' ? 'INCOME' : 'EXPENSE', input: '', noteField: '', categoryId: null, parentId: null, byHand: false, walletId: 0, toWalletId: null, currency: s.baseCurrency, date: c.date ?? C.todayEpoch(), person: '', due: null, tags: [] };
   if (st.type === 'EXPENSE' && s.lastCategory) {
     const cat = R.categories().find((x) => x.id === s.lastCategory);
     if (cat) { st.categoryId = cat.id; st.parentId = cat.parentId ?? cat.id; }
@@ -959,25 +959,30 @@ function commitBadge(i, size = 44) {
   return `<span class="cbadge emo" style="${st};font-size:${Math.round(size * 0.5)}px">${b.emoji}</span>`;
 }
 
-function commitItems() {
-  const s = R.S(), today = C.todayEpoch(), cycle = C.cycleFor(today, s.cycleStart);
+function commitItems(off = 0) {
+  const s = R.S(), today = C.todayEpoch();
+  let cycle = C.cycleFor(today, s.cycleStart);
+  for (let k = 0; k < off; k++) cycle = C.cycleFor(cycle.nextStart, s.cycleStart);
+  for (let k = 0; k > off; k--) cycle = C.previousCycle(cycle, s.cycleStart);
+  const lo = off === 0 ? -1e9 : cycle.start; // other months: only that month's own payments
   const out = [];
   const push = (o) => out.push({ incoming: false, payable: false, paid: false, ...o });
-  for (const b of R.data.bills) {
-    C.occurrences(b.nextDue, b.frequency, b.everyN, b.nextDue, cycle.nextStart, b.anchorDay).forEach((d, idx) =>
-      push({ kind: b.kind === 'SUB' ? 'SUB' : 'BILL', refId: b.id, name: b.name, sub: C.describeFreq(b.frequency, b.everyN), amount: b.amount * R.rateOf(b.currency), date: d, payable: idx === 0 }));
+  for (const b of off < 0 ? [] : R.data.bills) {
+    C.occurrences(b.nextDue, b.frequency, b.everyN, b.nextDue, cycle.nextStart, b.anchorDay).forEach((d, idx) => {
+      if (d >= lo) push({ kind: b.kind === 'SUB' ? 'SUB' : 'BILL', refId: b.id, name: b.name, sub: C.describeFreq(b.frequency, b.everyN), amount: b.amount * R.rateOf(b.currency), date: d, payable: idx === 0 && off === 0 });
+    });
   }
-  for (const i of R.data.installments) {
+  for (const i of off < 0 ? [] : R.data.installments) {
     const kind = String(i.type).toLowerCase() === 'credit card' ? 'CARD' : 'INSTALLMENT';
-    C.plan(i.amount, i.total, i.paid, i.firstDue).unpaidDueIn(-1e9, cycle.nextStart).forEach((d, idx) =>
-      push({ kind, refId: i.id, name: i.name, sub: `${i.paid + idx + 1} of ${i.total}`, amount: i.amount, date: d, payable: idx === 0 }));
+    C.plan(i.amount, i.total, i.paid, i.firstDue).unpaidDueIn(lo, cycle.nextStart).forEach((d, idx) =>
+      push({ kind, refId: i.id, name: i.name, sub: `${i.paid + idx + 1} of ${i.total}`, amount: i.amount, date: d, payable: idx === 0 && off === 0 }));
   }
-  for (const c of R.data.circles) {
-    C.circle(c).plan.unpaidDueIn(-1e9, cycle.nextStart).forEach((d, idx) =>
-      push({ kind: 'CIRCLE', refId: c.id, name: c.name, sub: `Gam'eya · ${c.paid + idx + 1} of ${c.months}`, amount: c.share, date: d, payable: idx === 0 }));
+  for (const c of off < 0 ? [] : R.data.circles) {
+    C.circle(c).plan.unpaidDueIn(lo, cycle.nextStart).forEach((d, idx) =>
+      push({ kind: 'CIRCLE', refId: c.id, name: c.name, sub: `Gam'eya · ${c.paid + idx + 1} of ${c.months}`, amount: c.share, date: d, payable: idx === 0 && off === 0 }));
   }
-  for (const l of R.data.loans) {
-    if (l.closed || l.dueDay == null || l.dueDay >= cycle.nextStart) continue;
+  for (const l of off < 0 ? [] : R.data.loans) {
+    if (l.closed || l.dueDay == null || l.dueDay >= cycle.nextStart || l.dueDay < lo) continue;
     const lent = l.direction === 'LENT';
     push({ kind: 'LOAN', refId: l.id, name: l.person, sub: lent ? 'They owe you' : 'You owe', amount: R.remaining(l), date: l.dueDay, incoming: lent });
   }
@@ -993,21 +998,24 @@ function commitItems() {
   }
   const got = inCycle.find((t) => t.source === 'SALARY');
   if (got) push({ kind: 'INCOME', refId: 0, name: 'Salary', sub: 'Received', amount: got.amount * (got.rate || 1), date: got.epochDay, paid: true, incoming: true });
-  else if (s.salary > 0) {
+  else if (s.salary > 0 && off >= 0) {
     const d = R.salaryDateIn(cycle, s.salaryDay);
     if (d != null) push({ kind: 'INCOME', refId: 0, name: 'Salary', sub: 'Expected', amount: s.salary, date: d, incoming: true });
   }
   return { out, cycle, today };
 }
 
+/** Everyday expenses and income (not bill/installment payments) on one day, so a tapped calendar day shows what was added. */
+const plainTxnsOn = (d) => R.data.txns.filter((t) => t.epochDay === d && !t.source && t.type !== 'TRANSFER');
+
 function commitOverview() {
-  const { out: all, cycle, today } = commitItems();
+  const { out: all, cycle, today } = commitItems(ui.cOff || 0);
   ui.cFilter = ui.cFilter || 'ALL';
   const filtered = all.filter((i) => C.commitMatches(ui.cFilter, i));
   const shown = ui.cDay != null ? filtered.filter((i) => i.date === ui.cDay) : filtered;
   const left = C.commitLeft(all), n = C.commitLeftCount(all);
   const sd = C.ymd(cycle.start);
-  const monthName = sd.d === 1 ? C.fmtMonth(cycle.start) : `${C.fmtDay(cycle.start)} – ${C.fmtDay(cycle.end)}`;
+  const monthName = sd.d === 1 ? `${C.fmtMonth(cycle.start)} ${sd.y}` : `${C.fmtDay(cycle.start)} – ${C.fmtDay(cycle.end)}`;
   const line = (i) => {
     const btn = i.payable && !i.paid && !i.incoming ? `<button class="btn text" data-act="commit-pay" data-k="${i.kind}" data-id="${i.refId}">Paid</button>` : '';
     return `<div class="row ${i.kind === 'INCOME' ? '' : 'tap'}" ${i.kind === 'INCOME' ? '' : `data-act="commit-open" data-k="${i.kind}" data-id="${i.refId}"`}>
@@ -1022,7 +1030,8 @@ function commitOverview() {
   for (let k = 0; k < offset; k++) cells += '<div></div>';
   for (let k = 0; k < cycle.length; k++) {
     const d = cycle.start + k, its = byDay[d] || [];
-    cells += `<button class="cal-d ${d === today ? 'today' : ''} ${ui.cDay === d ? 'sel' : ''}" data-act="commit-day" data-d="${d}"><span>${C.ymd(d).d}</span>
+    const spentDay = plainTxnsOn(d).length > 0;
+    cells += `<button class="cal-d ${d === today ? 'today' : ''} ${ui.cDay === d ? 'sel' : ''}" data-act="commit-day" data-d="${d}"><span>${C.ymd(d).d}${spentDay ? '<i class="cal-dot"></i>' : ''}</span>
       <span class="cal-i">${its.slice(0, 2).map((i) => commitBadge(i, 17)).join('')}</span>${its.length > 2 ? `<small>+${its.length - 2}</small>` : ''}</button>`;
   }
   const late = C.commitLate(shown, today), later = C.commitLater(shown, today), done = C.commitDone(shown);
@@ -1031,8 +1040,16 @@ function commitOverview() {
   if (ui.bulkUndo) html += card(`<div class="row-flex"><div class="grow"><b class="good-t">✓ ${esc(ui.bulkUndo.text)}</b></div><button class="btn text" data-act="bulk-undo">Undo</button><button class="btn text" data-act="bulk-dismiss">OK</button></div>`, 'tonal');
   if (R.groupPayments(today).length) html += `<button class="btn outline wide" data-act="bulk-open">Mark a whole group as paid</button>`;
   html += `<div class="fchips">${C.COMMIT_FILTERS.map(([v, l]) => `<button class="chip ${ui.cFilter === v ? 'on' : ''}" data-act="commit-filter" data-v="${v}">${l}</button>`).join('')}</div>`;
+  html += `<div class="month-nav"><button class="icon-btn" data-act="commit-prev" aria-label="Previous month">${icon('left')}</button>
+    <div class="center"><div class="mid">${esc(monthName)}</div></div>
+    <button class="icon-btn" data-act="commit-next" aria-label="Next month">${icon('right')}</button></div>`;
   html += card(`<div class="cal">${cells}</div>`);
-  if (ui.cDay != null) html += `<div class="row-flex pad-t"><div class="grow small">Showing ${esc(C.fmtDay(ui.cDay))}</div><button class="btn text" data-act="commit-day" data-d="${ui.cDay}">Show all</button></div>`;
+  if (ui.cDay != null) {
+    html += `<div class="row-flex pad-t"><div class="grow small">Showing ${esc(C.fmtDay(ui.cDay))}</div><button class="btn text" data-act="commit-day" data-d="${ui.cDay}">Show all</button></div>
+      <button class="btn tonal wide" data-act="commit-add-day" data-d="${ui.cDay}">Add expense on ${esc(C.fmtDay(ui.cDay))}</button>`;
+    const plain = plainTxnsOn(ui.cDay);
+    if (plain.length) html += `<div class="day-h">Spent that day</div>` + plain.map(txnRow).join('');
+  }
   if (late.length) html += `<div class="day-h bad-t">Late</div>` + late.map(line).join('');
   html += `<div class="day-h">Later this month</div>` + (later.length ? later.map(line).join('') : '<p class="empty">Nothing here.</p>');
   if (done.length) html += `<div class="day-h">Paid</div>` + done.map(line).join('');
@@ -1827,6 +1844,9 @@ const actions = {
   'commit-tab': (el) => { ui.commitTab = +el.dataset.i; render(); },
   'commit-filter': (el) => { ui.cFilter = el.dataset.v; ui.cDay = null; render(); },
   'commit-day': (el) => { const d = +el.dataset.d; ui.cDay = ui.cDay === d ? null : d; render(); },
+  'commit-prev': () => { ui.cOff = (ui.cOff || 0) - 1; ui.cDay = null; render(); },
+  'commit-next': () => { ui.cOff = (ui.cOff || 0) + 1; ui.cDay = null; render(); },
+  'commit-add-day': (el) => go('add', { date: +el.dataset.d }),
   'commit-add': () => commitAddSheet(),
   'bulk-open': () => bulkSheet(),
   'bulk-undo': () => { if (ui.bulkUndo) { R.undoPayGroup(ui.bulkUndo.undo); ui.bulkUndo = null; toast('Undone'); render(); } },

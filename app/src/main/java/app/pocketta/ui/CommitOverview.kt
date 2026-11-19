@@ -25,6 +25,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import app.pocketta.core.Cycle
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -159,40 +164,41 @@ private val dowFmt = DateTimeFormatter.ofPattern("EEE d MMM", Locale.US)
 /** Everything due or paid inside one budget cycle, as one list. */
 private fun buildItems(
     bills: List<Bill>, insts: List<Installment>, circles: List<CircleEntity>, loans: List<Loan>,
-    txns: List<app.pocketta.data.Txn>, prefs: Prefs, repo: Repo, today: LocalDate,
+    txns: List<app.pocketta.data.Txn>, prefs: Prefs, repo: Repo, today: LocalDate, cycle: Cycle, off: Int,
 ): List<CItem> {
-    val cycle = CycleMath.cycleFor(today, prefs.cycleStart)
     val out = ArrayList<CItem>()
-    val epoch = LocalDate.ofEpochDay(0)
+    // The current month also lists what is late; other months only list their own payments.
+    val epoch = if (off == 0) LocalDate.ofEpochDay(0) else cycle.start
 
-    for (b in bills) {
+    for (b in if (off < 0) emptyList() else bills) {
         val f = Frequency.parse(b.frequency)
         val first = LocalDate.ofEpochDay(b.nextDue)
         val dates = Recurrence.occurrences(first, f, b.everyN, first, cycle.nextStart, b.anchorDay)
         dates.forEachIndexed { idx, d ->
+            if (d.isBefore(epoch)) return@forEachIndexed
             out += CItem(
                 if (b.kind == "SUB") CKind.SUB else CKind.BILL, b.id, b.name,
-                Recurrence.describe(f, b.everyN), b.amount * prefs.rateOf(b.currency), d, paid = false, payable = idx == 0,
+                Recurrence.describe(f, b.everyN), b.amount * prefs.rateOf(b.currency), d, paid = false, payable = idx == 0 && off == 0,
             )
         }
     }
-    for (i in insts) {
+    for (i in if (off < 0) emptyList() else insts) {
         val p = planOf(i)
         val kind = if (i.type.equals("Credit card", ignoreCase = true)) CKind.CARD else CKind.INSTALLMENT
         p.unpaidDueIn(epoch, cycle.nextStart).forEachIndexed { idx, d ->
-            out += CItem(kind, i.id, i.name, "${i.paid + idx + 1} of ${i.total}", i.amount, d, paid = false, payable = idx == 0)
+            out += CItem(kind, i.id, i.name, "${i.paid + idx + 1} of ${i.total}", i.amount, d, paid = false, payable = idx == 0 && off == 0)
         }
     }
-    for (c in circles) {
+    for (c in if (off < 0) emptyList() else circles) {
         circleOf(c).plan.unpaidDueIn(epoch, cycle.nextStart).forEachIndexed { idx, d ->
-            out += CItem(CKind.CIRCLE, c.id, c.name, "Gam'eya · ${c.paid + idx + 1} of ${c.months}", c.share, d, paid = false, payable = idx == 0)
+            out += CItem(CKind.CIRCLE, c.id, c.name, "Gam'eya · ${c.paid + idx + 1} of ${c.months}", c.share, d, paid = false, payable = idx == 0 && off == 0)
         }
     }
-    for (l in loans) {
+    for (l in if (off < 0) emptyList() else loans) {
         val due = l.dueDay ?: continue
         if (l.closed) continue
         val d = LocalDate.ofEpochDay(due)
-        if (!d.isBefore(cycle.nextStart)) continue
+        if (!d.isBefore(cycle.nextStart) || d.isBefore(epoch)) continue
         out += CItem(
             CKind.LOAN, l.id, l.person, if (l.lent) "They owe you" else "You owe", l.remaining, d,
             paid = false, incoming = l.lent,
@@ -215,7 +221,7 @@ private fun buildItems(
     val received = txns.firstOrNull { it.source == Source.SALARY }
     if (received != null) {
         out += CItem(CKind.INCOME, 0, "Salary", "Received", received.base, LocalDate.ofEpochDay(received.epochDay), paid = true, incoming = true)
-    } else if (prefs.salary > 0) {
+    } else if (prefs.salary > 0 && off >= 0) {
         repo.salaryDateIn(cycle, prefs.salaryDay)?.let { d ->
             out += CItem(CKind.INCOME, 0, "Salary", "Expected", prefs.salary, d, paid = false, incoming = true)
         }
@@ -224,11 +230,16 @@ private fun buildItems(
 }
 
 @Composable
-fun CommitOverview(repo: Repo, prefs: Prefs, modifier: Modifier = Modifier) {
+fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     val today = LocalDate.now()
-    val cycle = CycleMath.cycleFor(today, prefs.cycleStart)
+    var off by remember { mutableIntStateOf(0) }
+    val cycle = remember(off, prefs.cycleStart) {
+        var c = CycleMath.cycleFor(today, prefs.cycleStart)
+        repeat(kotlin.math.abs(off)) { c = if (off > 0) CycleMath.cycleFor(c.nextStart, prefs.cycleStart) else CycleMath.cycleFor(c.start.minusDays(1), prefs.cycleStart) }
+        c
+    }
 
     val billsFlow = remember { repo.dao.billsFlow() }
     val instFlow = remember { repo.dao.installmentsFlow() }
@@ -240,6 +251,7 @@ fun CommitOverview(repo: Repo, prefs: Prefs, modifier: Modifier = Modifier) {
     val circles by circFlow.collectAsState(initial = emptyList())
     val loans by loanFlow.collectAsState(initial = emptyList())
     val txns by txnFlow.collectAsState(initial = emptyList())
+    val categories by remember { repo.dao.categoriesFlow() }.collectAsState(initial = emptyList())
 
     var filter by remember { mutableStateOf(CFilter.ALL) }
     var selected by remember { mutableStateOf<LocalDate?>(null) }
@@ -269,7 +281,7 @@ fun CommitOverview(repo: Repo, prefs: Prefs, modifier: Modifier = Modifier) {
         iconFor = null
     }
 
-    val all = remember(bills, insts, circles, loans, txns, prefs, today) { buildItems(bills, insts, circles, loans, txns, prefs, repo, today) }
+    val all = remember(bills, insts, circles, loans, txns, prefs, today, cycle) { buildItems(bills, insts, circles, loans, txns, prefs, repo, today, cycle, off) }
     val filtered = all.filter { Commitments.matches(filter, it) }
     val left = Commitments.leftToPay(all)
     val leftCount = Commitments.leftCount(all)
@@ -278,7 +290,8 @@ fun CommitOverview(repo: Repo, prefs: Prefs, modifier: Modifier = Modifier) {
     val later = Commitments.later(shown, today)
     val done = Commitments.done(shown)
     val byDay = Commitments.byDay(filtered)
-    val monthName = if (cycle.start.dayOfMonth == 1) cycle.start.format(monthFmt)
+    val plainByDay = txns.filter { it.source == Source.NONE && it.type != TxType.TRANSFER }.groupBy { LocalDate.ofEpochDay(it.epochDay) }
+    val monthName = if (cycle.start.dayOfMonth == 1) cycle.start.format(monthFmt) + " " + cycle.start.year
     else "${cycle.start.format(dayFmt)} – ${cycle.end.format(dayFmt)}"
 
     fun open(it: CItem) {
@@ -358,7 +371,14 @@ fun CommitOverview(repo: Repo, prefs: Prefs, modifier: Modifier = Modifier) {
                 }
             }
             item {
-                SectionCard(Modifier.padding(16.dp)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { off--; selected = null }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous month") }
+                    Text(monthName, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    IconButton(onClick = { off++; selected = null }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next month") }
+                }
+            }
+            item {
+                SectionCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Row(Modifier.fillMaxWidth()) {
                         for (n in listOf("Sa", "Su", "Mo", "Tu", "We", "Th", "Fr")) {
                             Text(n, Modifier.weight(1f), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
@@ -386,7 +406,7 @@ fun CommitOverview(repo: Repo, prefs: Prefs, modifier: Modifier = Modifier) {
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                     ) {
                                         Text(
-                                            "${d.dayOfMonth}", fontSize = 12.sp,
+                                            "${d.dayOfMonth}" + if (plainByDay[d].orEmpty().isNotEmpty()) " •" else "", fontSize = 12.sp,
                                             fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                                             color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                         )
@@ -407,6 +427,17 @@ fun CommitOverview(repo: Repo, prefs: Prefs, modifier: Modifier = Modifier) {
                         Text("Showing " + s.format(dayFmt), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = { selected = null }) { Text("Show all") }
                     }
+                }
+                item {
+                    FilledTonalButton(
+                        onClick = { nav.open(Route.Add(day = s.toEpochDay())) },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    ) { Text("Add expense on " + s.format(dayFmt)) }
+                }
+                val plain = plainByDay[s].orEmpty()
+                if (plain.isNotEmpty()) {
+                    item { Label("Spent that day", Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp)) }
+                    items(plain.size) { TxnRow(plain[it], categories, emptyMap()) { nav.open(Route.Add(txnId = plain[it].id)) } }
                 }
             }
             if (late.isNotEmpty()) {

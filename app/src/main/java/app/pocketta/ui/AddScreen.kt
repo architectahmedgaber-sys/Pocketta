@@ -94,7 +94,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
     var walletId by remember { mutableLongStateOf(0L) }
     var toWalletId by remember { mutableLongStateOf(0L) }
     var currency by remember { mutableStateOf(prefs.baseCurrency) }
-    var date by remember { mutableStateOf(LocalDate.now()) }
+    var date by remember { mutableStateOf(if (route.day != 0L) LocalDate.ofEpochDay(route.day) else LocalDate.now()) }
     var person by remember { mutableStateOf("") }
     var dueDate by remember { mutableStateOf<LocalDate?>(null) }
     var tagsText by remember { mutableStateOf("") }
