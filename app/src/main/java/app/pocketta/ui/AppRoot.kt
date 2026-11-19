@@ -43,7 +43,7 @@ fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Uni
                 Route.Home -> HomeScreen(repo, nav, prefs, m)
                 Route.Spend -> SpendScreen(repo, nav, prefs, m)
                 Route.More -> MoreScreen(repo, nav, prefs, m)
-                else -> CommitmentsScreen(repo, prefs, m)
+                else -> CommitmentsScreen(repo, nav, prefs, m)
             }
         }
     } else {

@@ -57,7 +57,7 @@ private fun plan(i: Installment) = InstallmentPlan(i.amount, i.total, i.paid, Lo
 private fun circle(c: CircleEntity) = Circle(c.share, c.months, c.myTurn, c.paid, LocalDate.ofEpochDay(c.firstDue))
 
 @Composable
-fun CommitmentsScreen(repo: Repo, prefs: Prefs, modifier: Modifier) {
+fun CommitmentsScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     var tab by remember { mutableIntStateOf(0) }
     Column(modifier.fillMaxSize()) {
         Text("Commitments", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 8.dp))
@@ -67,7 +67,7 @@ fun CommitmentsScreen(repo: Repo, prefs: Prefs, modifier: Modifier) {
             }
         }
         when (tab) {
-            0 -> CommitOverview(repo, prefs, Modifier)
+            0 -> CommitOverview(repo, nav, prefs, Modifier)
             1 -> BillsScreen(repo, prefs, Modifier)
             2 -> InstallmentsTab(repo, prefs) { tab = 3 }
             3 -> CirclesTab(repo, prefs)

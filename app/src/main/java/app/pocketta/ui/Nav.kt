@@ -14,6 +14,8 @@ sealed interface Route {
         val txnId: Long = 0, val type: String = TxType.EXPENSE, val category: Long = 0,
         /** Filled in from a receipt photo or a bank message. */
         val amount: Double = 0.0, val note: String = "", val currency: String = "",
+        /** Epoch day to record it on (0 = today). Used when a calendar day is tapped. */
+        val day: Long = 0L,
     ) : Route
     data object Income : Route
     data object Wallets : Route

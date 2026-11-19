@@ -3,6 +3,8 @@
 import { DICT, MONTHS, DAYS, RULES } from './ar-dict.js';
 
 const EXTRA = {
+  "Spent that day": "اللي اتصرف في اليوم ده",
+  "Previous month": "الشهر اللي فات",
   "Left for flexible spending": "متبقي للمرن",
   "Over the flexible amount": "عديت المبلغ المرن",
   "of # left after commitments": "من # بعد الالتزامات",
@@ -270,6 +272,7 @@ const monthsRe = new RegExp('\\b(' + Object.keys(MONTHS).join('|') + ')\\b', 'g'
 const monthDay = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b/g;
 const daysRe = /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|AM|PM)\b/g;
 const EXTRA_RULES = [
+  ["Add expense on (.+)", "سجّل مصروف يوم @1"],
   ["You're (.+) over the flexible amount for this month\\.", "عديت المبلغ المرن بـ @1 الشهر ده."],
   ["(.+): (\\d+) items? paid", "@1: @2 اتدفعوا"],
   ["(.+): mark all as paid", "@1: علّم الكل مدفوع"],
