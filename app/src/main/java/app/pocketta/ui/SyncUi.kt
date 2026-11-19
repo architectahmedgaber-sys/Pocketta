@@ -9,6 +9,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.TextButton
@@ -79,7 +85,8 @@ fun SyncCard(repo: Repo) {
             TextButton(onClick = { confirmDel = true }) { Text("Delete my data from the cloud", color = MaterialTheme.colorScheme.error) }
         }
         Gap(8)
-        Text("🔒 Your money data is private. It is saved only on your own account and nobody else can open it.", style = MaterialTheme.typography.bodySmall)
+        Text("🔒 Your money data is encrypted on your phone before it is saved. Only your encryption password can open it, not even the developer can read it.", style = MaterialTheme.typography.bodySmall)
+        if (s.signedIn && s.encrypted) Text("Encrypted on this device", style = MaterialTheme.typography.bodySmall)
     }
     if (confirmOut) ConfirmDialog(
         "Sign out?", "Your data stays on this device. Sync stops until you sign in again.", "Sign out",
@@ -143,5 +150,99 @@ fun SyncDialog() {
         },
         confirmButton = { TextButton(onClick = { c.answer.complete(if (c.firstUpload || c.cloud == null) "local" else pick) }) { Text(if (c.firstUpload || c.cloud == null) "Upload my data" else "Continue") } },
         dismissButton = { TextButton(onClick = { c.answer.complete(null) }) { Text("Cancel") } },
+    )
+}
+
+/** First time only: choose the encryption password and save the recovery key. */
+@Composable
+fun SyncSetupDialog() {
+    val r by CloudSync.setup.collectAsState()
+    val q = r ?: return
+    val clip = LocalClipboardManager.current
+    var p1 by remember(q) { mutableStateOf("") }
+    var p2 by remember(q) { mutableStateOf("") }
+    var saved by remember(q) { mutableStateOf(false) }
+    var err by remember(q) { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = { q.answer.complete(null) },
+        title = { Text("Protect your data") },
+        text = {
+            Column {
+                Text("Your data is locked on your phone before it goes to the cloud. Choose an encryption password. You will type it once on each new device.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(p1, { p1 = it; err = "" }, label = { Text("Encryption password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                OutlinedTextField(p2, { p2 = it; err = "" }, label = { Text("Repeat the password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                Text("Recovery key. Save it somewhere safe (a password manager or on paper):", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                Text(q.recovery, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                TextButton(onClick = { clip.setText(AnnotatedString(q.recovery)) }) { Text("Copy recovery key") }
+                Row(Modifier.fillMaxWidth().clickable { saved = !saved }, verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = saved, onCheckedChange = { saved = it })
+                    Text("I saved the recovery key", style = MaterialTheme.typography.bodySmall)
+                }
+                Text("If you forget the password and lose the recovery key, nobody can open your cloud data, not even us. Your data on this device stays safe.", style = MaterialTheme.typography.bodySmall)
+                if (err.isNotEmpty()) Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                when {
+                    p1.length < 8 -> err = "Use at least 8 characters."
+                    p1 != p2 -> err = "The passwords do not match."
+                    !saved -> err = "Please confirm you saved the recovery key."
+                    else -> q.answer.complete(p1)
+                }
+            }) { Text("Turn on encryption") }
+        },
+        dismissButton = { TextButton(onClick = { q.answer.complete(null) }) { Text("Cancel") } },
+    )
+}
+
+/** This account's cloud data is encrypted and this phone does not have the key yet. */
+@Composable
+fun SyncUnlockDialog() {
+    val r by CloudSync.unlock.collectAsState()
+    val q = r ?: return
+    var mode by remember(q) { mutableStateOf("pass") }
+    var secret by remember(q) { mutableStateOf("") }
+    var np1 by remember(q) { mutableStateOf("") }
+    var np2 by remember(q) { mutableStateOf("") }
+    var err by remember(q) { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = { q.answer.complete(null) },
+        title = { Text(when (mode) { "pass" -> "Enter your encryption password"; "rec" -> "Use your recovery key"; else -> "Start again without the old data" }) },
+        text = {
+            Column {
+                if (mode == "pass") {
+                    Text("Your cloud data is encrypted. Type the password you chose when you turned on sync.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(secret, { secret = it; err = "" }, label = { Text("Encryption password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                    if (q.bad) Text("Wrong password. Try again.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { mode = "rec"; secret = ""; err = "" }) { Text("I forgot the password") }
+                } else if (mode == "rec") {
+                    Text("Type your recovery key and choose a new password.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(secret, { secret = it; err = "" }, label = { Text("Recovery key") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                    OutlinedTextField(np1, { np1 = it; err = "" }, label = { Text("New password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                    OutlinedTextField(np2, { np2 = it; err = "" }, label = { Text("Repeat the password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                    if (q.bad) Text("That recovery key does not work. Try again.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    if (err.isNotEmpty()) Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { mode = "wipe"; err = "" }) { Text("I lost the recovery key too") }
+                } else {
+                    Text("Without the password or the recovery key the cloud copy cannot be opened. You can delete it and start fresh. Your data on this device is not touched.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            when (mode) {
+                "pass" -> TextButton(onClick = { if (secret.isNotEmpty()) q.answer.complete(UnlockAns("pass", secret)) }) { Text("Unlock") }
+                "rec" -> TextButton(onClick = {
+                    when {
+                        secret.isBlank() -> err = "Type the recovery key."
+                        np1.length < 8 -> err = "Use at least 8 characters."
+                        np1 != np2 -> err = "The passwords do not match."
+                        else -> q.answer.complete(UnlockAns("rec", secret, np1))
+                    }
+                }) { Text("Unlock") }
+                else -> TextButton(onClick = { q.answer.complete(UnlockAns("pass", wipe = true)) }) { Text("Delete the cloud copy", color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        dismissButton = { TextButton(onClick = { q.answer.complete(null) }) { Text("Cancel") } },
     )
 }

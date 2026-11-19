@@ -1,8 +1,10 @@
 // Optional sync: sign in with Google and the whole backup is kept in your own row in the cloud (Supabase),
 // so the phone and the laptop share the same data. Nothing here runs until you tap "Sign in with Google".
+// The backup is end-to-end encrypted on the device (see crypto.js) before it is sent: the cloud only holds a sealed envelope.
 // No library: plain fetch against Supabase Auth and its REST API. The URL and the publishable key are public by design;
 // what keeps data private is row level security (each row can only be read by its owner).
 import * as R from './store.js';
+import * as K from './crypto.js';
 
 const URL_BASE = 'https://gnbtetbbxekofmjzbzga.supabase.co';
 const KEY = 'sb_publishable_rjOgzmPudvrnCbc5nkBevg_xq_jPPFt';
@@ -11,7 +13,7 @@ const LS = 'pocketta-sync';
 const DEVICE_KEYS = ['pinHash', 'pinSalt', 'theme', 'lang', 'onlineRates', 'prevOnlineRates', 'gold', 'prevGold', 'ratesUpdated', 'ratesFetchedAt', 'overAlert', 'limitDismissed', 'monthEndDismissed'];
 
 let st = load();
-let hooks = { choose: async () => null, done: () => {} };
+let hooks = { choose: async () => null, setup: async () => null, unlock: async () => null, done: () => {} };
 let busy = false, timer = null, applying = false;
 const listeners = new Set();
 export const onStatus = (f) => listeners.add(f);
@@ -21,7 +23,7 @@ function load() { try { return JSON.parse(localStorage.getItem(LS) || '{}'); } c
 function save() { try { localStorage.setItem(LS, JSON.stringify(st)); } catch { /* private mode */ } }
 
 export const signedIn = () => !!st.session;
-export const info = () => ({ email: st.email || '', lastSyncAt: st.lastSyncAt || 0, status: st.status || '', error: st.error || '', busy });
+export const info = () => ({ email: st.email || '', lastSyncAt: st.lastSyncAt || 0, status: st.status || '', error: st.error || '', busy, encrypted: !!st.dek });
 
 // ---------- What is synced ----------
 
@@ -116,37 +118,86 @@ async function fetchCloud() {
   const rows = await api('/rest/v1/backups?select=data,updated_at,device_name&limit=1');
   return rows[0] || null;
 }
-async function upload(cloud) {
-  const body = { data: snapshot(), device_name: deviceName(), version: 1 };
-  let rows;
-  if (!cloud) rows = await api('/rest/v1/backups', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ ...body, user_id: st.uid }) });
-  else {
-    // Keep the version being replaced as a safety copy, and only replace it if nobody changed it meanwhile.
-    rows = await api(`/rest/v1/backups?user_id=eq.${st.uid}&updated_at=eq.${encodeURIComponent(cloud.updated_at)}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ ...body, prev_data: cloud.data, prev_updated_at: cloud.updated_at }) });
-  }
-  if (!rows.length) return false;
-  st.lastHash = hash(snapshot());
-  st.cloudAt = rows[0].updated_at;
+/** Makes sure this device has the data key: first time it is created from a new password (and a recovery key shown once). */
+async function needKeys() {
+  if (st.dek && st.keys) return true;
+  const recovery = K.newRecoveryKey();
+  const r = await hooks.setup({ recovery });
+  if (!r) return false;
+  const k = await K.createKeys(r.password, recovery);
+  st.dek = k.dek; st.keys = k.keys;
+  save();
   return true;
 }
 
-/** auto = true when it runs by itself (never asks anything except when two different copies exist). */
+/** The cloud row as stored, opened: a sealed copy needs the password (or the recovery key) once per device. */
+async function openRow(row) {
+  const d = row.data;
+  if (!d || !d.enc) return { ...row, raw: d, wasEnc: false };
+  let bad = false;
+  for (;;) {
+    if (!st.dek) {
+      const r = await hooks.unlock({ bad });
+      if (!r) return null;
+      if (r.wipe) { await deleteCloud(); return 'retry'; }
+      try {
+        const dek = await K.unlock(d, r.mode, r.secret);
+        st.dek = dek; st.keys = K.keysOf(d);
+        if (r.mode === 'rec') { st.keys = await K.rewrap(dek, st.keys, r.newPass); st.forceUpload = true; }
+        save(); bad = false;
+      } catch { bad = true; continue; }
+    }
+    try { return { ...row, data: await K.decryptData(st.dek, d), raw: d, wasEnc: true }; }
+    catch { st.dek = ''; st.keys = null; save(); bad = false; } // sealed with another key (cloud was reset elsewhere): ask again
+  }
+}
+
+async function upload(cloud) {
+  const snap = snapshot();
+  const sealed = await K.encryptData(st.dek, st.keys, snap);
+  const body = { data: sealed, device_name: deviceName(), version: 2 };
+  let rows;
+  if (!cloud) rows = await api('/rest/v1/backups', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ ...body, user_id: st.uid }) });
+  else {
+    // Keep the sealed version being replaced as a safety copy (an old unsealed one is not kept), and only replace it if nobody changed it meanwhile.
+    rows = await api(`/rest/v1/backups?user_id=eq.${st.uid}&updated_at=eq.${encodeURIComponent(cloud.updated_at)}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ ...body, prev_data: cloud.wasEnc ? cloud.raw : null, prev_updated_at: cloud.wasEnc ? cloud.updated_at : null }) });
+  }
+  if (!rows.length) return false;
+  st.lastHash = hash(snap);
+  st.cloudAt = rows[0].updated_at;
+  st.forceUpload = false;
+  return true;
+}
+
+/** Runs a sync. It asks only when really needed: setting the encryption password, first upload, or two different copies. */
 export async function syncNow() {
   if (!signedIn() || busy || applying) return;
   busy = true; st.status = 'syncing'; st.error = ''; emit();
   try {
     await whoAmI();
-    for (let tries = 0; tries < 3; tries++) {
-      const cloud = await fetchCloud();
+    for (let tries = 0; tries < 4; tries++) {
+      let cloud = await fetchCloud();
+      if (cloud) {
+        const o = await openRow(cloud);
+        if (o === 'retry') continue;
+        if (!o) { st.status = 'paused'; break; }
+        cloud = o;
+      }
       const local = snapshot();
       const lh = hash(local);
       const summary = (d, at, device) => ({ ...counts(d), at, device });
-      let ok = true;
+      let ok = true, uploaded = false, paused = false;
+      // Every upload goes through here: it needs the data key first.
+      const up = async (cl) => {
+        if (!(await needKeys())) { paused = true; return true; }
+        const r = await upload(cl);
+        if (r) uploaded = true;
+        return r;
+      };
       if (!cloud) {
         if (!isEmpty(local)) {
           const pick = st.lastHash ? 'local' : await hooks.choose({ kind: 'first-upload', local: summary(local, st.localAt || Date.now()) });
-          if (!pick) { st.status = 'paused'; break; }
-          ok = await upload(null);
+          if (!pick) paused = true; else ok = await up(null);
         }
       } else if (!st.cloudAt) {
         // This device never synced with this account.
@@ -154,18 +205,21 @@ export async function syncNow() {
         else if (hash(stripDevice(cloud.data)) === lh) { st.lastHash = lh; st.cloudAt = cloud.updated_at; }
         else {
           const pick = await hooks.choose({ kind: 'conflict', local: summary(local, st.localAt || Date.now()), cloud: summary(cloud.data, Date.parse(cloud.updated_at), cloud.device_name) });
-          if (!pick) { st.status = 'paused'; break; }
-          if (pick === 'cloud') applyCloud(cloud.data, cloud.updated_at); else ok = await upload(cloud);
+          if (!pick) paused = true;
+          else if (pick === 'cloud') applyCloud(cloud.data, cloud.updated_at); else ok = await up(cloud);
         }
       } else {
         const localChanged = lh !== st.lastHash, cloudChanged = cloud.updated_at !== st.cloudAt;
         if (localChanged && cloudChanged) {
           const pick = await hooks.choose({ kind: 'conflict', local: summary(local, st.localAt || Date.now()), cloud: summary(cloud.data, Date.parse(cloud.updated_at), cloud.device_name) });
-          if (!pick) { st.status = 'paused'; break; }
-          if (pick === 'cloud') applyCloud(cloud.data, cloud.updated_at); else ok = await upload(cloud);
-        } else if (localChanged) ok = await upload(cloud);
+          if (!pick) paused = true;
+          else if (pick === 'cloud') applyCloud(cloud.data, cloud.updated_at); else ok = await up(cloud);
+        } else if (localChanged) ok = await up(cloud);
         else if (cloudChanged) applyCloud(cloud.data, cloud.updated_at);
       }
+      // An old copy in the cloud that is not sealed yet (or a new password after using the recovery key): seal and upload it now.
+      if (ok && !paused && !uploaded && cloud && (!cloud.wasEnc || st.forceUpload)) ok = await up(cloud);
+      if (paused) { st.status = 'paused'; break; }
       if (ok) { st.lastSyncAt = Date.now(); st.status = 'ok'; break; }
     }
   } catch (e) {
@@ -178,7 +232,7 @@ const stripDevice = (d) => { const c = { ...d, settings: { ...d.settings } }; fo
 export async function deleteCloud() {
   await whoAmI();
   await api(`/rest/v1/backups?user_id=eq.${st.uid}`, { method: 'DELETE' });
-  st.lastHash = ''; st.cloudAt = ''; st.lastSyncAt = 0; save(); emit();
+  st.lastHash = ''; st.cloudAt = ''; st.lastSyncAt = 0; st.dek = ''; st.keys = null; st.forceUpload = false; save(); emit();
 }
 
 /** Start syncing after changes (debounced) and when the app opens. Does nothing while signed out. */
