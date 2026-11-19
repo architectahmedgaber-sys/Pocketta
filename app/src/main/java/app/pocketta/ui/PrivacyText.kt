@@ -1,0 +1,58 @@
+package app.pocketta.ui
+
+/** Generated from web/privacy.html: the privacy policy shown inside the app, in the app language only. kind: h = heading, p = paragraph, l = bullet. */
+object PrivacyText {
+    class Doc(val title: String, val updated: String, val blocks: List<Pair<String, String>>)
+    val EN = Doc("Pocketta – Privacy Policy", "Last updated: 20 November 2026", listOf(
+        "p" to "Pocketta is a personal money app (monthly budget, bills, installments, gam'eya, loans). This page explains what data the app handles. We tried to keep it short and accurate.",
+        "h" to "1. Without an account",
+        "p" to "You can use Pocketta with no account at all. In that case everything you enter is stored only on your device. We do not receive it.",
+        "h" to "2. If you sign in with Google",
+        "p" to "Signing in is optional and is used only to back up and sync your app data between your devices.",
+        "l" to "What we get from Google: only your email address and name (the basic sign-in information). We do not request access to your Gmail, Drive, contacts or any other Google data.",
+        "l" to "What we store: a backup copy of your Pocketta data (your transactions, bills, goals, settings and similar entries) in a Supabase database, linked to your account. The copy is end-to-end encrypted: it is locked on your device before it is sent, so what is stored is unreadable text. We also keep your email, the time of the last change, the size of the backup and the name of the device type (phone or computer), which are not encrypted.",
+        "l" to "Who can read it: only you. The key is made on your device from an encryption password that you choose (different from your Google password) and is never sent to us. Neither the app owner nor Supabase can open your backup. Database rules (row-level security) also stop other users from even fetching it.",
+        "l" to "If you forget the password: you can use the recovery key that the app shows you once when you set it up. If you lose both the password and the recovery key, nobody can recover the cloud copy, including us. The data that is still on your devices is not affected, and you can delete the cloud copy and upload again.",
+        "l" to "How it travels: over HTTPS.",
+        "h" to "3. How we use data",
+        "p" to "Google account information is used only to sign you in and to sync your backup. We do not sell your data, do not share it with advertisers, and do not use it for ads.",
+        "h" to "4. What we do not store",
+        "p" to "Pocketta does not ask for or store bank passwords or card numbers. It does not connect to your bank.",
+        "h" to "5. Optional AI assistant",
+        "p" to "If you add your own API key for an AI service (Gemini, Claude or ChatGPT) and use the assistant, the text you send is sent from your device directly to that provider under its own terms. The key is kept on your device.",
+        "h" to "6. Your choices and deleting your data",
+        "l" to "Delete your cloud backup any time in the app: the Sync and backup section → Delete from cloud. Data on your device is not touched.",
+        "l" to "To delete your account and any remaining data, email us at the address below and we will do it.",
+        "l" to "Signing out stops syncing. Uninstalling the app or clearing site data removes the on-device data.",
+        "h" to "7. Changes",
+        "p" to "If this policy changes, the date above will change.",
+        "h" to "8. Contact",
+        "p" to "architectahmedgaber@gmail.com",
+    ))
+    val AR = Doc("Pocketta – سياسة الخصوصية", "آخر تحديث: ٢٠ نوفمبر ٢٠٢٦", listOf(
+        "p" to "Pocketta تطبيق لإدارة فلوسك الشخصية (ميزانية الشهر، فواتير، أقساط، جمعية، سلف). الصفحة دي بتشرح البيانات اللي التطبيق بيتعامل معاها، وحاولنا نخليها قصيرة ودقيقة.",
+        "h" to "١. من غير حساب",
+        "p" to "تقدر تستخدم التطبيق من غير أي حساب. وقتها كل اللي بتكتبه بيتخزن على جهازك بس، ومبنستلمهوش.",
+        "h" to "٢. لو سجلت دخول بجوجل",
+        "p" to "تسجيل الدخول اختياري، وبنستخدمه بس لحفظ نسخة احتياطية من بياناتك ومزامنتها بين أجهزتك.",
+        "l" to "اللي بنستلمه من جوجل: بريدك الإلكتروني واسمك بس (بيانات تسجيل الدخول الأساسية). مبنطلبش أي صلاحية على Gmail أو Drive أو جهات الاتصال أو أي بيانات جوجل تانية.",
+        "l" to "اللي بنخزنه: نسخة احتياطية من بيانات Pocketta (المعاملات والفواتير والأهداف والإعدادات وما شابه) في قاعدة بيانات Supabase مربوطة بحسابك. النسخة مشفرة من طرف لطرف: بتتقفل على جهازك قبل ما تتبعت، فاللي بيتخزن كلام مش مقروء. وبنحتفظ كمان بإيميلك ووقت آخر تعديل وحجم النسخة ونوع الجهاز (موبايل أو كمبيوتر)، ودول مش مشفرين.",
+        "l" to "مين يقدر يقراها: إنت بس. المفتاح بيتعمل على جهازك من كلمة سر تشفير بتختارها (غير كلمة سر جوجل) ومبيتبعتش لينا أبدًا. لا صاحب التطبيق ولا Supabase يقدروا يفتحوا نسختك. وكمان قواعد قاعدة البيانات (row-level security) بتمنع المستخدمين التانيين من مجرد جلبها.",
+        "l" to "لو نسيت كلمة السر: تقدر تستخدم مفتاح الاسترجاع اللي التطبيق بيورهولك مرة واحدة وقت الإعداد. لو ضاعت كلمة السر ومفتاح الاسترجاع محدش يقدر يرجع نسخة السحابة، حتى إحنا. البيانات اللي لسه على أجهزتك مبتتأثرش، وتقدر تمسح نسخة السحابة وترفع من جديد.",
+        "l" to "بتتنقل إزاي: عن طريق HTTPS.",
+        "h" to "٣. بنستخدم البيانات في إيه",
+        "p" to "بيانات حساب جوجل بتتستخدم بس لتسجيل دخولك ومزامنة نسختك. مبنبيعش بياناتك، ومبنشاركهاش مع معلنين، ومبنستخدمهاش في إعلانات.",
+        "h" to "٤. اللي مبنخزنهوش",
+        "p" to "Pocketta مبيطلبش ولا بيخزن باسوردات بنوك أو أرقام كروت. ومش بيتصل ببنكك.",
+        "h" to "٥. المساعد الذكي (اختياري)",
+        "p" to "لو أضفت مفتاح API بتاعك لخدمة ذكاء اصطناعي (Gemini أو Claude أو ChatGPT) واستخدمت المساعد، النص اللي بتبعته بيروح من جهازك مباشرة لمزود الخدمة حسب شروطه. المفتاح بيفضل على جهازك.",
+        "h" to "٦. اختياراتك وحذف بياناتك",
+        "l" to "تقدر تمسح النسخة السحابية في أي وقت من التطبيق: قسم المزامنة والنسخ الاحتياطي ← حذف من السحابة. بياناتك على الجهاز مش بتتأثر.",
+        "l" to "لحذف حسابك وأي بيانات متبقية، ابعتلنا على الإيميل تحت وهنحذفها.",
+        "l" to "تسجيل الخروج بيوقف المزامنة. وحذف التطبيق أو مسح بيانات الموقع بيمسح البيانات اللي على الجهاز.",
+        "h" to "٧. التعديلات",
+        "p" to "لو السياسة اتغيرت، التاريخ فوق هيتغير.",
+        "h" to "٨. التواصل",
+        "p" to "architectahmedgaber@gmail.com",
+    ))
+}

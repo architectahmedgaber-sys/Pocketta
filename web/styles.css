@@ -425,3 +425,7 @@ main:has(+ .tabs) .chatpage { padding-bottom: 170px; }
 .pick input { margin-top: 4px; }
 .recovery { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 17px; font-weight: 700; letter-spacing: 1px; text-align: center; direction: ltr; padding: 12px; border: 2px dashed var(--primary); border-radius: 14px; user-select: all; }
 .err { color: var(--error, #b3261e); font-size: 14px; }
+
+.policy h2 { font-size: 1rem; margin: 1.1em 0 .2em; }
+.policy p, .policy li { font-size: .92rem; line-height: 1.6; }
+.policy ul { padding-inline-start: 1.2em; }
