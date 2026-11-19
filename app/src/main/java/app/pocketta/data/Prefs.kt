@@ -45,6 +45,10 @@ data class Prefs(
     val goalName: String = "",
     val goalAmount: Double = 0.0,
     val goalSaved: Double = 0.0,
+    /** Extra savings goals besides the main one above. */
+    val goals: List<app.pocketta.core.SavingsGoal> = emptyList(),
+    /** Everything put into the piggy bank, and taken out, with the day. */
+    val piggy: List<app.pocketta.core.PiggyEntry> = emptyList(),
     /** Yesterday's rates and gold, to show an up or down arrow. */
     val prevOnlineRates: Map<String, Double> = emptyMap(),
     val prevGold: Map<String, Double> = emptyMap(),
@@ -126,6 +130,8 @@ data class Prefs(
                 goalName = m["goalName"].orEmpty(),
                 goalAmount = d("goalAmount", 0.0),
                 goalSaved = d("goalSaved", 0.0),
+                goals = app.pocketta.core.GoalList.parse(m["goals"].orEmpty()),
+                piggy = app.pocketta.core.Piggy.parse(m["piggy"].orEmpty()),
                 prevOnlineRates = parseRates(m["prevOnlineRates"].orEmpty()),
                 prevGold = parseRates(m["prevGold"].orEmpty()),
                 goldBuys = app.pocketta.core.Gold.parse(m["goldBuys"].orEmpty()),

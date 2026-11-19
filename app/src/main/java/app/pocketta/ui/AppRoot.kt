@@ -53,6 +53,8 @@ fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Uni
             Route.Plan -> PlanScreen(repo, nav, prefs)
             Route.Wealth -> WealthScreen(repo, nav, prefs)
             Route.Notifications -> NotificationsScreen(repo, nav, prefs)
+            Route.Piggy -> PiggyScreen(repo, nav, prefs)
+            Route.Goals -> GoalsScreen(repo, nav, prefs)
             else -> {}
         }
     }

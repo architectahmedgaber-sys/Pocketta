@@ -11,6 +11,9 @@ import app.pocketta.core.CycleMath
 import app.pocketta.core.Frequency
 import app.pocketta.core.InstallmentPlan
 import app.pocketta.core.Gold
+import app.pocketta.core.GoalList
+import app.pocketta.core.Piggy
+import app.pocketta.core.SavingsGoal
 import app.pocketta.core.Planning
 import app.pocketta.core.WealthLog
 import app.pocketta.core.WealthPoint
@@ -427,7 +430,7 @@ class Repo private constructor(private val app: Context) {
         val all = upcoming(p, cycle.nextStart.plusDays(35))
         val commitments = all.filter { !it.incoming && !it.spread && it.due.isBefore(cycle.nextStart) }.sumOf { it.amount }
         val setAside = dao.bills().filter { Recurrence.isSpread(Frequency.parse(it.frequency), it.everyN) }
-            .sumOf { Recurrence.monthlyShare(it.amount * p.rateOf(it.currency), Frequency.parse(it.frequency), it.everyN) } + p.savingsPerMonth
+            .sumOf { Recurrence.monthlyShare(it.amount * p.rateOf(it.currency), Frequency.parse(it.frequency), it.everyN) } + p.savingsPerMonth + p.goals.sumOf { it.monthly }
         val result = Budget.compute(
             BudgetInput(
                 cycle = cycle, today = today, incomeReceived = income, salaryExpected = salaryExpected, setAside = setAside,
@@ -525,6 +528,38 @@ class Repo private constructor(private val app: Context) {
         if (next == p.wealthHistory) return
         dao.put(SettingRow("wealthHistory", WealthLog.format(next)))
         _version.value = _version.value + 1
+    }
+
+    // ---------- Piggy bank and goals ----------
+
+    /** Puts [amount] into the piggy bank (negative takes it out), dated today. */
+    suspend fun piggyAdd(amount: Double) {
+        if (amount == 0.0) return
+        val p = prefs()
+        val next = Piggy.add(p.piggy, LocalDate.now().toEpochDay(), amount)
+        dao.put(SettingRow("piggy", Piggy.format(next)))
+        changed()
+    }
+
+    suspend fun saveGoals(list: List<SavingsGoal>) {
+        dao.put(SettingRow("goals", GoalList.format(list)))
+        changed()
+    }
+
+    /** Adds to the main savings goal. The money also goes into the piggy bank, since it is saved. */
+    suspend fun addToMainGoal(amount: Double) {
+        if (amount <= 0) return
+        val p = prefs()
+        dao.put(SettingRow("goalSaved", (p.goalSaved + amount).toString()))
+        piggyAdd(amount)
+    }
+
+    /** Adds to one of the extra goals, and to the piggy bank. */
+    suspend fun addToGoal(id: Long, amount: Double) {
+        if (amount <= 0) return
+        val p = prefs()
+        saveGoals(p.goals.map { if (it.id == id) it.copy(saved = it.saved + amount) else it })
+        piggyAdd(amount)
     }
 
     // ---------- Backup ----------

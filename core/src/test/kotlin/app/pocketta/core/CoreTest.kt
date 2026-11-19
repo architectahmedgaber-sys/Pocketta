@@ -184,4 +184,44 @@ class CoreTest {
         assertEquals(2000.0, Planning.inDollars(100000.0, 50.0)!!, 0.001)
         assertNull(Planning.inDollars(1000.0, null))
     }
+
+    @Test fun piggyBankMonthByMonth() {
+        val d = { y: Int, m: Int, day: Int -> java.time.LocalDate.of(y, m, day).toEpochDay() }
+        var list = emptyList<PiggyEntry>()
+        list = Piggy.add(list, d(2026, 9, 10), 500.0)
+        list = Piggy.add(list, d(2026, 9, 25), 250.0)
+        list = Piggy.add(list, d(2026, 11, 3), 1000.0)
+        list = Piggy.add(list, d(2026, 11, 5), -200.0)
+        val months = Piggy.months(list, java.time.LocalDate.of(2026, 11, 18))
+        assertEquals(3, months.size)
+        assertEquals(750.0, months[0].saved, 0.001)
+        assertEquals(0.0, months[1].saved, 0.001)
+        assertEquals(750.0, months[1].total, 0.001)
+        assertEquals(800.0, months[2].saved, 0.001)
+        assertEquals(1550.0, months[2].total, 0.001)
+        assertEquals(1550.0, Piggy.total(list), 0.001)
+        assertEquals(list, Piggy.parse(Piggy.format(list)))
+        assertEquals(emptyList<PiggyEntry>(), Piggy.parse("junk;5=;=3;7=0"))
+        assertEquals(1, Piggy.months(Piggy.add(emptyList(), d(2026, 11, 1), 10.0), java.time.LocalDate.of(2026, 11, 18)).size)
+    }
+
+    @Test fun extraGoals() {
+        val list = listOf(
+            SavingsGoal(1, "Car", 250000.0, 22000.0, 3000.0),
+            SavingsGoal(2, "Laptop", 30000.0, 24000.0, 2000.0),
+            SavingsGoal(3, "Umra", 60000.0, 18500.0, 2500.0),
+            SavingsGoal(4, "Done", 100.0, 100.0, 0.0),
+            SavingsGoal(5, "No date", 100.0, 0.0, 0.0),
+        )
+        assertEquals(listOf(2L, 3L, 1L, 5L, 4L), GoalList.byFinish(list).map { it.id })
+        assertEquals(3, list[1].monthsLeft)
+        assertEquals(null, list[4].monthsLeft)
+        assertEquals(0.8, list[1].fraction, 0.001)
+        assertEquals(list, GoalList.parse(GoalList.format(list)))
+        assertEquals(emptyList<SavingsGoal>(), GoalList.parse("junk\n1\ta\tx\t1\t1"))
+        assertEquals(6L, GoalList.nextId(list))
+        // 228000/3000 = 76 months, 228000/4000 = 57 months
+        assertEquals(19, GoalList.monthsSoonerWith(250000.0, 22000.0, 3000.0, 1000.0))
+        assertEquals(null, GoalList.monthsSoonerWith(100.0, 0.0, 0.0, 50.0))
+    }
 }
