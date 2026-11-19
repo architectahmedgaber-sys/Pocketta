@@ -1680,6 +1680,7 @@ function syncCard() {
     <div class="small">Last sync: ${esc(when)}</div>
     <div class="btns"><button class="btn filled" data-act="sync-now">Sync now</button><button class="btn outline" data-act="sync-out">Sign out</button></div>
     <div class="small">If you sign out, your data stays on this device and sync stops.</div>${note}
+    ${Sync.hasKeys() ? `<div class="label">Encryption</div><div class="btns"><button class="btn outline" data-act="enc-newkey">New recovery key</button><button class="btn outline" data-act="enc-pass">Change password</button></div>` : ''}
     <button class="btn text danger" data-act="sync-delete">Delete my data from the cloud</button>`;
 }
 function ago(t) {
@@ -2090,6 +2091,40 @@ const actions = {
   },
   'copy-text': (el) => { navigator.clipboard?.writeText(el.dataset.text).then(() => toast('Copied')).catch(() => {}); },
   'sync-now': () => Sync.syncNow(),
+  'enc-newkey': () => sheet({
+    title: 'New recovery key',
+    body: `<p>The app makes a new recovery key for you. The old one stops working. Type your encryption password to continue.</p>` + field('cur', 'Encryption password', '', { type: 'password' }),
+    saveLabel: 'Make a new key',
+    onSave: (root) => {
+      const cur = val(root, 'cur');
+      if (!cur) return 'Type your encryption password';
+      Sync.newRecoveryKey(cur).then((rec) => {
+        if (!rec) return toast('Wrong password');
+        sheet({
+          title: 'Your new recovery key',
+          body: `<div class="recovery">${esc(rec)}</div>
+            <button type="button" class="btn text" data-act="copy-text" data-text="${esc(rec)}">Copy</button>
+            <button type="button" class="btn text" data-act="download-text" data-text="${esc(rec)}">Download as a file</button>
+            <p class="small">Save it now. It is shown only once. The old recovery key no longer works.</p>`,
+          saveLabel: 'Done',
+          onSave: () => {},
+        });
+      });
+    },
+  }),
+  'enc-pass': () => sheet({
+    title: 'Change encryption password',
+    body: field('cur', 'Current password', '', { type: 'password' }) + field('p1', 'New password (8 or more)', '', { type: 'password' }) + field('p2', 'Type it again', '', { type: 'password' }) +
+      `<p class="small">Your other devices keep working. A new device will ask for the new password.</p>`,
+    saveLabel: 'Change password',
+    onSave: (root) => {
+      const cur = val(root, 'cur'), p1 = val(root, 'p1');
+      if (!cur) return 'Type your current password';
+      if (p1.length < 8) return 'Use at least 8 characters';
+      if (p1 !== val(root, 'p2')) return "The two passwords don't match";
+      Sync.changePassword(cur, p1).then((ok) => toast(ok ? 'Password changed' : 'Wrong password'));
+    },
+  }),
   'sync-out': () => confirmSheet('Sign out?', 'Your data stays on this device. Sync stops until you sign in again.', 'Sign out', () => Sync.signOut()),
   'sync-delete': () => confirmSheet('Delete your data from the cloud?', 'This removes the copy in the cloud and its safety copy. Your data on this device is not touched.', 'Delete from cloud', () => { Sync.deleteCloud().then(() => toast('Deleted from the cloud')).catch(() => toast('Could not delete. Check your internet.')); }),
   backup: () => backup(),

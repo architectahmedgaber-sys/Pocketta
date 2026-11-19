@@ -82,6 +82,13 @@ object E2ee {
         return b64(bytes)
     }
 
+    /** A new recovery key for the same data key. */
+    fun withRecovery(dek: String, keys: JSONObject, recovery: String): JSONObject {
+        val recSalt = rand(16)
+        return JSONObject(keys.toString()).put("recIter", REC_ITER).put("recSalt", b64(recSalt))
+            .put("wrapRec", seal(kek(normRecovery(recovery), recSalt, REC_ITER), unb64(dek)))
+    }
+
     /** After a recovery: lock the same data key with a new password. */
     fun rewrap(dek: String, keys: JSONObject, newPassword: String): JSONObject {
         val salt = rand(16)
