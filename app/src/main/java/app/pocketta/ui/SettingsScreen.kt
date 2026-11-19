@@ -99,11 +99,6 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
             SectionCard {
                 Label("Look")
                 Gap(4)
-                Text("Night mode", style = MaterialTheme.typography.labelLarge)
-                Choices(listOf("AUTO", "LIGHT", "DARK"), prefs.theme, { when (it) { "LIGHT" -> "Light"; "DARK" -> "Dark"; else -> "Auto" } }, { v ->
-                    scope.launch { repo.set("theme", v) }
-                })
-                Gap(8)
                 Text("Language", style = MaterialTheme.typography.labelLarge)
                 Choices(listOf("EN", "AR"), prefs.lang, { if (it == "AR") "العربية" else "English" }, { v ->
                     scope.launch { repo.set("lang", v) }
