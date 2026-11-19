@@ -24,7 +24,7 @@
 
 <section id="en" lang="en" dir="ltr" style="border:0;margin:0">
 <h1>Pocketta – Privacy Policy</h1>
-<p class="muted">Last updated: 20 November 2026 · <a href="#ar">النسخة العربية ↓</a></p>
+<p class="muted">Last updated: 20 November 2026 · <a href="?lang=ar">العربية</a></p>
 <p>Pocketta is a personal money app (monthly budget, bills, installments, gam'eya, loans). This page explains what data the app handles. We tried to keep it short and accurate.</p>
 
 <h2>1. Without an account</h2>
@@ -63,9 +63,9 @@
 <p><a href="mailto:architectahmedgaber@gmail.com">architectahmedgaber@gmail.com</a></p>
 </section>
 
-<section id="ar" lang="ar" dir="rtl">
+<section id="ar" lang="ar" dir="rtl" style="border:0;margin:0">
 <h1>Pocketta – سياسة الخصوصية</h1>
-<p class="muted">آخر تحديث: ٢٠ نوفمبر ٢٠٢٦ · <a href="#en">English version ↑</a></p>
+<p class="muted">آخر تحديث: ٢٠ نوفمبر ٢٠٢٦ · <a href="?lang=en">English</a></p>
 <p>Pocketta تطبيق لإدارة فلوسك الشخصية (ميزانية الشهر، فواتير، أقساط، جمعية، سلف). الصفحة دي بتشرح البيانات اللي التطبيق بيتعامل معاها، وحاولنا نخليها قصيرة ودقيقة.</p>
 
 <h2>١. من غير حساب</h2>
@@ -104,5 +104,16 @@
 <p><a href="mailto:architectahmedgaber@gmail.com">architectahmedgaber@gmail.com</a></p>
 </section>
 </main>
+<script>
+// Show one language only: ?lang=ar or ?lang=en, otherwise the browser language.
+(function () {
+  var q = /[?&]lang=(ar|en)/.exec(location.search);
+  var ar = q ? q[1] === 'ar' : /^ar/i.test(navigator.language || '');
+  document.getElementById(ar ? 'en' : 'ar').hidden = true;
+  document.documentElement.lang = ar ? 'ar' : 'en';
+  document.documentElement.dir = ar ? 'rtl' : 'ltr';
+  var back = document.querySelector('main > p a'); if (ar && back) back.textContent = '→ Pocketta';
+})();
+</script>
 </body>
 </html>

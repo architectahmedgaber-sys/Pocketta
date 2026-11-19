@@ -1,7 +1,8 @@
 import * as C from './core.js';
 import * as R from './store.js';
 import { shareMonth } from './share.js';
-import { startArabic } from './i18n.js';
+import { startArabic, isArabic } from './i18n.js';
+import { PRIVACY } from './privacy.js';
 import { COUNTRIES, OTHER_CURRENCIES, FLAGS, CURRENCY_AR, decimalsOf } from './countries.js';
 import * as P from './plan.js';
 import * as AI from './ai.js';
@@ -9,7 +10,7 @@ import * as Sync from './sync.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.17.1';
+const VERSION = '1.18.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -1661,6 +1662,7 @@ function settings() {
       <input type="file" id="restore-file" accept=".json,application/json" hidden>`) +
     card(label('About') + `<div>Pocketta web ${VERSION}${standalone ? ' · on home screen' : ''}</div>
       <div class="small">Updates come by themselves the next time you open it with internet.</div>
+      <button class="btn text" data-act="privacy">Privacy policy</button>
       <button class="btn text danger" data-act="wipe">Delete all data</button>`) + `</main>`;
 }
 
@@ -2090,6 +2092,10 @@ const actions = {
     } catch (e) { toast('Could not save the file'); }
   },
   'copy-text': (el) => { navigator.clipboard?.writeText(el.dataset.text).then(() => toast('Copied')).catch(() => {}); },
+  'privacy': () => {
+    const p = PRIVACY[isArabic() ? 'ar' : 'en'];
+    sheet({ title: p.title, body: `<div class="policy"${isArabic() ? ' dir="rtl"' : ''}><p class="small">${p.updated}</p>${p.html}</div>` });
+  },
   'sync-now': () => Sync.syncNow(),
   'enc-newkey': () => sheet({
     title: 'New recovery key',

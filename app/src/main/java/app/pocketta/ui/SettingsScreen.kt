@@ -181,6 +181,7 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
                 Text("Pocketta ${BuildConfig.VERSION_NAME}")
                 UpdateBox(repo)
             }
+            PrivacyCard(prefs.lang)
         }
     }
     confirmRestore?.let { uri ->
@@ -230,7 +231,7 @@ fun UpdateBox(repo: Repo) {
                     scope.launch {
                         val ok = Online.downloadAndInstall(context, r) { progress = it }
                         progress = null
-                        if (!ok) status = "Download failed. Try again, or open the releases page."
+                        if (!ok) status = "Download failed. Try again."
                     }
                 } else {
                     status = "Allow Pocketta to install updates, then tap Update again."
@@ -247,9 +248,6 @@ fun UpdateBox(repo: Repo) {
         }) { Text("Check for updates") }
     }
     if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodySmall)
-    TextButton(onClick = {
-        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Online.RELEASES_PAGE))) }
-    }) { Text("Open the releases page") }
 }
 
 @Composable
@@ -257,5 +255,36 @@ private fun Toggle(text: String, checked: Boolean, onChange: (Boolean) -> Unit) 
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(text, Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/** Settings card: opens the privacy policy in the app language only. */
+@Composable
+private fun PrivacyCard(lang: String) {
+    var open by remember { mutableStateOf(false) }
+    SectionCard {
+        Label("Privacy")
+        TextButton(onClick = { open = true }) { Text("Privacy policy") }
+    }
+    if (open) {
+        val doc = if (lang == "AR") PrivacyText.AR else PrivacyText.EN
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text(doc.title) },
+            text = {
+                androidx.compose.foundation.lazy.LazyColumn {
+                    item { Text(doc.updated, style = MaterialTheme.typography.bodySmall) }
+                    items(doc.blocks.size) { i ->
+                        val (kind, t) = doc.blocks[i]
+                        when (kind) {
+                            "h" -> Text(t, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp))
+                            "l" -> Text("• " + t, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+                            else -> Text(t, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { open = false }) { Text("Close") } },
+        )
     }
 }
