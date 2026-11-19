@@ -5,10 +5,11 @@ import { startArabic } from './i18n.js';
 import { COUNTRIES, OTHER_CURRENCIES, FLAGS, CURRENCY_AR, decimalsOf } from './countries.js';
 import * as P from './plan.js';
 import * as AI from './ai.js';
+import * as Sync from './sync.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.14.1';
+const VERSION = '1.16.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -1654,12 +1655,57 @@ function settings() {
       ? `<div class="row-flex"><span class="grow">PIN lock is on</span><button class="btn text" data-act="pin-set">Change</button><button class="btn text danger" data-act="pin-off">Turn off</button></div>`
       : `<div class="row-flex"><span class="grow">Lock the app with a PIN</span><button class="btn tonal" data-act="pin-set">Set PIN</button></div>`) +
       `<div class="small">Asked when you open the app or come back after a minute.</div>`) +
+    card(label('Sync and backup') + syncCard()) +
     card(label('Backup') + `<div class="small">Everything is on this phone only, inside the browser. Save a backup file now and then (to Files, Drive, or WhatsApp to yourself). If you clear Safari's website data, the app's data goes too.</div>
       <div class="btns"><button class="btn outline" data-act="backup">Save backup</button><button class="btn outline" data-act="restore">Restore</button></div>
       <input type="file" id="restore-file" accept=".json,application/json" hidden>`) +
     card(label('About') + `<div>Pocketta web ${VERSION}${standalone ? ' · on home screen' : ''}</div>
       <div class="small">Updates come by themselves the next time you open it with internet.</div>
       <button class="btn text danger" data-act="wipe">Delete all data</button>`) + `</main>`;
+}
+
+
+function syncCard() {
+  const i = Sync.info();
+  const note = `<div class="lock-note">🔒 Your money data is private. It is saved only on your own account and nobody else can open it.</div>`;
+  if (!Sync.signedIn()) {
+    return `<div class="small">Optional. Pocketta works exactly the same without an account. Sign in to keep your phone and laptop in sync and to have an automatic backup.</div>
+      <button class="btn outline google" data-act="sync-in"><span class="gdot"></span>Sign in with Google</button>${note}`;
+  }
+  const when = i.lastSyncAt ? ago(i.lastSyncAt) : 'not yet';
+  const st = i.busy ? 'Syncing...' : i.error === 'offline' ? 'No internet. It will sync when you are back online.' : i.error ? esc(i.error) : i.status === 'paused' ? 'Paused. Tap Sync now to choose.' : 'Sync is on';
+  return `<div class="row-flex"><b class="grow">${st}</b></div>
+    <div class="small">${esc(i.email)}</div>
+    <div class="small">Last sync: ${esc(when)}</div>
+    <div class="btns"><button class="btn filled" data-act="sync-now">Sync now</button><button class="btn outline" data-act="sync-out">Sign out</button></div>
+    <div class="small">If you sign out, your data stays on this device and sync stops.</div>${note}
+    <button class="btn text danger" data-act="sync-delete">Delete my data from the cloud</button>`;
+}
+function ago(t) {
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(t).toLocaleDateString();
+}
+function fmtAt(t) { return t ? new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''; }
+
+/** Asked only when it is really needed: first upload, or two different copies of the same account. */
+function syncChoose({ kind, local, cloud }) {
+  return new Promise((resolve) => {
+    let done = false;
+    const fin = (v) => { if (!done) { done = true; resolve(v); } };
+    const line = (x) => `${x.txns} records · ${x.commitments} commitments`;
+    let body, saveLabel;
+    if (kind === 'first-upload') {
+      body = `<p>Your data is on this device and nothing is in the cloud yet.</p><div class="pick sel"><b>On this device</b><div class="small">${esc(line(local))}</div></div><p class="small">It is uploaded to your own private space.</p>`;
+      saveLabel = 'Upload my data';
+      const { el } = sheet({ title: 'First sync', body, saveLabel, onSave: () => { fin('local'); }, onClose: () => fin(null) });
+      return el;
+    }
+    body = `<p>This account already has data in the cloud, and this device has different data. Pick the one you want to keep. Nothing is merged.</p>
+      <label class="pick"><input type="radio" name="keep" value="local" checked><div><b>Keep this device</b><div class="small">${esc(line(local))}${local.at ? ' · changed ' + esc(fmtAt(local.at)) : ''}<br>Replaces what is in the cloud</div></div></label>
+      <label class="pick"><input type="radio" name="keep" value="cloud"><div><b>Keep the cloud copy</b><div class="small">${esc(line(cloud))} · saved ${esc(fmtAt(cloud.at))}${cloud.device ? ' from ' + esc(cloud.device) : ''}<br>Replaces what is on this device</div></div></label>
+      <p class="small">Before anything is replaced, a safety copy of that side is kept.</p>`;
+    sheet({ title: 'Your data is different', body, saveLabel: 'Continue', onSave: (el) => { fin($('input[name=keep]:checked', el).value); }, onClose: () => fin(null) });
+  });
 }
 
 // ---------- Onboarding & lock ----------
@@ -1961,6 +2007,10 @@ const actions = {
   'toggle-alert': (el) => R.setSetting('budgetAlert', el.checked),
   'pin-set': () => pinSheet(),
   'pin-off': () => confirmSheet('Turn off the PIN?', 'Anyone with your phone can open Pocketta.', 'Turn off', () => { R.S().pinSalt = ''; R.setSetting('pinHash', ''); }),
+  'sync-in': () => Sync.signIn(),
+  'sync-now': () => Sync.syncNow(),
+  'sync-out': () => confirmSheet('Sign out?', 'Your data stays on this device. Sync stops until you sign in again.', 'Sign out', () => Sync.signOut()),
+  'sync-delete': () => confirmSheet('Delete your data from the cloud?', 'This removes the copy in the cloud and its safety copy. Your data on this device is not touched.', 'Delete from cloud', () => { Sync.deleteCloud().then(() => toast('Deleted from the cloud')).catch(() => toast('Could not delete. Check your internet.')); }),
   backup: () => backup(),
   restore: () => $('#restore-file').click(),
   wipe: () => confirmSheet('Delete all data?', 'Everything in Pocketta on this phone will be deleted. Save a backup first if you may need it.', 'Delete all', () => { R.wipe(); ui.stack = [{ r: 'home' }]; render(); }),
@@ -2059,6 +2109,7 @@ R.onChange(() => { if (cur().r !== 'add') render(); });
 
 (async function main() {
   await R.load();
+  const returned = Sync.handleRedirect();
   if (R.S().lang === 'AR') startArabic();
   applyTheme();
   ui.locked = !!R.S().pinHash;
@@ -2066,6 +2117,9 @@ R.onChange(() => { if (cur().r !== 'add') render(); });
   const goto = new URLSearchParams(location.search).get('go');
   if (goto && R.S().onboarded && !ui.locked) { ui.stack = [{ r: 'home' }, goto === 'income' ? { r: 'add', type: 'INCOME' } : { r: 'add' }]; history.replaceState(null, '', location.pathname); }
   render();
+  Sync.onStatus(() => { if (cur().r === 'settings' && !ui.locked && !document.querySelector('.scrim')) render(); });
+  Sync.start({ choose: syncChoose, done: () => { if (!ui.locked && cur().r !== 'add' && !document.querySelector('.scrim')) render(); } });
+  if (returned) { ui.stack = [{ r: 'home' }, { r: 'settings' }]; render(); }
   R.refreshRates();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     // A new version installs in the background; when it takes over, say so and offer the update.

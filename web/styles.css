@@ -415,3 +415,11 @@ main:has(+ .tabs) .chatpage { padding-bottom: 170px; }
 .crow.on { background: var(--primary-c); font-weight: 700; }
 .crow .flag { font-size: 22px; }
 .crow small { opacity: .7; direction: ltr; }
+
+/* Sync */
+.btn.google { display: flex; gap: 10px; align-items: center; justify-content: center; width: 100%; margin-top: 10px; }
+.gdot { width: 18px; height: 18px; border-radius: 50%; background: conic-gradient(#ea4335 0 25%, #fbbc05 0 50%, #34a853 0 75%, #4285f4 0); }
+.lock-note { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface-v, rgba(31,107,79,.10)); font-size: 13px; line-height: 1.5; }
+.pick { display: flex; gap: 10px; align-items: flex-start; border: 2px solid var(--outline-v); border-radius: 16px; padding: 12px; }
+.pick.sel, .pick:has(input:checked) { border-color: var(--primary); }
+.pick input { margin-top: 4px; }
