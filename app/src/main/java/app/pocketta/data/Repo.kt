@@ -28,6 +28,8 @@ import app.pocketta.core.Ym
 import app.pocketta.core.WealthLog
 import app.pocketta.core.WealthPoint
 import app.pocketta.core.Recurrence
+import app.pocketta.core.Streak
+import app.pocketta.core.StreakResult
 import app.pocketta.widget.Widgets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,6 +70,7 @@ data class HomeState(
     val setAside: Double,
     val income: Double,
     val salaryExpected: Double,
+    val streak: StreakResult? = null,
 )
 
 /** One top-level category: spent so far this cycle and the usual per month (average of the last 3 cycles that had spending, 0 if none). */
@@ -110,7 +113,16 @@ data class WealthView(
 data class Suggestion(val note: String, val amount: Double)
 
 /** The last 7 days against the 7 before, for the weekly card. */
-data class WeekData(val spent: Double, val previous: Double, val topCategory: String?, val daysUnder: Int)
+data class WeekData(val spent: Double, val previous: Double, val topCategory: String?, val daysUnder: Int, val topAmount: Double = 0.0)
+
+/** One group of payments that can be marked paid together (a provider, credit cards, gam'eya, bills). */
+data class PayItem(val kind: String, val id: Long, val name: String, val n: Int, val amount: Double)
+data class PayGroup(val key: String, val title: String, val items: List<PayItem>) { val total: Double get() = items.sumOf { it.amount } }
+/** What is needed to undo a bulk payment. */
+data class PayUndo(val txnIds: List<Long>, val billDue: List<Pair<Long, Long>>)
+
+/** Everything saved under one tag. */
+data class TagStat(val name: String, val spent: Double, val earned: Double, val count: Int, val cats: List<Pair<String, Double>>, val last: Long)
 
 class Repo private constructor(private val app: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -164,7 +176,8 @@ class Repo private constructor(private val app: Context) {
 
     // ---------- Transactions ----------
 
-    suspend fun saveTxn(t: Txn): Long {
+    suspend fun saveTxn(t0: Txn): Long {
+        val t = (if (t0.walletId == 0L) t0.copy(walletId = defaultWallet(prefs())) else t0).copy(tags = Tags.join(t0.tagList))
         val id = if (t.id == 0L) dao.insertTxn(t) else { dao.updateTxn(t); t.id }
         if (t.type == TxType.EXPENSE && t.categoryId != null && t.source == Source.NONE) dao.put(SettingRow("lastCategory", t.categoryId.toString()))
         dao.put(SettingRow("lastWallet", t.walletId.toString()))
@@ -239,7 +252,8 @@ class Repo private constructor(private val app: Context) {
         val perDay = now.groupBy { it.epochDay }.mapValues { e -> e.value.sumOf { it.base } }
         var under = 0
         if (dayReference > 0) for (d in from until to) if ((perDay[d] ?: 0.0) <= dayReference) under++
-        return WeekData(now.sumOf { it.base }, before.sumOf { it.base }, top, under)
+        val topAmount = now.filter { topName(it.categoryId) == top && top != null }.sumOf { it.base }
+        return WeekData(now.sumOf { it.base }, before.sumOf { it.base }, top, under, topAmount)
     }
 
     // ---------- Bills ----------
@@ -456,19 +470,35 @@ class Repo private constructor(private val app: Context) {
         val commitments = all.filter { !it.incoming && !it.spread && it.due.isBefore(cycle.nextStart) }.sumOf { it.amount }
         val setAside = dao.bills().filter { Recurrence.isSpread(Frequency.parse(it.frequency), it.everyN) }
             .sumOf { Recurrence.monthlyShare(it.amount * p.rateOf(it.currency), Frequency.parse(it.frequency), it.everyN) } + p.savingsPerMonth + p.goals.sumOf { it.monthly }
+        val groceries = if (p.household > 0) categoryNamed("Groceries", TxType.EXPENSE) else null
+        val householdSpent = if (groceries != null) spending.filter { it.source == Source.NONE && it.categoryId == groceries }.sumOf { it.base } else 0.0
         val result = Budget.compute(
             BudgetInput(
                 cycle = cycle, today = today, incomeReceived = income, salaryExpected = salaryExpected, setAside = setAside,
                 spentBeforeToday = spentBefore, spentToday = spentToday, commitments = commitments, everydaySpent = everyday,
+                household = p.household, householdSpent = householdSpent,
             )
         )
+        val streak = streakNow(p, today, result, cycle)
         val perDay = spending.groupBy { it.epochDay }.mapValues { e -> e.value.sumOf { it.base } }
         val days = cycle.days().filter { !it.isAfter(today) }.map { it to (perDay[it.toEpochDay()] ?: 0.0) }
         return HomeState(
             prefs = p, cycle = cycle, today = today, budget = result, days = days,
             dayReference = if (cycle.lengthDays > 0) result.budget / cycle.lengthDays else 0.0,
-            upcoming = all.filter { it.due.isBefore(today.plusDays(35)) }, setAside = setAside, income = income, salaryExpected = salaryExpected,
+            upcoming = all.filter { it.due.isBefore(today.plusDays(35)) }, setAside = setAside, income = income, salaryExpected = salaryExpected, streak = streak,
         )
+    }
+
+    private suspend fun streakNow(p: Prefs, today: LocalDate, b: BudgetResult, cycle: Cycle): StreakResult? {
+        if (b.flexTotal <= 0) return null
+        val t0 = today.toEpochDay()
+        val all = dao.allTxns().filter { it.type == TxType.EXPENSE && !it.spread && it.source == Source.NONE }
+        val first = all.minOfOrNull { it.epochDay } ?: return null
+        if (t0 - first < 2) return null
+        val groceries = if (p.household > 0) categoryNamed("Groceries", TxType.EXPENSE) else null
+        val perDay = all.filter { it.epochDay in (t0 - 130)..t0 && (groceries == null || it.categoryId != groceries) }
+            .groupBy { it.epochDay }.mapValues { e -> e.value.sumOf { it.base } }
+        return Streak.compute(perDay, t0, b.flexTotal / cycle.lengthDays * 7, first)
     }
 
     /** Current balance of every wallet, in the base currency. */
@@ -583,6 +613,83 @@ class Repo private constructor(private val app: Context) {
             circleShares = sum(exp, Source.CIRCLE), loansOut = sum(exp, Source.LOAN),
             living = exp.filter { it.source !in committedSources }.sumOf { it.base },
         )
+    }
+
+    // ---------- Tags (projects) ----------
+
+    suspend fun allTags(): List<String> =
+        dao.allTxns().flatMap { it.tagList }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key }
+
+    suspend fun tagStats(): List<TagStat> {
+        val cats = dao.categories().associateBy { it.id }
+        fun top(id: Long?): String = id?.let { cats[it] }?.let { c -> (c.parentId?.let { cats[it] } ?: c).name } ?: "No category"
+        val out = LinkedHashMap<String, MutableList<Txn>>()
+        for (t in dao.allTxns()) { if (t.type == TxType.TRANSFER) continue; for (g in t.tagList) out.getOrPut(g) { ArrayList() } += t }
+        return out.map { (name, l) ->
+            val exp = l.filter { it.type == TxType.EXPENSE }
+            TagStat(name, exp.sumOf { it.base }, l.filter { it.type == TxType.INCOME }.sumOf { it.base }, l.size,
+                exp.groupBy { top(it.categoryId) }.mapValues { e -> e.value.sumOf { it.base } }.entries.sortedByDescending { it.value }.map { it.key to it.value },
+                l.maxOf { it.epochDay })
+        }.sortedByDescending { it.last }
+    }
+
+    suspend fun txnsWithTag(tag: String): List<Txn> = dao.allTxns().filter { tag in it.tagList }.sortedByDescending { it.epochDay }
+
+    suspend fun renameTag(from: String, to: String) {
+        val n = Tags.normalize(listOf(to)).firstOrNull() ?: return
+        for (t in dao.allTxns()) if (from in t.tagList) dao.updateTxn(t.copy(tags = Tags.join(t.tagList.map { if (it == from) n else it })))
+        changed()
+    }
+
+    suspend fun removeTag(name: String) {
+        for (t in dao.allTxns()) if (name in t.tagList) dao.updateTxn(t.copy(tags = Tags.join(t.tagList - name)))
+        changed()
+    }
+
+    // ---------- Pay a whole group at once ----------
+
+    /** Payments of each group (provider, credit cards, gam'eya, bills...) due up to the end of the month that contains [monthStart]. */
+    suspend fun groupPayments(monthStart: LocalDate): List<PayGroup> {
+        val p = prefs()
+        val end = CycleMath.cycleFor(monthStart, p.cycleStart).nextStart
+        val groups = LinkedHashMap<String, Pair<String, MutableList<PayItem>>>()
+        fun add(key: String, title: String, item: PayItem) { groups.getOrPut(key) { title to ArrayList() }.second += item }
+        for (b in dao.bills()) {
+            val n = Recurrence.occurrences(LocalDate.ofEpochDay(b.nextDue), Frequency.parse(b.frequency), b.everyN, LocalDate.ofEpochDay(b.nextDue), end, b.anchorDay).size
+            if (n > 0) add(if (b.kind == "SUB") "subs" else "bills", if (b.kind == "SUB") "Subscriptions" else "Bills", PayItem("BILL", b.id, b.name, n, estimate(b) * p.rateOf(b.currency) * n))
+        }
+        for (i in dao.installments()) {
+            val n = InstallmentPlan(i.amount, i.total, i.paid, LocalDate.ofEpochDay(i.firstDue)).unpaidDueIn(LocalDate.of(1970, 1, 1), end).size
+            if (n == 0) continue
+            val card = i.type.equals("credit card", true)
+            val label = i.provider.trim().ifEmpty { i.type }
+            add(if (card) "cards" else "p:" + label.lowercase(), if (card) "Credit cards" else label, PayItem("INSTALLMENT", i.id, i.name, n, i.amount * n))
+        }
+        for (c in dao.circles()) {
+            val n = Circle(c.share, c.months, c.myTurn, c.paid, LocalDate.ofEpochDay(c.firstDue)).plan.unpaidDueIn(LocalDate.of(1970, 1, 1), end).size
+            if (n > 0) add("circles", "Gam'eya", PayItem("CIRCLE", c.id, c.name, n, c.share * n))
+        }
+        return groups.map { (k, v) -> PayGroup(k, v.first, v.second) }.sortedByDescending { it.total }
+    }
+
+    /** Marks every item of a group as paid. Returns what is needed to undo it. */
+    suspend fun payGroup(g: PayGroup): PayUndo {
+        val before = dao.allTxns().map { it.id }.toSet()
+        val billDue = ArrayList<Pair<Long, Long>>()
+        for (item in g.items) repeat(item.n) {
+            when (item.kind) {
+                "BILL" -> dao.bill(item.id)?.let { b -> billDue += b.id to b.nextDue; payBill(b) }
+                "INSTALLMENT" -> dao.installment(item.id)?.let { x -> payInstallment(x) }
+                "CIRCLE" -> dao.circle(item.id)?.let { x -> payCircle(x) }
+            }
+        }
+        return PayUndo(dao.allTxns().filter { it.id !in before }.map { it.id }, billDue)
+    }
+
+    suspend fun undoPayGroup(u: PayUndo) {
+        for (id in u.txnIds.reversed()) dao.txn(id)?.let { deleteTxn(it) }
+        for ((id, due) in u.billDue.reversed()) dao.bill(id)?.let { dao.updateBill(it.copy(nextDue = due)) }
+        changed()
     }
 
     // ---------- Wealth ----------

@@ -21,6 +21,10 @@ data class BudgetInput(
     val commitments: Double,
     /** Spending that was not a bill/installment payment, used for the forecast. */
     val everydaySpent: Double,
+    /** Monthly amount kept apart for household shopping (groceries use it first). */
+    val household: Double = 0.0,
+    /** Grocery spending this cycle (counted only when [household] is set). */
+    val householdSpent: Double = 0.0,
 )
 
 data class BudgetResult(
@@ -33,6 +37,14 @@ data class BudgetResult(
     val leftToday: Double,
     val forecastSpend: Double,
     val forecastDiff: Double,
+    /** Money for everyday spending after every commitment (paid or not) and the household reserve. */
+    val flexTotal: Double = 0.0,
+    val flexSpent: Double = 0.0,
+    val flexLeft: Double = 0.0,
+    val flexSpentFraction: Float = 0f,
+    /** Share of the cycle that has passed, to compare with [flexSpentFraction]. */
+    val elapsedFraction: Float = 0f,
+    val household: Double = 0.0,
 ) {
     /** Share of the budget already spent, for the ring. */
     val spentFraction: Float get() = if (budget <= 0) 0f else (spent / budget).toFloat().coerceIn(0f, 1f)
@@ -49,7 +61,12 @@ object Budget {
         val dayIndex = i.cycle.dayIndex(i.today).coerceAtLeast(1)
         val avg = i.everydaySpent / dayIndex
         val forecast = spent + i.commitments + avg * (daysLeft - 1)
+        val flexTotal = budget - (spent - i.everydaySpent) - i.commitments - i.household
+        val flexSpent = (i.everydaySpent - i.householdSpent + maxOf(i.householdSpent - i.household, 0.0)).coerceAtLeast(0.0)
+        val flexFrac = if (flexTotal > 0) (flexSpent / flexTotal).toFloat().coerceIn(0f, 1f) else if (flexSpent > 0) 1f else 0f
         return BudgetResult(
+            flexTotal = flexTotal, flexSpent = flexSpent, flexLeft = flexTotal - flexSpent, flexSpentFraction = flexFrac,
+            elapsedFraction = (dayIndex.toFloat() / maxOf(i.cycle.lengthDays, 1)).coerceIn(0f, 1f), household = i.household,
             budget = budget,
             spent = spent,
             committed = i.commitments,

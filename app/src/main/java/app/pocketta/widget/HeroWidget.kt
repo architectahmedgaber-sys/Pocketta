@@ -54,10 +54,9 @@ class HeroWidget : GlanceAppWidget() {
 /** Green, amber or red card background for today's status. */
 fun heroBackground(s: HomeState): Int {
     val b = s.budget
-    val frac = if (b.dailyAllowance > 0) ((b.dailyAllowance - b.leftToday) / b.dailyAllowance).toFloat() else 1f
     return when {
-        b.leftToday < 0 -> R.drawable.w_bg_red
-        frac >= 0.8f -> R.drawable.w_bg_amber
+        b.flexLeft < 0 -> R.drawable.w_bg_red
+        b.flexSpentFraction > b.elapsedFraction + 0.1f -> R.drawable.w_bg_amber
         else -> R.drawable.w_bg_green
     }
 }
@@ -77,12 +76,12 @@ private fun HeroContent(context: Context, s: HomeState?) {
             Text(Tr.t("Tap to set up Pocketta", lang), style = TextStyle(color = white, fontSize = 14.sp, fontWeight = FontWeight.Medium))
         } else {
             val b = s.budget
-            val over = b.leftToday < 0
-            val frac = if (b.dailyAllowance > 0) ((b.dailyAllowance - b.leftToday) / b.dailyAllowance).toFloat().coerceIn(0f, 1f) else 1f
-            val amount = (if (over) "−" else "") + Money.short(kotlin.math.abs(b.leftToday))
+            val over = b.flexLeft < 0
+            val frac = if (b.flexTotal > 0) b.flexSpentFraction else 1f
+            val amount = (if (over) "−" else "") + Money.short(kotlin.math.abs(b.flexLeft))
             Column(modifier = GlanceModifier.fillMaxWidth()) {
                 Text(
-                    Tr.t(if (over) "Over today's budget" else "You can spend today", lang),
+                    Tr.t(if (over) "Over the flexible amount" else "Left for flexible spending", lang),
                     maxLines = 1, style = TextStyle(color = whiteSoft, fontSize = 12.sp),
                 )
                 Text(

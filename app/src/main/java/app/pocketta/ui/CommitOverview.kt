@@ -33,8 +33,10 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -54,6 +56,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.pocketta.core.Badges
+import app.pocketta.data.PayGroup
+import app.pocketta.data.PayUndo
 import app.pocketta.core.CFilter
 import app.pocketta.core.CItem
 import app.pocketta.core.CKind
@@ -250,6 +254,15 @@ fun CommitOverview(repo: Repo, prefs: Prefs, modifier: Modifier = Modifier) {
     var openLoan by remember { mutableStateOf<Loan?>(null) }
     var payVariable by remember { mutableStateOf<Bill?>(null) }
 
+    // Mark a whole group (a provider, credit cards, gam'eya...) as paid in one step, with undo.
+    var bulkOpen by remember { mutableStateOf(false) }
+    var bulkMonth by remember { mutableIntStateOf(0) }
+    var groups by remember { mutableStateOf<List<PayGroup>>(emptyList()) }
+    var confirmGroup by remember { mutableStateOf<PayGroup?>(null) }
+    var lastBulk by remember { mutableStateOf<Pair<PayUndo, String>?>(null) }
+    val monthStart = if (bulkMonth == 0) today else cycle.nextStart
+    LaunchedEffect(bills, insts, circles, bulkMonth) { groups = repo.groupPayments(monthStart) }
+
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val target = iconFor
         if (uri != null && target != null && CommitIcons.save(ctx, CommitIcons.key(target), uri)) version++
@@ -324,6 +337,20 @@ fun CommitOverview(repo: Repo, prefs: Prefs, modifier: Modifier = Modifier) {
                     )
                     Text(monthName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+            lastBulk?.let { (undo, text) ->
+                item {
+                    SectionCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), container = MaterialTheme.colorScheme.tertiaryContainer) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("✓ $text", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { scope.launch { repo.undoPayGroup(undo); lastBulk = null } }) { Text("Undo") }
+                            TextButton(onClick = { lastBulk = null }) { Text("OK") }
+                        }
+                    }
+                }
+            }
+            if (groups.isNotEmpty() || bulkMonth != 0) item {
+                OutlinedButton(onClick = { bulkOpen = true }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { Text("Mark a whole group as paid") }
             }
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -428,6 +455,68 @@ fun CommitOverview(repo: Repo, prefs: Prefs, modifier: Modifier = Modifier) {
     if (newLoan) NewLoanDialog(repo, prefs) { newLoan = false }
     openLoan?.let { l -> LoanDialog(repo, prefs, loans.firstOrNull { it.id == l.id } ?: l) { openLoan = null } }
     payVariable?.let { b -> PayBillDialog(repo, b) { payVariable = null } }
+
+    if (bulkOpen) {
+        AlertDialog(
+            onDismissRequest = { bulkOpen = false },
+            title = { Text("Mark a whole group as paid") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = bulkMonth == 0, onClick = { bulkMonth = 0 }, label = { Text("This month") })
+                        FilterChip(selected = bulkMonth == 1, onClick = { bulkMonth = 1 }, label = { Text("Next month") })
+                    }
+                    if (groups.isEmpty()) Text("Nothing to pay in this month.")
+                    for (g in groups) {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { confirmGroup = g; bulkOpen = false }.padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(g.title, fontWeight = FontWeight.SemiBold)
+                                Text(g.items.size.toString() + (if (g.items.size == 1) " item" else " items"), style = MaterialTheme.typography.bodySmall)
+                            }
+                            Text(Money.short(g.total), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { bulkOpen = false }) { Text("Cancel") } },
+        )
+    }
+    confirmGroup?.let { g ->
+        AlertDialog(
+            onDismissRequest = { confirmGroup = null },
+            title = { Text("${g.title}: mark all as paid") },
+            text = {
+                Column {
+                    Text("These payments will be recorded as paid now:")
+                    Gap(6)
+                    for (it in g.items) Row(Modifier.fillMaxWidth()) {
+                        Text(it.name + if (it.n > 1) " × ${it.n}" else "", Modifier.weight(1f))
+                        Text(Money.short(it.amount))
+                    }
+                    Gap(6)
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("Total", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        Text(Money.short(g.total) + " " + prefs.baseCurrency, fontWeight = FontWeight.Bold)
+                    }
+                    Gap(6)
+                    Text("You can undo it right after.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmGroup = null
+                    scope.launch {
+                        val undo = repo.payGroup(g)
+                        lastBulk = undo to g.title + ": " + g.items.size + (if (g.items.size == 1) " item" else " items") + " paid"
+                    }
+                }) { Text("Mark all as paid") }
+            },
+            dismissButton = { TextButton(onClick = { confirmGroup = null }) { Text("Cancel") } },
+        )
+    }
 
     iconFor?.let { item ->
         val key = CommitIcons.key(item)

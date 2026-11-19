@@ -136,18 +136,33 @@ fun QuickAddCard(repo: Repo, prefs: Prefs) {
     }
 }
 
-/** On Friday and Saturday: how the last 7 days went, against the 7 before. */
+/** On Friday and Saturday: how the last 7 days went, against the 7 before. Written by Miqrish when the user has a key. */
 @Composable
 fun WeekCard(repo: Repo, s: HomeState) {
     if (s.today.dayOfWeek != DayOfWeek.FRIDAY && s.today.dayOfWeek != DayOfWeek.SATURDAY) return
+    val context = androidx.compose.ui.platform.LocalContext.current
     val version by repo.version.collectAsState()
     var data by remember { mutableStateOf<WeekData?>(null) }
-    LaunchedEffect(version, s.today) { data = repo.week(s.today, s.dayReference) }
+    var ai by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    LaunchedEffect(version, s.today) {
+        val w = repo.week(s.today, s.dayReference)
+        data = w
+        if (w.spent > 0) {
+            val saved = app.pocketta.ai.AiWeeklyStore.ensure(context, repo, s, w, generate = false)
+            if (saved != null) ai = saved
+            else if (app.pocketta.ai.AiConfig(context).key().isNotBlank() && s.prefs.weeklyAiOn) {
+                busy = true
+                ai = app.pocketta.ai.AiWeeklyStore.ensure(context, repo, s, w)
+                busy = false
+            }
+        }
+    }
     val d = data ?: return
     if (d.spent <= 0.0) return
     val cur = s.prefs.baseCurrency
     SectionCard(container = MaterialTheme.colorScheme.tertiaryContainer) {
-        Label("Your week")
+        Label(if (ai != null) "Your week · from Miqrish" else "Your week")
         Gap(4)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Big(Money.short(d.spent) + " " + cur, size = 26)
@@ -162,10 +177,46 @@ fun WeekCard(repo: Repo, s: HomeState) {
             }
         }
         Gap(6)
-        val pct = if (d.previous > 0) ((d.spent - d.previous) / d.previous * 100).toInt() else null
-        val (first, second) = app.pocketta.core.Planning.weekSentences(d.spent, pct, d.topCategory, d.daysUnder, cur)
-        Text(first, style = MaterialTheme.typography.bodyMedium)
-        Text(second, style = MaterialTheme.typography.bodyMedium)
+        val aiText = ai
+        if (aiText != null) {
+            Text(aiText, style = MaterialTheme.typography.bodyMedium)
+        } else if (busy) {
+            Text("Miqrish is writing your summary...", style = MaterialTheme.typography.bodySmall)
+        } else {
+            val pct = if (d.previous > 0) ((d.spent - d.previous) / d.previous * 100).toInt() else null
+            val (first, second) = app.pocketta.core.Planning.weekSentences(d.spent, pct, d.topCategory, d.daysUnder, cur)
+            Text(first, style = MaterialTheme.typography.bodyMedium)
+            Text(second, style = MaterialTheme.typography.bodyMedium)
+            Text("💡 " + app.pocketta.core.Streak.weeklyTip(d.spent, d.previous, d.topCategory, s.budget.flexLeft, s.budget.daysLeft), fontWeight = FontWeight.SemiBold)
+            if (app.pocketta.ai.AiConfig(context).key().isBlank()) {
+                Text("Add your own key in Miqrish to get this written for you every Friday.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+/** The saving challenge: days in a row where the last 7 days stayed under the weekly share of the flexible money. */
+@Composable
+fun StreakCard(s: HomeState) {
+    val k = s.streak ?: return
+    val cur = s.prefs.baseCurrency
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (k.days > 0) "🔥 ${k.days} " + (if (k.days == 1) "day" else "days") + " in a row" else "Saving challenge", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            if (k.best > k.days) Text("best ${k.best}", style = MaterialTheme.typography.bodySmall)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(if (k.days > 0) "Every day the last 7 days stayed under" else "Keep the last 7 days under", style = MaterialTheme.typography.bodySmall)
+            Text(Money.short(k.target) + " " + cur, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            if (k.days == 0) Text("to start a streak.", style = MaterialTheme.typography.bodySmall)
+        }
+        Gap(6)
+        Progress((k.weekSpent / k.target).toFloat().coerceIn(0f, 1f), color = if (k.weekSpent > k.target) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+        Gap(4)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(Money.short(kotlin.math.abs(k.weekLeft)) + " " + cur, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            Text(if (k.weekLeft >= 0) "left for this week" else "over this week", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 

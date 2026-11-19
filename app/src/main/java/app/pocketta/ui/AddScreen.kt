@@ -68,6 +68,7 @@ import app.pocketta.data.Prefs
 import app.pocketta.data.Repo
 import app.pocketta.data.Source
 import app.pocketta.data.Txn
+import app.pocketta.data.Tags
 import app.pocketta.data.TxType
 import app.pocketta.notify.Notifier
 import kotlinx.coroutines.delay
@@ -96,6 +97,9 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
     var date by remember { mutableStateOf(LocalDate.now()) }
     var person by remember { mutableStateOf("") }
     var dueDate by remember { mutableStateOf<LocalDate?>(null) }
+    var tagsText by remember { mutableStateOf("") }
+    var knownTags by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(Unit) { knownTags = repo.allTags().take(10) }
     var loaded by remember { mutableStateOf(route.txnId == 0L) }
 
     // Load the transaction being edited, or pick sensible defaults for a new one.
@@ -107,6 +111,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
             type = t.type
             input = numText(t.amount)
             noteField = t.note
+            tagsText = t.tagList.joinToString(", ")
             categoryId = t.categoryId
             parentId = categories.firstOrNull { it.id == t.categoryId }?.let { it.parentId ?: it.id }
             pickedByHand = true
@@ -197,7 +202,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                         type = type, amount = amount, currency = currency, rate = prefs.rateOf(currency),
                         walletId = walletId, toWalletId = if (type == TxType.TRANSFER) toWalletId else null,
                         categoryId = if (type == TxType.TRANSFER) null else categoryId,
-                        note = note, epochDay = date.toEpochDay(),
+                        note = note, epochDay = date.toEpochDay(), tags = Tags.join(Tags.parse(tagsText)),
                     )
                 )
                 if (type == TxType.EXPENSE && editing == null) checkOverBudget(context, repo, prefs)
@@ -239,7 +244,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                     Text("This was recorded from a bill, installment, gam'eya or loan.", style = MaterialTheme.typography.bodySmall)
                 }
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    val types = listOf(TxType.EXPENSE to "Expense", TxType.INCOME to "Income", TxType.TRANSFER to "Transfer")
+                    val types = if (type == TxType.TRANSFER) listOf(TxType.TRANSFER to "Transfer") else listOf(TxType.EXPENSE to "Expense", TxType.INCOME to "Income")
                     types.forEachIndexed { i, (t, label) ->
                         SegmentedButton(
                             selected = type == t,
@@ -315,11 +320,22 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                         Text("This also goes to Owe → Loans as money you owe.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                Label(if (type == TxType.TRANSFER) "From" else "Wallet")
-                WalletRow(wallets.map { it.id to it.name }, walletId) { walletId = it }
-                if (type == TxType.TRANSFER) {
-                    Label("To")
-                    WalletRow(wallets.map { it.id to it.name }, toWalletId) { toWalletId = it }
+                Label("Tags (optional)")
+                OutlinedTextField(
+                    value = tagsText, onValueChange = { tagsText = it },
+                    placeholder = { Text("wedding, trip") }, singleLine = true, shape = FieldShape, modifier = Modifier.fillMaxWidth(),
+                )
+                if (knownTags.isNotEmpty()) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (g in knownTags) {
+                            val on = g in Tags.parse(tagsText)
+                            FilterChip(
+                                selected = on,
+                                onClick = { val l = Tags.parse(tagsText); tagsText = (if (on) l - g else l + g).joinToString(", ") },
+                                label = { Text("#$g") },
+                            )
+                        }
+                    }
                 }
                 val today = LocalDate.now()
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -437,13 +453,12 @@ suspend fun checkOverBudget(context: Context, repo: Repo, prefs: Prefs) {
     if (!prefs.budgetAlert) return
     val h = repo.home()
     val b = h.budget
-    if (b.leftToday >= 0 || b.budget <= 0) return
+    if (b.flexLeft >= 0 || b.budget <= 0) return
     val key = "overAlert"
     val today = h.today.toString()
     if (repo.dao.settings().firstOrNull { it.key == key }?.value == today) return
     repo.set(key, today)
-    val tomorrow = if (b.daysLeft > 1) b.left / (b.daysLeft - 1) else 0.0
-    Notifier.overBudget(context, -b.leftToday, tomorrow, prefs.baseCurrency, prefs.lang)
+    Notifier.overBudget(context, -b.flexLeft, prefs.baseCurrency, prefs.lang)
 }
 
 fun categoryLabel(categories: List<Category>, id: Long?): String {

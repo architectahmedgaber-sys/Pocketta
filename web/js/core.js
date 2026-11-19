@@ -141,12 +141,47 @@ export function computeBudget(i) {
   const forecast = spent + i.commitments + avg * (daysLeft - 1);
   const spentFraction = budget <= 0 ? 0 : Math.min(Math.max(spent / budget, 0), 1);
   const committedFraction = budget <= 0 ? 0 : Math.min(Math.max(i.commitments / budget, 0), 1 - spentFraction);
+  // Flexible money: what is left after every commitment (paid or not) and the household shopping reserve.
+  // It only goes down when you spend on everyday things, never by a fixed amount per day.
+  const household = i.household || 0;
+  const hs = i.householdSpent || 0;
+  const flexSpent = Math.max(i.everydaySpent - hs + Math.max(hs - household, 0), 0);
+  const flexTotal = budget - (spent - i.everydaySpent) - i.commitments - household;
+  const flexLeft = flexTotal - flexSpent;
+  const flexSpentFraction = flexTotal > 0 ? Math.min(Math.max(flexSpent / flexTotal, 0), 1) : (flexSpent > 0 ? 1 : 0);
+  const elapsedFraction = Math.min(Math.max(dayIndex / Math.max(i.cycle.length, 1), 0), 1);
   return {
+    flexTotal, flexSpent, flexLeft, flexSpentFraction, elapsedFraction, household,
     budget, spent, committed: i.commitments, left: budget - spent - i.commitments, daysLeft,
     dailyAllowance: daily, leftToday: daily - i.spentToday, forecastSpend: forecast, forecastDiff: budget - forecast,
     spentFraction, committedFraction,
   };
 }
+/**
+ * Saving challenge: every 7 days you spend less than the weekly flexible amount. The streak is the number of days in a row
+ * (ending today) for which the 7 days up to that day stayed under it. perDay = {epochDay: flexible spending}.
+ */
+export function streak(perDay, today, weeklyTarget, firstDay) {
+  if (!(weeklyTarget > 0) || firstDay == null || firstDay > today) return null;
+  const trailing = (d) => { let t = 0; for (let k = 0; k < 7; k++) t += perDay[d - k] || 0; return t; };
+  let days = 0;
+  for (let d = today; d >= firstDay; d--) { if (trailing(d) <= weeklyTarget) days++; else break; }
+  let best = 0, run = 0;
+  for (let d = Math.max(firstDay, today - 120); d <= today; d++) { if (trailing(d) <= weeklyTarget) { run++; best = Math.max(best, run); } else run = 0; }
+  const weekSpent = trailing(today);
+  return { days, best, weekSpent, target: weeklyTarget, weekLeft: weeklyTarget - weekSpent };
+}
+
+/** The most useful single line for the Friday summary when there is no AI key: based only on the numbers. */
+export function weeklyTip(spent, previous, topCategory, flexLeft, daysLeft) {
+  if (spent <= 0) return 'No spending recorded this week. Add what you spend so the summary has something to say.';
+  if (flexLeft < 0) return 'You are over the flexible amount for this month: skip anything you can wait on until the next salary.';
+  if (previous > 0 && spent > previous * 1.2 && topCategory) return `Spending is up on last week. ${topCategory} is the place to look first.`;
+  if (previous > 0 && spent < previous * 0.9) return 'Good week: you spent less than the week before. Keep the same pace.';
+  if (topCategory && daysLeft > 0) return `${topCategory} took the biggest share. A small limit on it would keep the rest of the month calm.`;
+  return 'A steady week. Keep logging expenses and the month stays under control.';
+}
+
 export function level(value, limit) {
   if (limit <= 0) return 'ok';
   if (value > limit) return 'over';

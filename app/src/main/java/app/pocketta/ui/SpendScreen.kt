@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalContext
 import app.pocketta.share.SummaryImage
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -66,6 +67,16 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     val prevFlow = remember(cycle.start) { repo.dao.txnsFlow(prevCycle.start.toEpochDay(), prevCycle.nextStart.toEpochDay()) }
     val prevTxns by prevFlow.collectAsState(initial = emptyList())
     val prevPerParent = prevTxns.filter { it.type == TxType.EXPENSE }.groupBy { topOf(it.categoryId) }.mapValues { e -> e.value.sumOf { it.base } }
+    var trend by remember { mutableStateOf<List<Pair<String, Double>>>(emptyList()) }
+    LaunchedEffect(cycle.start, txns) {
+        val cs = ArrayList<app.pocketta.core.Cycle>()
+        var c = cycle
+        cs += c
+        repeat(5) { c = c.previous(prefs.cycleStart); cs += c }
+        trend = cs.reversed().map { x ->
+            x.end.format(shortMonthFmt) to repo.dao.txns(x.start.toEpochDay(), x.nextStart.toEpochDay()).filter { it.type == TxType.EXPENSE && !it.spread }.sumOf { it.base }
+        }
+    }
     val expenses = txns.filter { it.type == TxType.EXPENSE }
     val spent = expenses.sumOf { it.base }
     val income = txns.filter { it.type == TxType.INCOME }.sumOf { it.base }
@@ -129,6 +140,8 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                     DaysCard((cycle.start.toEpochDay() until cycle.nextStart.toEpochDay()).map { d -> sums[d] ?: 0.0 }, Modifier.padding(horizontal = 16.dp))
                     Gap()
                     CompareCard(perParent.take(5).map { Triple(byId[it.key]?.name ?: "No category", it.value, prevPerParent[it.key] ?: 0.0) }, Modifier.padding(horizontal = 16.dp))
+                    Gap()
+                    TrendCard(trend, Modifier.padding(horizontal = 16.dp))
                     Gap()
                 } }
             }
@@ -213,8 +226,8 @@ fun dayTitle(d: LocalDate, today: LocalDate): String = when (d) {
 fun TxnRow(t: Txn, categories: List<app.pocketta.data.Category>, walletNames: Map<Long, String>, onClick: () -> Unit) {
     val title = t.note.ifBlank { categories.firstOrNull { it.id == t.categoryId }?.name ?: if (t.type == TxType.TRANSFER) "Transfer" else "—" }
     val sub = when (t.type) {
-        TxType.TRANSFER -> "${walletNames[t.walletId] ?: ""} → ${walletNames[t.toWalletId] ?: ""}"
-        else -> categoryLabel(categories, t.categoryId) + " · " + (walletNames[t.walletId] ?: "")
+        TxType.TRANSFER -> "Transfer"
+        else -> categoryLabel(categories, t.categoryId) + t.tagList.joinToString("") { " · #$it" }
     }
     ListRow(title, sub, icon = categories.firstOrNull { it.id == t.categoryId }?.name ?: title, onClick = onClick) {
         val sign = when (t.type) { TxType.INCOME -> "+"; TxType.EXPENSE -> "−"; else -> "" }

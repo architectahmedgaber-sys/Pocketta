@@ -2,8 +2,11 @@ package app.pocketta.ai
 
 import app.pocketta.core.CycleMath
 import app.pocketta.data.CircleEntity
+import app.pocketta.data.HomeState
 import app.pocketta.data.Repo
+import app.pocketta.data.WeekData
 import app.pocketta.data.Source
+import app.pocketta.data.Tags
 import app.pocketta.data.Txn
 import app.pocketta.data.TxType
 import org.json.JSONArray
@@ -13,9 +16,10 @@ import java.time.LocalDate
 private fun p(name: String, type: String, desc: String, required: Boolean = false, choices: List<String> = emptyList()) = AiParam(name, type, desc, required, choices)
 
 val aiTools: List<AiTool> = listOf(
-    AiTool("get_summary", "This month's money picture: income, spent, what is left to spend today, budget, upcoming payments.", emptyList(), false),
+    AiTool("get_summary", "This month's money picture: income, spent, what is left for flexible spending this month, budget, upcoming payments.", emptyList(), false),
     AiTool("spent_by_category", "Total spent per category in one month.", listOf(p("months_ago", "integer", "0 = this month, 1 = last month")), false),
     AiTool("list_recent", "The latest transactions with their ids.", listOf(p("limit", "integer", "How many, default 10")), false),
+    AiTool("tag_totals", "Everything saved under tags (projects such as a wedding or a trip): total spent per tag and how it splits by category.", emptyList(), false),
     AiTool("list_commitments", "Bills, installments, gam'eyas (savings circles) and open loans with amounts, progress and due dates.", emptyList(), false),
     AiTool("remember", "Save a short fact about the user or their habits so it is remembered next time (for example 'koshary = Food category').", listOf(p("note", "string", "The fact, one short sentence", true)), false),
     AiTool(
@@ -23,12 +27,13 @@ val aiTools: List<AiTool> = listOf(
         listOf(
             p("amount", "number", "Amount in the base currency", true), p("note", "string", "What it was, for example koshary", true),
             p("category", "string", "Category name from the list, if clear"), p("days_ago", "integer", "0 = today, 1 = yesterday"),
+            p("tags", "string", "Comma separated tags (projects) like a wedding, only if the user named one"),
         ),
         true,
     ),
     AiTool(
         "add_income", "Record money the user received (salary, side work, gift, gam'eya payout).",
-        listOf(p("amount", "number", "Amount", true), p("note", "string", "What it was", true), p("category", "string", "Income category name"), p("days_ago", "integer", "0 = today")),
+        listOf(p("amount", "number", "Amount", true), p("note", "string", "What it was", true), p("category", "string", "Income category name"), p("days_ago", "integer", "0 = today"), p("tags", "string", "Comma separated tags (projects), only if the user named one")),
         true,
     ),
     AiTool(
@@ -53,7 +58,7 @@ val aiTools: List<AiTool> = listOf(
     ),
     AiTool(
         "update_transaction", "Change an existing transaction (get the id from list_recent).",
-        listOf(p("id", "integer", "Transaction id", true), p("amount", "number", "New amount"), p("note", "string", "New note"), p("category", "string", "New category name")),
+        listOf(p("id", "integer", "Transaction id", true), p("amount", "number", "New amount"), p("note", "string", "New note"), p("category", "string", "New category name"), p("tags", "string", "Replace the tags with these comma separated tags (empty text removes them)")),
         true,
     ),
     AiTool("delete_transaction", "Delete a transaction (get the id from list_recent).", listOf(p("id", "integer", "Transaction id", true)), true),
@@ -119,6 +124,7 @@ How Pocketta works:
 Rules:
 - To record or change anything, call the matching tool. The app shows the user a confirmation first, so call the tool directly instead of asking in words, but only when you have the amount and what it was. If something is missing or unclear, ask one short question.
 - Never invent amounts, ids or names. Use list_recent or list_commitments to find them.
+- Tags (وسوم) mark projects such as a wedding or a trip; set them only when the user names one. For totals per tag call tag_totals.
 - For questions about their money, call get_summary, spent_by_category or list_commitments, then answer from the numbers.
 - When the user corrects you or tells you a habit, call remember with one short sentence.
 ${if (notes.isEmpty()) "" else "\nWhat you already know about this user:\n" + notes.joinToString("\n") { "- $it" }}
@@ -134,7 +140,7 @@ ${if (notes.isEmpty()) "" else "\nWhat you already know about this user:\n" + no
 
     /** One plain sentence about what a write tool is going to do. */
     private fun describe(name: String, a: JSONObject): String = when (name) {
-        "add_expense" -> "Record an expense: ${money(d(a, "amount") ?: 0.0)} · ${s(a, "note")}" + s(a, "category").let { if (it.isEmpty()) "" else " · $it" } +
+        "add_expense" -> "Record an expense: ${money(d(a, "amount") ?: 0.0)} · ${s(a, "note")}" + s(a, "category").let { if (it.isEmpty()) "" else " · $it" } + s(a, "tags").let { if (it.isEmpty()) "" else " · #$it" } +
             (n(a, "days_ago") ?: 0).let { if (it > 0) " · $it days ago" else "" }
         "add_income" -> "Record income: ${money(d(a, "amount") ?: 0.0)} · ${s(a, "note")}" + s(a, "category").let { if (it.isEmpty()) "" else " · $it" }
         "add_loan" -> if (s(a, "direction") == "lent") "Record a loan you gave: ${money(d(a, "amount") ?: 0.0)} to ${s(a, "person")} (they owe you)"
@@ -163,7 +169,7 @@ ${if (notes.isEmpty()) "" else "\nWhat you already know about this user:\n" + no
                 val h = repo.home()
                 val up = h.upcoming.take(6).joinToString("; ") { "${it.title} ${money(it.amount)} on ${it.due}" }
                 return "Income this month ${money(h.income)}; spent ${money(h.budget.spent)}; budget ${money(h.budget.budget)}; committed (still to pay) ${money(h.budget.committed)}; " +
-                    "left to spend today ${money(h.budget.leftToday)}; days left ${h.budget.daysLeft}; upcoming: ${up.ifEmpty { "none" }}"
+                    "left for flexible spending ${money(h.budget.flexLeft)} of ${money(h.budget.flexTotal)}; days left ${h.budget.daysLeft}; upcoming: ${up.ifEmpty { "none" }}"
             }
             "spent_by_category" -> {
                 val ym = LocalDate.now().minusMonths((n(a, "months_ago") ?: 0).toLong().coerceAtLeast(0))
@@ -181,8 +187,14 @@ ${if (notes.isEmpty()) "" else "\nWhat you already know about this user:\n" + no
                 val rows = dao.txns(today - 45, today + 1).sortedWith(compareByDescending<Txn> { it.epochDay }.thenByDescending { it.id }).take(lim)
                 return JSONArray().apply {
                     rows.forEach { t ->
-                        put(JSONObject().put("id", t.id).put("date", LocalDate.ofEpochDay(t.epochDay).toString()).put("type", t.type).put("amount", t.base).put("note", t.note).put("category", t.categoryId?.let { cats[it]?.name } ?: ""))
+                        put(JSONObject().put("id", t.id).put("date", LocalDate.ofEpochDay(t.epochDay).toString()).put("type", t.type).put("amount", t.base).put("note", t.note).put("category", t.categoryId?.let { cats[it]?.name } ?: "").put("tags", JSONArray(t.tagList)))
                     }
+                }.toString()
+            }
+            "tag_totals" -> {
+                val rows = repo.tagStats()
+                return if (rows.isEmpty()) "No tags yet" else JSONArray().apply {
+                    rows.forEach { r -> put(JSONObject().put("tag", r.name).put("spent", Math.round(r.spent)).put("earned", Math.round(r.earned)).put("count", r.count).put("by_category", JSONObject().also { o -> r.cats.forEach { (k, v) -> o.put(k, Math.round(v)) } })) }
                 }.toString()
             }
             "list_commitments" -> {
@@ -203,14 +215,14 @@ ${if (notes.isEmpty()) "" else "\nWhat you already know about this user:\n" + no
                 val note = s(a, "note")
                 val p = repo.prefs()
                 val cat = categoryId(s(a, "category"), TxType.EXPENSE) ?: repo.guessCategory(note, TxType.EXPENSE) ?: p.lastCategory.takeIf { it != 0L }
-                val id = repo.saveTxn(Txn(type = TxType.EXPENSE, amount = amount, currency = p.baseCurrency, rate = 1.0, walletId = repo.newRecordWallet(), categoryId = cat, note = note, epochDay = day(a).toEpochDay()))
+                val id = repo.saveTxn(Txn(type = TxType.EXPENSE, amount = amount, currency = p.baseCurrency, rate = 1.0, walletId = repo.newRecordWallet(), categoryId = cat, note = note, epochDay = day(a).toEpochDay(), tags = Tags.join(Tags.parse(s(a, "tags")))))
                 return "Saved expense #$id"
             }
             "add_income" -> {
                 val amount = d(a, "amount")?.takeIf { it > 0 } ?: return "Missing amount"
                 val p = repo.prefs()
                 val cat = categoryId(s(a, "category"), TxType.INCOME) ?: repo.categoryNamed("Other income", TxType.INCOME)
-                val id = repo.saveTxn(Txn(type = TxType.INCOME, amount = amount, currency = p.baseCurrency, rate = 1.0, walletId = repo.newRecordWallet(), categoryId = cat, note = s(a, "note"), epochDay = day(a).toEpochDay()))
+                val id = repo.saveTxn(Txn(type = TxType.INCOME, amount = amount, currency = p.baseCurrency, rate = 1.0, walletId = repo.newRecordWallet(), categoryId = cat, note = s(a, "note"), epochDay = day(a).toEpochDay(), tags = Tags.join(Tags.parse(s(a, "tags")))))
                 return "Saved income #$id"
             }
             "add_loan" -> {
@@ -250,6 +262,7 @@ ${if (notes.isEmpty()) "" else "\nWhat you already know about this user:\n" + no
                 d(a, "amount")?.takeIf { it > 0 }?.let { u = u.copy(amount = it) }
                 if (s(a, "note").isNotEmpty()) u = u.copy(note = s(a, "note"))
                 categoryId(s(a, "category"), t.type)?.let { u = u.copy(categoryId = it) }
+                if (a.has("tags")) u = u.copy(tags = Tags.join(Tags.parse(s(a, "tags"))))
                 repo.saveTxn(u); return "Updated"
             }
             "delete_transaction" -> {
@@ -258,5 +271,37 @@ ${if (notes.isEmpty()) "" else "\nWhat you already know about this user:\n" + no
             }
         }
         return "Unknown tool"
+    }
+}
+
+/** The Friday summary written by the user's own AI key: three short lines. Returns null without a key or when the company refuses. */
+object AiWeekly {
+    suspend fun summary(cfg: AiConfig, currency: String, spent: Double, previous: Double, top: String?, topAmount: Double, flexLeft: Double, flexTotal: Double, arabic: Boolean): String? {
+        if (cfg.key().isBlank()) return null
+        val system = "You are Miqrish (مِقرِش), a friendly money advisor inside the Pocketta app. Write the Friday summary in " +
+            (if (arabic) "short, simple Egyptian Arabic" else "plain English") +
+            ". Exactly three short lines: 1) how much was spent in the last 7 days (compare with the 7 days before if given), 2) the biggest category, 3) one practical tip. No greeting, no markdown, no lists."
+        val text = "Currency $currency. Last 7 days: spent ${Math.round(spent)}" + (if (previous > 0) ", the 7 days before: ${Math.round(previous)}" else "") +
+            ". Biggest category: ${top ?: "none"}" + (if (topAmount > 0) " (${Math.round(topAmount)})" else "") +
+            ". Flexible money left this month: ${Math.round(flexLeft)} of ${Math.round(flexTotal)}."
+        return runCatching { AiClient.chat(cfg, system, listOf(AiMsg.User(text)), aiTools).text.trim() }.getOrNull()?.takeIf { it.isNotEmpty() }
+    }
+}
+
+/** Keeps the AI-written Friday summary: made once per week from the user's own key, saved in settings, shared by the card and the morning message. */
+object AiWeeklyStore {
+    fun weekKey(today: LocalDate): Long = today.toEpochDay() - ((today.dayOfWeek.value - 5 + 7) % 7)
+
+    /** The saved text for this week, or a fresh one when there is a key. Null when there is neither. */
+    suspend fun ensure(context: android.content.Context, repo: Repo, s: HomeState, w: WeekData, generate: Boolean = true): String? {
+        val p = s.prefs
+        val key = weekKey(s.today)
+        if (p.weeklyAiWeek == key && p.weeklyAiText.isNotBlank()) return p.weeklyAiText
+        if (!generate || !p.weeklyAiOn || w.spent <= 0) return null
+        val b = s.budget
+        val text = AiWeekly.summary(AiConfig(context), p.baseCurrency, w.spent, w.previous, w.topCategory, w.topAmount, b.flexLeft, b.flexTotal, p.lang == "AR") ?: return null
+        repo.set("weeklyAiWeek", key)
+        repo.set("weeklyAiText", text)
+        return text
     }
 }

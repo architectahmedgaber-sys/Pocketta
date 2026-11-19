@@ -26,20 +26,21 @@ export const cfg = {
 
 const P = (name, type, desc, required = false, choices) => ({ name, type, desc, required, choices });
 export const TOOLS = [
-  { name: 'get_summary', desc: "This month's money picture: income, spent, what is left to spend today, budget, upcoming payments.", params: [], write: false },
+  { name: 'get_summary', desc: "This month's money picture: income, spent, what is left for flexible spending this month, budget, upcoming payments.", params: [], write: false },
   { name: 'spent_by_category', desc: 'Total spent per category in one month.', params: [P('months_ago', 'integer', '0 = this month, 1 = last month')], write: false },
   { name: 'list_recent', desc: 'The latest transactions with their ids.', params: [P('limit', 'integer', 'How many, default 10')], write: false },
+  { name: 'tag_totals', desc: 'Everything saved under tags (projects such as a wedding or a trip): total spent per tag and how it splits by category.', params: [], write: false },
   { name: 'list_commitments', desc: "Bills, installments, gam'eyas (savings circles) and open loans with amounts, progress and due dates.", params: [], write: false },
   { name: 'remember', desc: "Save a short fact about the user or their habits so it is remembered next time (for example 'koshary = Food category').", params: [P('note', 'string', 'The fact, one short sentence', true)], write: false },
-  { name: 'add_expense', desc: 'Record money the user spent.', write: true, params: [P('amount', 'number', 'Amount in the base currency', true), P('note', 'string', 'What it was, for example koshary', true), P('category', 'string', 'Category name from the list, if clear'), P('days_ago', 'integer', '0 = today, 1 = yesterday')] },
-  { name: 'add_income', desc: 'Record money the user received (salary, side work, gift, gam\'eya payout).', write: true, params: [P('amount', 'number', 'Amount', true), P('note', 'string', 'What it was', true), P('category', 'string', 'Income category name'), P('days_ago', 'integer', '0 = today')] },
+  { name: 'add_expense', desc: 'Record money the user spent.', write: true, params: [P('amount', 'number', 'Amount in the base currency', true), P('note', 'string', 'What it was, for example koshary', true), P('category', 'string', 'Category name from the list, if clear'), P('days_ago', 'integer', '0 = today, 1 = yesterday'), P('tags', 'string', 'Comma separated tags (projects) like "فرح أخويا", only if the user named one')] },
+  { name: 'add_income', desc: 'Record money the user received (salary, side work, gift, gam\'eya payout).', write: true, params: [P('amount', 'number', 'Amount', true), P('note', 'string', 'What it was', true), P('category', 'string', 'Income category name'), P('days_ago', 'integer', '0 = today'), P('tags', 'string', 'Comma separated tags (projects), only if the user named one')] },
   { name: 'add_loan', desc: "Record a loan. direction 'borrowed' = the user took money from someone (the user owes). direction 'lent' = the user gave money to someone (they owe the user).", write: true, params: [P('person', 'string', 'The other person', true), P('direction', 'string', 'borrowed or lent', true, ['borrowed', 'lent']), P('amount', 'number', 'Amount', true), P('due_date', 'string', 'Pay back by, YYYY-MM-DD, if said')] },
   { name: 'pay_installment', desc: 'Mark the next installment of a plan as paid.', write: true, params: [P('name', 'string', 'Installment name', true)] },
   { name: 'pay_bill', desc: 'Mark a bill or subscription as paid now.', write: true, params: [P('name', 'string', 'Bill name', true)] },
   { name: 'pay_circle_share', desc: "Mark this month's share of a gam'eya as paid.", write: true, params: [P('name', 'string', "Gam'eya name", true)] },
   { name: 'receive_circle_payout', desc: "Mark that the user collected the gam'eya payout.", write: true, params: [P('name', 'string', "Gam'eya name", true)] },
   { name: 'add_circle', desc: "Start a new gam'eya (savings circle).", write: true, params: [P('name', 'string', 'Name', true), P('share', 'number', 'Monthly share', true), P('months', 'integer', 'Number of months', true), P('my_turn', 'integer', 'Which month the user collects, 1 = first', true), P('first_due', 'string', 'Date of the first share, YYYY-MM-DD', true)] },
-  { name: 'update_transaction', desc: 'Change an existing transaction (get the id from list_recent).', write: true, params: [P('id', 'integer', 'Transaction id', true), P('amount', 'number', 'New amount'), P('note', 'string', 'New note'), P('category', 'string', 'New category name')] },
+  { name: 'update_transaction', desc: 'Change an existing transaction (get the id from list_recent).', write: true, params: [P('id', 'integer', 'Transaction id', true), P('amount', 'number', 'New amount'), P('note', 'string', 'New note'), P('category', 'string', 'New category name'), P('tags', 'string', 'Replace the tags with these comma separated tags (empty text removes them)')] },
   { name: 'delete_transaction', desc: 'Delete a transaction (get the id from list_recent).', write: true, params: [P('id', 'integer', 'Transaction id', true)] },
 ];
 const schema = (t) => {
@@ -191,7 +192,7 @@ const str = (a, k) => (a[k] == null ? '' : String(a[k]).trim());
 function describe(name, a) {
   const amt = money(toNum(a.amount) ?? 0);
   switch (name) {
-    case 'add_expense': return `Record an expense: ${amt} · ${str(a, 'note')}${str(a, 'category') ? ` · ${str(a, 'category')}` : ''}${toNum(a.days_ago) > 0 ? ` · ${toNum(a.days_ago)} days ago` : ''}`;
+    case 'add_expense': return `Record an expense: ${amt} · ${str(a, 'note')}${str(a, 'category') ? ` · ${str(a, 'category')}` : ''}${str(a, 'tags') ? ` · #${str(a, 'tags')}` : ''}${toNum(a.days_ago) > 0 ? ` · ${toNum(a.days_ago)} days ago` : ''}`;
     case 'add_income': return `Record income: ${amt} · ${str(a, 'note')}${str(a, 'category') ? ` · ${str(a, 'category')}` : ''}`;
     case 'add_loan': return str(a, 'direction') === 'lent'
       ? `Record a loan you gave: ${amt} to ${str(a, 'person')} (they owe you)`
@@ -213,6 +214,7 @@ function categoryId(name, kind) {
   return (all.find((c) => c.name.toLowerCase() === n) || all.find((c) => c.name.toLowerCase().includes(n) || n.includes(c.name.toLowerCase())))?.id ?? null;
 }
 const byName = (list, name) => { const n = name.toLowerCase(); return list.find((x) => x.name.toLowerCase().includes(n) || n.includes(x.name.toLowerCase())); };
+const tagsOf = (a) => R.normTags(str(a, 'tags').split(/[,،]/));
 const dayOf = (a) => C.todayEpoch() - Math.max(0, Math.trunc(toNum(a.days_ago) || 0));
 
 function run(name, a) {
@@ -221,7 +223,7 @@ function run(name, a) {
     case 'get_summary': {
       const h = R.home(), b = h.budget;
       const up = h.upcoming.slice(0, 6).map((u) => `${u.title} ${money(u.amount)} on ${C.isoOf(u.due)}`).join('; ') || 'none';
-      return `Income this month ${money(h.income)}; spent ${money(b.spent)}; budget ${money(b.budget)}; committed (still to pay) ${money(b.committed)}; left to spend today ${money(b.leftToday)}; days left ${b.daysLeft}; upcoming: ${up}`;
+      return `Income this month ${money(h.income)}; spent ${money(b.spent)}; budget ${money(b.budget)}; committed (still to pay) ${money(b.committed)}; left for flexible spending ${money(b.flexLeft)} of ${money(b.flexTotal)}; days left ${b.daysLeft}; upcoming: ${up}`;
     }
     case 'spent_by_category': {
       const t = new Date(); t.setMonth(t.getMonth() - Math.max(0, Math.trunc(toNum(a.months_ago) || 0)), 1);
@@ -237,7 +239,11 @@ function run(name, a) {
     case 'list_recent': {
       const lim = Math.min(Math.max(Math.trunc(toNum(a.limit) || 10), 1), 30), today = C.todayEpoch();
       return JSON.stringify(d.txns.filter((x) => x.epochDay >= today - 45).sort((p, q) => q.epochDay - p.epochDay || q.createdAt - p.createdAt).slice(0, lim)
-        .map((x) => ({ id: x.id, date: C.isoOf(x.epochDay), type: x.type, amount: R.base(x), note: x.note, category: R.byId(d.categories, x.categoryId)?.name || '' })));
+        .map((x) => ({ id: x.id, date: C.isoOf(x.epochDay), type: x.type, amount: R.base(x), note: x.note, category: R.byId(d.categories, x.categoryId)?.name || '', tags: x.tags || [] })));
+    }
+    case 'tag_totals': {
+      const rows = R.tagTotals();
+      return rows.length ? JSON.stringify(rows.map((r) => ({ tag: r.name, spent: Math.round(r.spent), earned: Math.round(r.earned), count: r.count, by_category: r.cats }))) : 'No tags yet';
     }
     case 'list_commitments': return JSON.stringify({
       bills: d.bills.map((b) => ({ name: b.name, amount: b.amount, next_due: C.isoOf(b.nextDue) })),
@@ -250,12 +256,12 @@ function run(name, a) {
       const amount = toNum(a.amount); if (!(amount > 0)) return 'Missing amount';
       const note = str(a, 'note');
       const cat = categoryId(str(a, 'category'), 'EXPENSE') ?? R.guessCategory(note, 'EXPENSE') ?? (R.S().lastCategory || null);
-      R.saveTxn({ type: 'EXPENSE', amount, walletId: R.wallets().find((w) => w.id === R.S().lastWallet)?.id ?? R.wallets()[0]?.id ?? 0, categoryId: cat, note, epochDay: dayOf(a) });
+      R.saveTxn({ type: 'EXPENSE', amount, categoryId: cat, note, epochDay: dayOf(a), tags: tagsOf(a) });
       return 'Saved expense';
     }
     case 'add_income': {
       const amount = toNum(a.amount); if (!(amount > 0)) return 'Missing amount';
-      R.saveTxn({ type: 'INCOME', amount, walletId: R.wallets().find((w) => w.id === R.S().lastWallet)?.id ?? R.wallets()[0]?.id ?? 0, categoryId: categoryId(str(a, 'category'), 'INCOME') ?? R.categoryNamed('Other income', 'INCOME'), note: str(a, 'note'), epochDay: dayOf(a) });
+      R.saveTxn({ type: 'INCOME', amount, tags: tagsOf(a), categoryId: categoryId(str(a, 'category'), 'INCOME') ?? R.categoryNamed('Other income', 'INCOME'), note: str(a, 'note'), epochDay: dayOf(a) });
       return 'Saved income';
     }
     case 'add_loan': {
@@ -281,6 +287,7 @@ function run(name, a) {
       if (toNum(a.amount) > 0) u.amount = toNum(a.amount);
       if (str(a, 'note')) u.note = str(a, 'note');
       const c = categoryId(str(a, 'category'), t.type); if (c) u.categoryId = c;
+      if (a.tags != null) u.tags = tagsOf(a);
       R.saveTxn(u); return 'Updated';
     }
     case 'delete_transaction': { const t = R.byId(d.txns, toNum(a.id)); if (!t) return 'No transaction with that id'; R.deleteTxn(t); return 'Deleted'; }
@@ -306,6 +313,7 @@ How Pocketta works:
 Rules:
 - To record or change anything, call the matching tool. The app shows the user a confirmation first, so call the tool directly instead of asking in words, but only when you have the amount and what it was. If something is missing or unclear, ask one short question.
 - Never invent amounts, ids or names. Use list_recent or list_commitments to find them.
+- Tags (وسوم) mark projects such as a wedding or a trip; set them only when the user names one. For totals per tag call tag_totals.
 - For questions about their money, call get_summary, spent_by_category or list_commitments, then answer from the numbers.
 - When the user corrects you or tells you a habit, call remember with one short sentence.${notes.length ? `\n\nWhat you already know about this user:\n${notes.map((n) => `- ${n}`).join('\n')}` : ''}`;
 }
@@ -340,4 +348,16 @@ export function createSession({ confirm, show }) {
       }
     },
   };
+}
+
+// ---------- Friday summary ----------
+
+export const hasKey = () => !!cfg.key();
+
+/** One short Friday summary in the user's language: how much was spent, the biggest category and one tip. Needs the user's own key. */
+export async function weeklySummary(stats, arabic) {
+  const system = `You are Miqrish (مِقرِش), a friendly money advisor inside the Pocketta app. Write the Friday summary in ${arabic ? 'short, simple Egyptian Arabic' : 'plain English'}. Exactly three short lines: 1) how much was spent in the last 7 days (compare with the 7 days before if given), 2) the biggest category, 3) one practical tip. No greeting, no markdown, no lists.`;
+  const text = `Currency ${stats.currency}. Last 7 days: spent ${Math.round(stats.spent)}${stats.previous > 0 ? `, the 7 days before: ${Math.round(stats.previous)}` : ''}. Biggest category: ${stats.topCategory || 'none'}${stats.topAmount ? ` (${Math.round(stats.topAmount)})` : ''}. Flexible money left this month: ${Math.round(stats.flexLeft)} of ${Math.round(stats.flexTotal)}.`;
+  const reply = await chat(system, [{ role: 'user', text }]);
+  return reply.text.trim();
 }

@@ -337,4 +337,18 @@ class CoreTest {
         assertNull(MonthValues.stepAt(v, 24000))
         assertEquals(java.time.YearMonth.of(2027, 1), Ym.toMonth(Ym.of(java.time.YearMonth.of(2027, 1))))
     }
+
+    @Test fun streakCountsDaysUnderWeeklyTarget() {
+        val spend = mapOf(100L to 50.0, 103L to 400.0)
+        val r = Streak.compute(spend, today = 105L, weeklyTarget = 300.0, firstDay = 100L)!!
+        assertEquals(0, r.days) // 400 on day 103 is inside the last 7 days and over 300
+        val ok = Streak.compute(mapOf(100L to 50.0), today = 105L, weeklyTarget = 300.0, firstDay = 100L)!!
+        assertEquals(6, ok.days)
+        assertNull(Streak.compute(emptyMap(), 105L, 0.0, 100L))
+    }
+
+    @Test fun weeklyTipOverBudget() {
+        assertTrue(Streak.weeklyTip(100.0, 0.0, "Food", -5.0, 3).contains("over"))
+        assertTrue(Streak.weeklyTip(0.0, 0.0, null, 10.0, 3).contains("No spending"))
+    }
 }

@@ -51,6 +51,8 @@ fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Uni
             is Route.Add -> AddScreen(repo, nav, prefs, current)
             Route.Income -> IncomeScreen(repo, nav, prefs)
             Route.Wallets -> WalletsScreen(repo, nav, prefs)
+            Route.Tags -> TagsScreen(repo, nav, prefs)
+            is Route.TagDetail -> TagDetailScreen(repo, nav, prefs, current.name)
             Route.Categories -> CategoriesScreen(repo, nav)
             Route.Currencies -> CurrenciesScreen(repo, nav, prefs)
             Route.Settings -> SettingsScreen(repo, nav, prefs, authenticate)
