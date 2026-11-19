@@ -133,6 +133,7 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
                     authenticate(if (v) "Turn on the lock" else "Turn off the lock") { scope.launch { repo.set("lock", v) } }
                 }
             }
+            SyncCard(repo)
             SectionCard {
                 Label("Backup")
                 Text(

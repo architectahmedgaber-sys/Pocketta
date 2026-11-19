@@ -56,8 +56,10 @@ class MainActivity : FragmentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        app.pocketta.data.CloudSync.init(applicationContext)
         handleIntent(intent)
         val repo = Repo.get(this)
+        app.pocketta.data.CloudSync.start(repo, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default))
         setContent {
             val prefsFlow = remember { repo.prefsFlow() }
             val prefs by prefsFlow.collectAsState(initial = null as Prefs?)
@@ -89,6 +91,7 @@ class MainActivity : FragmentActivity() {
                         else -> {
                             BackHandler(enabled = nav.canGoBack) { nav.back() }
                             AppRoot(repo, nav, p, authenticate = { title, ok -> authenticate(title, ok) })
+                            app.pocketta.ui.SyncDialog()
                         }
                     }
                 }
@@ -107,6 +110,8 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         // Ask for the fingerprint every time the app comes back while locked.
         if (lockOn && !unlocked) window.decorView.post { if (!unlocked) unlock() }
+        // Sync when the app comes to the front (does nothing while signed out).
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { runCatching { app.pocketta.data.CloudSync.syncNow(Repo.get(applicationContext)) } }
         // Look for a new version every time the app comes to the front (at most every 10 minutes), not only when the process starts.
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             val r = app.pocketta.data.Repo.get(applicationContext)
@@ -136,6 +141,13 @@ class MainActivity : FragmentActivity() {
                 )
             )
             ACTION_ADD_INCOME -> nav.open(Route.Add(type = TxType.INCOME))
+            Intent.ACTION_VIEW -> intent?.data?.let { uri ->
+                // Google sent the person back after "Sign in with Google": keep the session, show Settings, start syncing.
+                if (app.pocketta.data.CloudSync.handleRedirect(uri)) {
+                    nav.tab(Route.Home); nav.open(Route.Settings)
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { runCatching { app.pocketta.data.CloudSync.syncNow(Repo.get(applicationContext)) } }
+                }
+            }
             ACTION_BILLS -> nav.tab(Route.Commit)
             ACTION_SETTINGS, ACTION_UPDATE -> { nav.tab(Route.Home); nav.open(Route.Settings) }
         }

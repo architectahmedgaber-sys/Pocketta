@@ -2,4 +2,5 @@
 <!-- The assistant's key must never leave the phone, not even in a Google backup. -->
 <full-backup-content>
     <exclude domain="sharedpref" path="pocketta_ai.xml" />
+    <exclude domain="sharedpref" path="pocketta_sync.xml" />
 </full-backup-content>
