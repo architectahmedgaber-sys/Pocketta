@@ -423,3 +423,5 @@ main:has(+ .tabs) .chatpage { padding-bottom: 170px; }
 .pick { display: flex; gap: 10px; align-items: flex-start; border: 2px solid var(--outline-v); border-radius: 16px; padding: 12px; }
 .pick.sel, .pick:has(input:checked) { border-color: var(--primary); }
 .pick input { margin-top: 4px; }
+.recovery { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 17px; font-weight: 700; letter-spacing: 1px; text-align: center; direction: ltr; padding: 12px; border: 2px dashed var(--primary); border-radius: 14px; user-select: all; }
+.err { color: var(--error, #b3261e); font-size: 14px; }

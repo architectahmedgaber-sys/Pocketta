@@ -92,6 +92,8 @@ class MainActivity : FragmentActivity() {
                             BackHandler(enabled = nav.canGoBack) { nav.back() }
                             AppRoot(repo, nav, p, authenticate = { title, ok -> authenticate(title, ok) })
                             app.pocketta.ui.SyncDialog()
+            app.pocketta.ui.SyncSetupDialog()
+            app.pocketta.ui.SyncUnlockDialog()
                         }
                     }
                 }
