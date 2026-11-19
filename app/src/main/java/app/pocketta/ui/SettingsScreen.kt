@@ -58,6 +58,12 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
             Toast.makeText(context, Tr.t(if (ok) "Backup saved" else "Couldn't save the backup", prefs.lang), Toast.LENGTH_SHORT).show()
         }
     }
+    val webLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) scope.launch {
+            val ok = runCatching { repo.exportJsonTo(uri) }.isSuccess
+            Toast.makeText(context, Tr.t(if (ok) "Backup saved" else "Couldn't save the backup", prefs.lang), Toast.LENGTH_SHORT).show()
+        }
+    }
     val autoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) scope.launch {
             runCatching {
@@ -166,6 +172,8 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
                     TextButton(onClick = { exportLauncher.launch("pocketta-backup-${LocalDate.now()}.db") }) { Text("Save a copy") }
                     TextButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) { Text("Restore a backup") }
                 }
+                Text("To move data to or from the web app, use the web file (.json). Restore accepts both kinds of file.", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { webLauncher.launch("pocketta-web-backup-${LocalDate.now()}.json") }) { Text("Save a copy for the web app") }
             }
             SectionCard {
                 Label("Updates")

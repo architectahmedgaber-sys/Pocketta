@@ -296,6 +296,7 @@ export const DICT = {
 "Remind me when there's no recent backup": "فكّرني لما مفيش نسخة حديثة",
 "Save a copy": "احفظ نسخة",
 "Restore a backup": "استرجع نسخة",
+"That is the phone's own backup (.db). On the phone use Settings > Save a copy for the web app, then restore that .json file here.": "دي نسخة التليفون نفسه (.db). على التليفون افتح الإعدادات > احفظ نسخة لتطبيق الويب، وبعدين استرجع ملف الـ json هنا.",
 "Restore this backup?": "تسترجع النسخة دي؟",
 "Restore": "استرجاع",
 "Everything in the app now will be replaced by the backup. The app will restart.": "كل اللي في التطبيق دلوقتي هيتبدّل بالنسخة. التطبيق هيعيد التشغيل.",

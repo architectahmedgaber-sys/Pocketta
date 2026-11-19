@@ -415,6 +415,8 @@ object ArabicWords {
         "Remind me when there's no recent backup" to "فكّرني لما مفيش نسخة حديثة",
         "Save a copy" to "احفظ نسخة",
         "Restore a backup" to "استرجع نسخة",
+        "Save a copy for the web app" to "احفظ نسخة لتطبيق الويب",
+        "To move data to or from the web app, use the web file (.json). Restore accepts both kinds of file." to "عشان تنقل بياناتك من/إلى نسخة الويب استخدم ملف الويب (.json). الاسترجاع بيقبل النوعين.",
         "Restore this backup?" to "تسترجع النسخة دي؟",
         "Restore" to "استرجاع",
         "Everything in the app now will be replaced by the backup. The app will restart." to "كل اللي في التطبيق دلوقتي هيتبدّل بالنسخة. التطبيق هيعيد التشغيل.",

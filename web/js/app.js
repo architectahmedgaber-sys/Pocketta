@@ -7,7 +7,7 @@ import * as AI from './ai.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.13.0';
+const VERSION = '1.13.1';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -1832,7 +1832,7 @@ document.addEventListener('change', (e) => {
   if (e.target.id !== 'restore-file') return;
   const f = e.target.files[0];
   if (!f) return;
-  f.text().then((text) => confirmSheet('Restore this backup?', 'Everything in the app now will be replaced by the backup.', 'Restore', () => {
+  f.text().then((text) => text.startsWith('SQLite format 3') ? toast("That is the phone's own backup (.db). On the phone use Settings > Save a copy for the web app, then restore that .json file here.") : confirmSheet('Restore this backup?', 'Everything in the app now will be replaced by the backup.', 'Restore', () => {
     if (R.importJson(text)) { ui.stack = [{ r: 'home' }]; toast('Backup restored'); render(); } else toast("That file isn't a Pocketta backup");
   }));
   e.target.value = '';

@@ -2,6 +2,7 @@ package app.pocketta.data
 
 import android.content.Context
 import android.net.Uri
+import androidx.room.withTransaction
 import app.pocketta.core.Budget
 import app.pocketta.core.BudgetInput
 import app.pocketta.core.BudgetResult
@@ -700,13 +701,46 @@ class Repo private constructor(private val app: Context) {
         out.use { o -> f.inputStream().use { it.copyTo(o) } }
     }
 
+    /** Saves everything as the portable JSON file that the web app can restore too. */
+    suspend fun exportJsonTo(uri: Uri) = withContext(Dispatchers.IO) {
+        val text = PortableBackup.write(PortableBackup.Data(
+            dao.wallets(), dao.categories(), dao.allTxns(), dao.bills(), dao.installments(), dao.circles(), dao.loans(), dao.settings(),
+        ))
+        val out = app.contentResolver.openOutputStream(uri, "wt") ?: error("Can't write to that file")
+        out.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+    }
+
+    /** Replaces all data with a portable JSON file (from this app or the web app). Returns false when the file isn't one. */
+    private suspend fun importJsonText(text: String): Boolean {
+        val d = PortableBackup.read(text) ?: return false
+        val keep = dao.settings().filter { it.key !in PortableBackup.KEYS }
+        db.withTransaction {
+            val raw = db.openHelper.writableDatabase
+            for (t in listOf("txns", "bills", "installments", "circles", "loans", "categories", "wallets", "settings")) raw.execSQL("DELETE FROM $t")
+            d.wallets.forEach { dao.insertWallet(it) }
+            d.categories.forEach { dao.insertCategory(it) }
+            d.txns.forEach { dao.insertTxn(it) }
+            d.bills.forEach { dao.insertBill(it) }
+            d.installments.forEach { dao.insertInstallment(it) }
+            d.circles.forEach { dao.insertCircle(it) }
+            d.loans.forEach { dao.insertLoan(it) }
+            (keep + d.settings).forEach { dao.put(it) }
+        }
+        return true
+    }
+
     /** Replaces all data with a backup file. The app must restart after this. */
     suspend fun importFrom(uri: Uri): Boolean = withContext(Dispatchers.IO) {
         val tmp = File(app.cacheDir, "restore.db")
         val input = app.contentResolver.openInputStream(uri) ?: return@withContext false
         input.use { i -> tmp.outputStream().use { i.copyTo(it) } }
         val header = tmp.inputStream().use { s -> ByteArray(16).also { s.read(it) } }
-        if (!String(header, Charsets.US_ASCII).startsWith("SQLite format 3")) { tmp.delete(); return@withContext false }
+        if (!String(header, Charsets.US_ASCII).startsWith("SQLite format 3")) {
+            // Not a phone backup: it may be the JSON file from the web app (or "Save for web" on a phone).
+            val ok = runCatching { importJsonText(tmp.readText(Charsets.UTF_8).removePrefix("\uFEFF")) }.getOrDefault(false)
+            tmp.delete()
+            return@withContext ok
+        }
         AppDb.closeForRestore()
         val target = app.getDatabasePath(AppDb.NAME)
         File(target.path + "-wal").delete()
