@@ -458,6 +458,8 @@ object ArabicWords {
         "How much money do I have now?" to "معايا كام دلوقتي؟",
         "Cash, bank and mobile wallet together." to "كاش وبنك ومحفظة مع بعض.",
         "Change my balance" to "عدّل رصيدي",
+        "Salary still coming (not counted above)" to "المرتب لسه جاي (مش محسوب فوق)",
+        "Your money is below zero because Pocketta only counts what you typed. Tap Change my balance and type what you really have." to "فلوسك بالسالب لأن التطبيق بيحسب اللي سجلته بس. اضغط «عدّل رصيدي» واكتب كام معاك فعلاً.",
         "My money" to "فلوسي",
         "Type the real total of your cash, bank and mobile wallet. Pocketta fixes the rest." to "اكتب الرقم الحقيقي اللي معاك (كاش + بنك + محفظة مع بعض). التطبيق هيظبط الباقي.",
         "Your money for the month: what you can spend today, your bills, installments, gam'eya and loans. Everything stays on your phone." to "فلوسك في الشهر: تصرف كام النهارده، فواتيرك وأقساطك وجمعياتك وسلفك. كل حاجة بتفضل على موبايلك.",

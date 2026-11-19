@@ -93,6 +93,8 @@ fun WealthScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                 Big(Money.short(v.total) + " " + cur, size = 32)
                 Gap(8)
                 WLine("Money I have", Money.short(v.cash) + " " + cur)
+                if (v.salaryComing > 0) WLine("Salary still coming (not counted above)", Money.short(v.salaryComing) + " " + cur)
+                if (v.cash < 0) Text("Your money is below zero because Pocketta only counts what you typed. Tap Change my balance and type what you really have.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 androidx.compose.material3.OutlinedButton(onClick = { editBalance = true }) { Text("Change my balance") }
                 WLine("Gold I bought, at today's price", Money.short(v.gold) + " " + cur)
                 val usd = v.dollars

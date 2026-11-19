@@ -108,6 +108,8 @@ data class WealthView(
     /** Gold-equivalent grams (21k) of the total, null when the gold price isn't known. */
     val goldGrams: Double?,
     val history: List<WealthPoint>,
+    /** This month's salary when its day hasn't posted it yet; not part of the total. */
+    val salaryComing: Double = 0.0,
 )
 
 /** A repeated expense (same note and amount) offered as a one-tap button. */
@@ -740,7 +742,10 @@ class Repo private constructor(private val app: Context) {
         val gold = Gold.summary(p.goldBuys, p.gold)?.value ?: 0.0
         val total = cash + gold
         val usdRate = p.rates["USD"] ?: p.onlineRates["USD"]
-        return WealthView(
+        val cycle = CycleMath.cycleFor(LocalDate.now(), p.cycleStart)
+        val posted = dao.countSource(Source.SALARY, cycle.start.toEpochDay(), cycle.nextStart.toEpochDay()) > 0
+        val coming = if (p.salary > 0 && !posted && salaryDateIn(cycle, p.salaryDay) != null) p.salary else 0.0
+        return WealthView(salaryComing = coming,
             cash = cash, gold = gold, total = total,
             dollars = Planning.inDollars(total, usdRate),
             goldGrams = Planning.inGoldGrams(total, p.gold["21"]),
