@@ -56,10 +56,8 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     repeat(offset) { cycle = cycle.previous(prefs.cycleStart) }
     val txFlow = remember(cycle.start) { repo.dao.txnsFlow(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay()) }
     val catFlow = remember { repo.dao.categoriesFlow() }
-    val walletFlow = remember { repo.dao.walletsFlow() }
     val txns by txFlow.collectAsState(initial = emptyList())
     val categories by catFlow.collectAsState(initial = emptyList())
-    val wallets by walletFlow.collectAsState(initial = emptyList())
     val byId = categories.associateBy { it.id }
     fun topOf(id: Long?): Long? = id?.let { byId[it]?.parentId ?: it }
 
@@ -201,7 +199,7 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                         modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 2.dp),
                     )
                 }
-                items(list, key = { it.id }) { t -> TxnRow(t, categories, wallets.associate { it.id to it.name }) { nav.open(Route.Add(txnId = t.id)) } }
+                items(list, key = { it.id }) { t -> TxnRow(t, categories) { nav.open(Route.Add(txnId = t.id)) } }
             }
             item { Gap(88) }
         }
@@ -223,7 +221,7 @@ fun dayTitle(d: LocalDate, today: LocalDate): String = when (d) {
 }
 
 @Composable
-fun TxnRow(t: Txn, categories: List<app.pocketta.data.Category>, walletNames: Map<Long, String>, onClick: () -> Unit) {
+fun TxnRow(t: Txn, categories: List<app.pocketta.data.Category>, onClick: () -> Unit) {
     val title = t.note.ifBlank { categories.firstOrNull { it.id == t.categoryId }?.name ?: if (t.type == TxType.TRANSFER) "Transfer" else "—" }
     val sub = when (t.type) {
         TxType.TRANSFER -> "Transfer"

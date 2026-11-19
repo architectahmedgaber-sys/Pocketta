@@ -18,7 +18,6 @@ sealed interface Route {
         val day: Long = 0L,
     ) : Route
     data object Income : Route
-    data object Wallets : Route
     data object Tags : Route
     data class TagDetail(val name: String) : Route
     data object Categories : Route

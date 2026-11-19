@@ -169,11 +169,7 @@ class Repo private constructor(private val app: Context) {
     // ---------- Seed ----------
 
     suspend fun ensureSeeded() {
-        if (dao.wallets().isNotEmpty()) return
-        val cur = prefs().baseCurrency
-        dao.insertWallet(Wallet(name = "Cash", type = "CASH", currency = cur, sort = 0))
-        dao.insertWallet(Wallet(name = "Bank account", type = "BANK", currency = cur, sort = 1))
-        dao.insertWallet(Wallet(name = if (cur == "EGP") "Vodafone Cash" else "Mobile wallet", type = "MOBILE", currency = cur, sort = 2))
+        if (dao.categories().isNotEmpty()) return
         var sort = 0
         for ((name, subs) in EXPENSE_SEED) {
             val pid = dao.insertCategory(Category(name = name, kind = TxType.EXPENSE, sort = sort++))
@@ -189,7 +185,17 @@ class Repo private constructor(private val app: Context) {
 
     private suspend fun defaultWallet(p: Prefs): Long {
         val ws = dao.wallets().filter { !it.archived }
-        return ws.firstOrNull { it.id == p.lastWallet }?.id ?: ws.firstOrNull()?.id ?: dao.insertWallet(Wallet(name = "Cash"))
+        return ws.firstOrNull { it.id == p.lastWallet }?.id ?: ws.firstOrNull()?.id ?: dao.wallets().firstOrNull()?.id ?: dao.insertWallet(Wallet(name = "Money", currency = p.baseCurrency))
+    }
+
+    /** "How much money do I have now?": moves the opening balance so the one total matches what the person says. */
+    suspend fun setBalance(target: Double) {
+        val p = prefs()
+        val id = defaultWallet(p)
+        val w = dao.wallets().first { it.id == id }
+        val current = walletTotal(p)
+        dao.updateWallet(w.copy(opening = w.opening + (target - current) / p.rateOf(w.currency)))
+        changed()
     }
 
     /** The wallet new money records go to unless told otherwise. */
@@ -717,15 +723,12 @@ class Repo private constructor(private val app: Context) {
 
     /** Money in all wallets, in the base currency. */
     suspend fun walletTotal(p: Prefs): Double {
-        var total = dao.wallets().filter { !it.archived }.sumOf { it.opening * p.rateOf(it.currency) }
-        val active = dao.wallets().filter { !it.archived }.map { it.id }.toSet()
+        // One balance: old wallets (even hidden ones) all add into it.
+        var total = dao.wallets().sumOf { it.opening * p.rateOf(it.currency) }
         for (t in dao.allTxns()) when (t.type) {
-            TxType.EXPENSE -> if (t.walletId in active) total -= t.base
-            TxType.INCOME -> if (t.walletId in active) total += t.base
-            TxType.TRANSFER -> {
-                if (t.walletId in active) total -= t.base
-                if (t.toWalletId in active) total += t.base
-            }
+            TxType.EXPENSE -> total -= t.base
+            TxType.INCOME -> total += t.base
+            TxType.TRANSFER -> {}
         }
         return total
     }

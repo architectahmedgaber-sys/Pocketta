@@ -42,7 +42,6 @@ import app.pocketta.data.Category
 import app.pocketta.data.Prefs
 import app.pocketta.data.Repo
 import app.pocketta.data.TxType
-import app.pocketta.data.Wallet
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -96,8 +95,6 @@ private fun MoreCard(emoji: String, title: String, sub: String, onClick: () -> U
 @Composable
 fun IncomeScreen(repo: Repo, nav: Nav, prefs: Prefs) {
     val scope = rememberCoroutineScope()
-    val walletsFlow = remember { repo.dao.walletsFlow() }
-    val wallets by walletsFlow.collectAsState(initial = emptyList())
     val catFlow = remember { repo.dao.categoriesFlow() }
     val categories by catFlow.collectAsState(initial = emptyList())
     val cycle = CycleMath.cycleFor(LocalDate.now(), prefs.cycleStart)
@@ -106,7 +103,6 @@ fun IncomeScreen(repo: Repo, nav: Nav, prefs: Prefs) {
     val incomes = txns.filter { it.type == TxType.INCOME }
     var salary by remember { mutableStateOf(numText(prefs.salary)) }
     var day by remember { mutableStateOf(prefs.salaryDay.toString()) }
-    var wallet by remember { mutableStateOf<Long?>(prefs.salaryWallet.takeIf { it != 0L }) }
     var savings by remember { mutableStateOf(numText(prefs.savingsPerMonth)) }
     var household by remember { mutableStateOf(numText(prefs.household)) }
     Scaffold(topBar = { BackBar("Income & salary", { nav.back() }) }) { pad ->
@@ -129,7 +125,6 @@ fun IncomeScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                         scope.launch {
                             repo.set("salary", parseNumber(salary) ?: 0.0)
                             repo.set("salaryDay", (day.toIntOrNull() ?: 1).coerceIn(1, 31))
-                            repo.set("salaryWallet", wallet ?: wallets.firstOrNull()?.id ?: 0L)
                             repo.set("savingsPerMonth", parseNumber(savings) ?: 0.0)
                             repo.set("household", parseNumber(household) ?: 0.0)
                             repo.ensureSalary()
@@ -145,7 +140,7 @@ fun IncomeScreen(repo: Repo, nav: Nav, prefs: Prefs) {
             }
             if (incomes.isEmpty()) item { Text("Nothing yet this month.", Modifier.padding(16.dp)) }
             items(incomes, key = { it.id }) { t ->
-                TxnRow(t, categories, wallets.associate { it.id to it.name }) { nav.open(Route.Add(txnId = t.id)) }
+                TxnRow(t, categories) { nav.open(Route.Add(txnId = t.id)) }
             }
             item {
                 Text(
@@ -157,85 +152,25 @@ fun IncomeScreen(repo: Repo, nav: Nav, prefs: Prefs) {
     }
 }
 
-// ---------------- Wallets ----------------
+// ---------------- My balance ----------------
 
-private val walletTypes = listOf("CASH", "BANK", "MOBILE", "CARD", "OTHER")
-private fun walletTypeName(t: String) = when (t) {
-    "CASH" -> "Cash"; "BANK" -> "Bank"; "MOBILE" -> "Mobile wallet"; "CARD" -> "Credit card"; else -> "Other"
-}
-
+/** "How much money do I have now?" One number for everything: cash, bank and mobile wallet together. */
 @Composable
-fun WalletsScreen(repo: Repo, nav: Nav, prefs: Prefs) {
-    val walletsFlow = remember { repo.dao.walletsFlow() }
-    val wallets by walletsFlow.collectAsState(initial = emptyList())
-    val balFlow = remember { repo.balancesFlow() }
-    val balances by balFlow.collectAsState(initial = emptyMap())
-    var editing by remember { mutableStateOf<Wallet?>(null) }
-    Scaffold(topBar = {
-        BackBar("Wallets", { nav.back() }) {
-            IconButton(onClick = { editing = Wallet(name = "", sort = wallets.size) }) { Icon(Icons.Filled.Add, contentDescription = "Add wallet") }
-        }
-    }) { pad ->
-        LazyColumn(Modifier.fillMaxSize().padding(pad)) {
-            item {
-                SectionCard(Modifier.padding(16.dp), container = MaterialTheme.colorScheme.primaryContainer) {
-                    Label("Total")
-                    Big("${Money.short(wallets.sumOf { balances[it.id] ?: 0.0 })} ${prefs.baseCurrency}", size = 26)
-                    TextButton(onClick = { nav.open(Route.Add(type = TxType.TRANSFER)) }) { Text("Move money between wallets") }
-                }
-            }
-            items(wallets, key = { it.id }) { w ->
-                val bal = balances[w.id] ?: 0.0
-                val shown = if (w.currency != prefs.baseCurrency) bal / prefs.rateOf(w.currency) else bal
-                ListRow(w.name, walletTypeName(w.type) + if (w.currency != prefs.baseCurrency) " · ${w.currency}" else "", icon = w.name, onClick = { editing = w }) {
-                    Text(Money.fmt(shown), fontWeight = FontWeight.SemiBold, color = if (bal < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-                }
-            }
-            item {
-                Text(
-                    "Balances start from the opening amount you set and follow everything you record.",
-                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp),
-                )
-            }
-        }
-    }
-    editing?.let { WalletEditor(repo, prefs, it, balances[it.id]) { editing = null } }
-}
-
-@Composable
-private fun WalletEditor(repo: Repo, prefs: Prefs, w: Wallet, balance: Double?, onClose: () -> Unit) {
+fun BalanceDialog(repo: Repo, prefs: Prefs, current: Double, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var name by remember { mutableStateOf(w.name) }
-    var type by remember { mutableStateOf(w.type) }
-    var currency by remember { mutableStateOf(w.currency) }
-    var opening by remember { mutableStateOf(numText(w.opening)) }
-    var actual by remember { mutableStateOf("") }
+    var value by remember { mutableStateOf(numText(Math.round(current).toDouble())) }
     FormDialog(
-        if (w.id == 0L) "New wallet" else w.name,
+        "How much money do I have now?",
         onDismiss = onClose,
-        saveEnabled = name.isNotBlank(),
-        onDelete = if (w.id != 0L) ({ scope.launch { repo.dao.updateWallet(w.copy(archived = true)); repo.changed() }; onClose() }) else null,
+        saveEnabled = parseNumber(value) != null,
         onSave = {
-            scope.launch {
-                var o = parseNumber(opening) ?: 0.0
-                // "I actually have X": move the opening balance so the balance matches.
-                val real = parseNumber(actual)
-                if (real != null && balance != null) o += (real * prefs.rateOf(currency) - balance) / prefs.rateOf(currency)
-                val nw = w.copy(name = name.trim(), type = type, currency = currency, opening = o)
-                if (w.id == 0L) repo.dao.insertWallet(nw) else repo.dao.updateWallet(nw)
-                repo.changed()
-            }
+            val v = parseNumber(value) ?: 0.0
+            scope.launch { repo.setBalance(v * prefs.rateOf(prefs.baseCurrency)) }
             onClose()
         },
     ) {
-        TextInput("Name", name, { name = it })
-        Choices(walletTypes, type, { walletTypeName(it) }, { type = it })
-        if (prefs.currencies.size > 1) Choices(prefs.currencies, currency, { it }, { currency = it })
-        NumberField("Opening balance", opening, { opening = it }, suffix = currency)
-        if (w.id != 0L) {
-            NumberField("Or: how much is in it right now?", actual, { actual = it }, suffix = currency)
-            Text("We'll fix the balance to match.", style = MaterialTheme.typography.bodySmall)
-        }
+        NumberField("My money", value, { value = it }, suffix = prefs.baseCurrency)
+        Text("Type the real total of your cash, bank and mobile wallet. Pocketta fixes the rest.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -459,6 +394,7 @@ fun OnboardingScreen(repo: Repo, onDone: () -> Unit) {
     var salary by remember { mutableStateOf("") }
     var salaryDay by remember { mutableStateOf("1") }
     var savings by remember { mutableStateOf("") }
+    var balance by remember { mutableStateOf("") }
     var lock by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(app.pocketta.core.Countries.all.first()) }
     Scaffold { pad ->
@@ -475,6 +411,8 @@ fun OnboardingScreen(repo: Repo, onDone: () -> Unit) {
             NumberField("Monthly salary (optional)", salary, { salary = it }, suffix = picked.currency)
             NumberField("Salary day of the month", salaryDay, { salaryDay = it }, decimal = false)
             Text("Your month starts on the salary day. You can change this later in Settings.", style = MaterialTheme.typography.bodySmall)
+            NumberField("How much money do I have now? (optional)", balance, { balance = it }, suffix = picked.currency)
+            Text("Cash, bank and mobile wallet together.", style = MaterialTheme.typography.bodySmall)
             Button(onClick = {
                 scope.launch {
                     repo.setCurrency(picked.currency, if (picked.code.startsWith("CUR:")) "" else picked.code)
@@ -484,6 +422,7 @@ fun OnboardingScreen(repo: Repo, onDone: () -> Unit) {
                     repo.set("salaryDay", (salaryDay.toIntOrNull() ?: 1).coerceIn(1, 31))
                     repo.set("savingsPerMonth", parseNumber(savings) ?: 0.0)
                     repo.set("lock", lock)
+                    parseNumber(balance)?.takeIf { it > 0 }?.let { repo.setBalance(it) }
                     repo.set("onboarded", true)
                     repo.ensureSalary()
                     onDone()

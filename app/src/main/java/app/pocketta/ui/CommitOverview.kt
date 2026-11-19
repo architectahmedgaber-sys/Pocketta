@@ -437,7 +437,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                 val plain = plainByDay[s].orEmpty()
                 if (plain.isNotEmpty()) {
                     item { Label("Spent that day", Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp)) }
-                    items(plain.size) { TxnRow(plain[it], categories, emptyMap()) { nav.open(Route.Add(txnId = plain[it].id)) } }
+                    items(plain.size) { TxnRow(plain[it], categories) { nav.open(Route.Add(txnId = plain[it].id)) } }
                 }
             }
             if (late.isNotEmpty()) {

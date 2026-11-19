@@ -80,9 +80,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val categoriesFlow = remember { repo.dao.categoriesFlow() }
-    val walletsFlow = remember { repo.dao.walletsFlow() }
     val categories by categoriesFlow.collectAsState(initial = emptyList())
-    val wallets by walletsFlow.collectAsState(initial = emptyList())
 
     var editing by remember { mutableStateOf<Txn?>(null) }
     var type by remember { mutableStateOf(route.type) }
@@ -103,8 +101,8 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
     var loaded by remember { mutableStateOf(route.txnId == 0L) }
 
     // Load the transaction being edited, or pick sensible defaults for a new one.
-    LaunchedEffect(route.txnId, wallets.isNotEmpty(), categories.isNotEmpty()) {
-        if (wallets.isEmpty() || categories.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(route.txnId, categories.isNotEmpty()) {
+        if (categories.isEmpty()) return@LaunchedEffect
         if (route.txnId != 0L && editing == null) {
             val t = repo.dao.txn(route.txnId) ?: return@LaunchedEffect
             editing = t
@@ -121,8 +119,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
             date = LocalDate.ofEpochDay(t.epochDay)
             loaded = true
         } else if (walletId == 0L) {
-            walletId = wallets.firstOrNull { it.id == prefs.lastWallet }?.id ?: wallets.first().id
-            toWalletId = wallets.firstOrNull { it.id != walletId }?.id ?: walletId
+            walletId = repo.newRecordWallet()
             if (route.amount > 0 && input.isEmpty()) input = numText(route.amount)
             if (route.note.isNotBlank() && noteField.isEmpty()) noteField = route.note
             if (route.currency.isNotBlank() && route.currency in prefs.currencies) currency = route.currency
@@ -187,7 +184,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
     val isBorrowed = type == TxType.INCOME && catName.equals("Borrowed", true) && editing == null
 
     val canSave = amount != null && amount > 0 && walletId != 0L &&
-        (type == TxType.TRANSFER && toWalletId != walletId || type != TxType.TRANSFER && categoryId != null) &&
+        (type == TxType.TRANSFER || categoryId != null) &&
         (!isBorrowed || person.isNotBlank())
 
     fun save() {
