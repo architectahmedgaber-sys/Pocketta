@@ -364,3 +364,16 @@ p { margin: 0; }
 .addtype { border: 1px solid var(--outline-v); background: var(--surface); border-radius: 14px; padding: 14px 4px; display: flex; flex-direction: column; align-items: center; gap: 6px; font-weight: 600; cursor: pointer; color: var(--text); }
 .addtype span { font-size: 26px; }
 .subtabs button { white-space: nowrap; font-size: 14px; }
+
+/* Month plan and Miqrish */
+.mpd { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; border-top: 1px solid var(--outline-v); padding-top: 8px; }
+.chatpage { display: flex; flex-direction: column; gap: 10px; padding-bottom: 90px; }
+#chat { display: flex; flex-direction: column; gap: 10px; }
+.bubble-row { display: flex; justify-content: flex-start; }
+.bubble-row.me { justify-content: flex-end; }
+.bubble { max-width: 85%; padding: 10px 14px; border-radius: 16px; background: var(--surface-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble.me { background: var(--primary); color: var(--on-primary); }
+.bubble.done { background: var(--tertiary-c); }
+.bubble.error { background: var(--error-c); color: var(--on-error-c); }
+.chatbar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--outline-v); }
+.chatbar input { flex: 1; min-width: 0; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--outline); background: var(--surface); color: var(--text); font: inherit; }
