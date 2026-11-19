@@ -172,6 +172,7 @@ fun SyncSetupDialog() {
     val r by CloudSync.setup.collectAsState()
     val q = r ?: return
     val clip = LocalClipboardManager.current
+    var saved by remember(q) { mutableStateOf(false) }
     val ctx = LocalContext.current
     val saveKey = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
@@ -180,12 +181,12 @@ fun SyncSetupDialog() {
                     it.write(("Pocketta recovery key\n\n" + q.recovery + "\n\nKeep this file somewhere safe (not only on this phone). With it you can open your cloud backup if you forget your encryption password. Anyone who has it and your Google account can open your backup.\n").toByteArray(Charsets.UTF_8))
                 } != null
             }.getOrDefault(false)
+            if (ok) saved = true
             Toast.makeText(ctx, if (ok) "Saved" else "Could not save the file", Toast.LENGTH_SHORT).show()
         }
     }
     var p1 by remember(q) { mutableStateOf("") }
     var p2 by remember(q) { mutableStateOf("") }
-    var saved by remember(q) { mutableStateOf(false) }
     var err by remember(q) { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = { q.answer.complete(null) },
@@ -198,14 +199,10 @@ fun SyncSetupDialog() {
                 Text("Recovery key. Save it somewhere safe (a password manager or on paper):", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
                 Text(q.recovery, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                 Row {
-                    TextButton(onClick = { clip.setText(AnnotatedString(q.recovery)) }) { Text("Copy recovery key") }
+                    TextButton(onClick = { clip.setText(AnnotatedString(q.recovery)); saved = true }) { Text("Copy recovery key") }
                     TextButton(onClick = { saveKey.launch("pocketta-recovery-key.txt") }) { Text("Download as a file") }
                 }
-                Row(Modifier.fillMaxWidth().clickable { saved = !saved }, verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = saved, onCheckedChange = { saved = it })
-                    Text("I saved the recovery key", style = MaterialTheme.typography.bodySmall)
-                }
-                Text("If you forget the password and lose the recovery key, nobody can open your cloud data, not even us. Your data on this device stays safe.", style = MaterialTheme.typography.bodySmall)
+                Text("Copy it or download it as a file, and keep it somewhere safe. It is the only way back if you forget the password. With neither, your cloud copy is lost. Your data on this device stays safe.", style = MaterialTheme.typography.bodySmall)
                 if (err.isNotEmpty()) Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         },
@@ -214,7 +211,7 @@ fun SyncSetupDialog() {
                 when {
                     p1.length < 8 -> err = "Use at least 8 characters."
                     p1 != p2 -> err = "The passwords do not match."
-                    !saved -> err = "Please confirm you saved the recovery key."
+                    !saved -> err = "Copy or download the recovery key first."
                     else -> q.answer.complete(p1)
                 }
             }) { Text("Turn on encryption") }

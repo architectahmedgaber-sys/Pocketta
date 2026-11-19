@@ -10,6 +10,8 @@ const EXTRA = {
   "Encryption password (8 or more)": "كلمة سر التشفير (٨ أو أكتر)",
   "Type it again": "اكتبها تاني",
   "Recovery key": "مفتاح الاسترجاع",
+  "Copy or download the recovery key first": "انسخ مفتاح الاسترجاع أو نزّله الأول",
+  "Copy it or download it as a file, and keep it somewhere safe. It is the only way back if you forget the password. With neither, your cloud copy is lost. The data on your devices stays.": "انسخه أو نزّله كملف واحفظه في مكان آمن. هو الطريق الوحيد لو نسيت كلمة السر. من غير الاتنين نسخة السحابة بتضيع. بياناتك على الأجهزة سليمة.",
   "Encryption": "التشفير",
   "New recovery key": "مفتاح استرجاع جديد",
   "Change password": "غيّر كلمة السر",

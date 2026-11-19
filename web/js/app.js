@@ -1694,25 +1694,25 @@ function syncSetup({ recovery }) {
   return new Promise((resolve) => {
     let done = false;
     const fin = (v) => { if (!done) { done = true; resolve(v); } };
-    sheet({
+    const { el } = sheet({
       title: 'Lock your data',
       body: `<p>Your data is locked on this device before it goes to the cloud. Nobody can read it without your encryption password, not even us. This is not your Google password.</p>` +
         field('p1', 'Encryption password (8 or more)', '', { type: 'password' }) + field('p2', 'Type it again', '', { type: 'password' }) +
         `<div class="label">Recovery key</div><div class="recovery">${esc(recovery)}</div>
         <button type="button" class="btn text" data-act="copy-text" data-text="${esc(recovery)}">Copy</button>
         <button type="button" class="btn text" data-act="download-text" data-text="${esc(recovery)}">Download as a file</button>
-        <p class="small">Save it somewhere safe (a screenshot, or WhatsApp to yourself). If you forget the password, this key is the only way back. With neither, your cloud copy is lost for good. The data on your devices stays.</p>` +
-        check('saved', 'I saved the recovery key'),
+        <p class="small">Copy it or download it as a file, and keep it somewhere safe. It is the only way back if you forget the password. With neither, your cloud copy is lost. The data on your devices stays.</p>`,
       saveLabel: 'Lock and continue',
       onSave: (root) => {
         const p1 = val(root, 'p1');
         if (p1.length < 8) return 'Use at least 8 characters';
         if (p1 !== val(root, 'p2')) return "The two passwords don't match";
-        if (!checked(root, 'saved')) return 'Tick the box after you save the recovery key';
+        if (!root.dataset.saved) return 'Copy or download the recovery key first';
         fin({ password: p1 });
       },
       onClose: () => fin(null),
     });
+    el.addEventListener('click', (e) => { if (e.target.closest('[data-act="copy-text"],[data-act="download-text"]')) el.dataset.saved = '1'; });
   });
 }
 

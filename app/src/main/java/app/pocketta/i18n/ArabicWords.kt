@@ -446,6 +446,8 @@ object ArabicWords {
         "Your other devices keep working. A new device will ask for the new password." to "أجهزتك التانية هتفضل شغالة. الجهاز الجديد هيطلب كلمة السر الجديدة.",
         "Type your current password" to "اكتب كلمة السر الحالية",
         "Done" to "تمام",
+        "Copy or download the recovery key first." to "انسخ مفتاح الاسترجاع أو نزّله الأول.",
+        "Copy it or download it as a file, and keep it somewhere safe. It is the only way back if you forget the password. With neither, your cloud copy is lost. Your data on this device stays safe." to "انسخه أو نزّله كملف واحفظه في مكان آمن. هو الطريق الوحيد لو نسيت كلمة السر. من غير الاتنين نسخة السحابة بتضيع. بياناتك على الجهاز دا سليمة.",
         "Protect your data" to "احمي بياناتك",
         "Your data is locked on your phone before it goes to the cloud. Choose an encryption password. You will type it once on each new device." to "بياناتك بتتقفل على موبايلك قبل ما تروح السحابة. اختار كلمة سر للتشفير. هتكتبها مرة واحدة على كل جهاز جديد.",
         "Encryption password" to "كلمة سر التشفير",
