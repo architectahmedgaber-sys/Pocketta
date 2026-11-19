@@ -6,7 +6,7 @@ import org.json.JSONObject
 
 /** The three companies the assistant can talk to. The user brings their own key. */
 enum class AiProvider(val label: String, val defaultModel: String, val keyHelp: String) {
-    GEMINI("Gemini (Google)", "gemini-2.5-flash", "aistudio.google.com/apikey"),
+    GEMINI("Gemini (Google)", "gemini-flash-latest", "aistudio.google.com/apikey"),
     CLAUDE("Claude (Anthropic)", "claude-haiku-5-5", "console.anthropic.com"),
     OPENAI("ChatGPT (OpenAI)", "gpt-4o-mini", "platform.openai.com/api-keys");
 
@@ -51,8 +51,16 @@ sealed class AiMsg {
 }
 
 class AiError(val code: Int, val body: String) : Exception("AI request failed ($code)") {
-    /** A short explanation a person can act on. */
-    fun friendly(): String = when (code) {
+    /** The company's own message, short, so a person can see the real reason. */
+    fun detail(): String = runCatching {
+        val t = body.trim()
+        val o = if (t.startsWith("[")) JSONArray(t).getJSONObject(0) else JSONObject(t)
+        o.optJSONObject("error")?.optString("message").orEmpty().replace(Regex("\\s+"), " ").take(160)
+    }.getOrDefault("")
+
+    fun friendly(): String = base() + detail().let { if (it.isEmpty()) "" else " ($it)" }
+
+    private fun base(): String = when (code) {
         400 -> "The company did not accept the request. Check the model name in the assistant settings."
         401, 403 -> "The key was refused. Check that you pasted it fully and that it is still active."
         404 -> "That model name was not found. Check it in the assistant settings."

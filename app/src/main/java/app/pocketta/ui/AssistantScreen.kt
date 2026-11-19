@@ -166,6 +166,9 @@ private fun AssistantSettings(cfg: AiConfig, provider: AiProvider, onProvider: (
     var key by remember(provider) { mutableStateOf(cfg.key(provider)) }
     var model by remember(provider) { mutableStateOf(cfg.model(provider)) }
     var notesVersion by remember { mutableStateOf(0) }
+    var status by remember { mutableStateOf("") }
+    var checking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         SectionCard {
             Label("Choose the company")
@@ -182,9 +185,28 @@ private fun AssistantSettings(cfg: AiConfig, provider: AiProvider, onProvider: (
             OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Model") }, singleLine = true, shape = FieldShape, modifier = Modifier.fillMaxWidth())
             Gap(10)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { cfg.setKey(provider, key); cfg.setModel(provider, model); onDone() }, enabled = key.isNotBlank()) { Text("Save and chat") }
+                Button(
+                    onClick = {
+                        cfg.setKey(provider, key); cfg.setModel(provider, model)
+                        // Check the key right away, so a wrong key is explained here and not in the middle of a chat.
+                        checking = true; status = "Checking the key..."
+                        scope.launch {
+                            try {
+                                app.pocketta.ai.AiClient.pickModel(provider, key.trim())
+                                status = ""; onDone()
+                            } catch (e: AiError) {
+                                status = e.friendly()
+                            } catch (e: Exception) {
+                                status = "Could not reach the company. Check your internet."
+                            }
+                            checking = false
+                        }
+                    },
+                    enabled = key.isNotBlank() && !checking,
+                ) { Text("Save and chat") }
                 if (cfg.key(provider).isNotBlank()) OutlinedButton(onClick = { cfg.removeKey(provider); key = "" }) { Text("Remove key") }
             }
+            if (status.isNotEmpty()) { Gap(8); Text(status, color = MaterialTheme.colorScheme.error) }
             Gap(8)
             Text("The key stays on this phone only. It is not in your backups and it is sent only to the company you picked. Your chat is sent to that company, and any cost is on your own account there.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
