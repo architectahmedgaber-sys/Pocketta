@@ -584,7 +584,7 @@ class Repo private constructor(private val app: Context) {
     suspend fun monthlySpend(today: LocalDate = LocalDate.now()): Double {
         val p = prefs()
         var cycle = CycleMath.cycleFor(today, p.cycleStart)
-        fun total(c: Cycle) = dao.txns(c.start.toEpochDay(), c.nextStart.toEpochDay())
+        suspend fun total(c: Cycle) = dao.txns(c.start.toEpochDay(), c.nextStart.toEpochDay())
             .filter { it.type == TxType.EXPENSE && !it.spread }.sumOf { it.base }
         val past = ArrayList<Double>()
         repeat(3) {
