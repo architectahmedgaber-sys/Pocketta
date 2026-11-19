@@ -47,16 +47,16 @@ class TodayWidget : GlanceAppWidget() {
 private fun TodayContent(s: HomeState) {
     val size = LocalSize.current
     val b = s.budget
-    val over = b.leftToday < 0
-    val frac = if (b.dailyAllowance > 0) ((b.dailyAllowance - b.leftToday) / b.dailyAllowance).toFloat().coerceIn(0f, 1f) else 1f
+    val over = b.flexLeft < 0
+    val frac = if (b.flexTotal > 0) b.flexSpentFraction else 1f
     val level = if (over) Budget.Level.OVER else Budget.level(frac.toDouble(), 1.0)
     val color = if (over) badColor else null
-    val main = if (over) "−" + Money.short(-b.leftToday) else Money.short(b.leftToday)
+    val main = if (over) "−" + Money.short(-b.flexLeft) else Money.short(b.flexLeft)
 
     if (size.height < 100.dp) {
         // Short: just the number.
         Column(modifier = GlanceModifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            label("Today", 10)
+            label("Flexible", 10)
             value(if (size.width < 100.dp) main else "$main ${s.prefs.baseCurrency}", if (size.width < 100.dp) 16 else 20, color)
         }
         return
@@ -67,17 +67,17 @@ private fun TodayContent(s: HomeState) {
             RingBox(frac, levelRing(level), ring) { value(main, 17, color) }
             Spacer(GlanceModifier.width(14.dp))
             Column {
-                label(if (over) "Over today's budget" else "Today you can spend", 12)
+                label(if (over) "Over the flexible amount" else "Left for flexible spending", 12)
                 value("$main ${s.prefs.baseCurrency}", 24, color)
                 Spacer(GlanceModifier.height(2.dp))
-                label("Daily ${Money.short(b.dailyAllowance)} · ${b.daysLeft} days left", 11)
+                label("${b.daysLeft} days left in this month", 11)
             }
         }
     } else {
         Column(modifier = GlanceModifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             RingBox(frac, levelRing(level), ring) { value(main, 16, color) }
             Spacer(GlanceModifier.height(4.dp))
-            label(if (over) "over today" else "left today", 11)
+            label(if (over) "over flexible" else "flexible left", 11)
         }
     }
 }

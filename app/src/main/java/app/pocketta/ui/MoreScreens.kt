@@ -63,10 +63,10 @@ fun MoreScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
         MoreCard("📅", "Month plan", "Every month like your spreadsheet: income, installments, living, what is left") { nav.open(Route.MonthPlan) }
         MoreCard("🐷", "Piggy bank", "Everything you saved, month by month") { nav.open(Route.Piggy) }
         MoreCard("🎯", "Goals", "Umra, a car, a laptop, each with its own date") { nav.open(Route.Goals) }
-        MoreCard("🏦", "Everything I own", "Wallets and gold in one number, in dollars and gold, and how it changed") { nav.open(Route.Wealth) }
+        MoreCard("🏦", "Everything I own", "Your money and gold in one number, in dollars and gold, and how it changed") { nav.open(Route.Wealth) }
         MoreCard("🧮", "Plan ahead", "Can I afford this? What if I save? When money runs short") { nav.open(Route.Plan) }
         MoreCard("💰", "Income & salary", "Your monthly salary, other income, money set aside") { nav.open(Route.Income) }
-        MoreCard("👛", "Wallets", "Cash, bank, Vodafone Cash, cards and balances") { nav.open(Route.Wallets) }
+        MoreCard("#️⃣", "Tags", "Weddings, trips, projects: see the total of each across categories") { nav.open(Route.Tags) }
         MoreCard("🏷️", "Categories", "Categories, sub-categories and monthly limits") { nav.open(Route.Categories) }
         MoreCard("💱", "Currencies & gold", "Convert money and gold, today's prices, your own rates") { nav.open(Route.Currencies) }
         MoreCard("🔔", "Notifications", "Switch each notification on or off, and send a test") { nav.open(Route.Notifications) }
@@ -108,6 +108,7 @@ fun IncomeScreen(repo: Repo, nav: Nav, prefs: Prefs) {
     var day by remember { mutableStateOf(prefs.salaryDay.toString()) }
     var wallet by remember { mutableStateOf<Long?>(prefs.salaryWallet.takeIf { it != 0L }) }
     var savings by remember { mutableStateOf(numText(prefs.savingsPerMonth)) }
+    var household by remember { mutableStateOf(numText(prefs.household)) }
     Scaffold(topBar = { BackBar("Income & salary", { nav.back() }) }) { pad ->
         LazyColumn(Modifier.fillMaxSize().padding(pad)) {
             item {
@@ -119,10 +120,10 @@ fun IncomeScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                     Gap(8)
                     NumberField("Day of the month it arrives", day, { day = it }, decimal = false)
                     Gap(8)
-                    Label("Goes into")
-                    Choices(wallets.map { it.id }, wallet ?: wallets.firstOrNull()?.id, { id -> wallets.firstOrNull { it.id == id }?.name ?: "" }, { wallet = it })
-                    Gap(8)
                     NumberField("Set aside for savings each month (optional)", savings, { savings = it }, suffix = prefs.baseCurrency)
+                    Gap(8)
+                    NumberField("Household shopping each month (optional)", household, { household = it }, suffix = prefs.baseCurrency)
+                    Text("Kept apart from your flexible money. Groceries you add use this amount first.", style = MaterialTheme.typography.bodySmall)
                     Gap(8)
                     Button(onClick = {
                         scope.launch {
@@ -130,6 +131,7 @@ fun IncomeScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                             repo.set("salaryDay", (day.toIntOrNull() ?: 1).coerceIn(1, 31))
                             repo.set("salaryWallet", wallet ?: wallets.firstOrNull()?.id ?: 0L)
                             repo.set("savingsPerMonth", parseNumber(savings) ?: 0.0)
+                            repo.set("household", parseNumber(household) ?: 0.0)
                             repo.ensureSalary()
                         }
                     }) { Text("Save") }

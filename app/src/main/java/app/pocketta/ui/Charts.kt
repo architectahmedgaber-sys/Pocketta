@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -137,6 +138,43 @@ fun CompareCard(items: List<Triple<String, Double, Double>>, modifier: Modifier 
             Progress((now / max).toFloat(), color = if (before > 0 && now > before * 1.2) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
             Gap(3)
             Progress((before / max).toFloat(), color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+/** The last months as bars (the newest is the right one), with how the newest compares to the month before. */
+@Composable
+fun TrendCard(months: List<Pair<String, Double>>, modifier: Modifier = Modifier) {
+    if (months.count { it.second > 0 } < 2) return
+    val max = months.maxOf { it.second }.coerceAtLeast(1.0)
+    val now = months.last().second
+    val prev = months.getOrNull(months.size - 2)?.second ?: 0.0
+    val base = MaterialTheme.colorScheme.primary
+    val old = MaterialTheme.colorScheme.outlineVariant
+    SectionCard(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Label("Last 6 months", Modifier.weight(1f))
+            if (prev > 0) {
+                val pct = Math.round((now - prev) / prev * 100).toInt()
+                when {
+                    pct > 0 -> Pill("▲ $pct% vs last month", MaterialTheme.colorScheme.error)
+                    pct < 0 -> Pill("▼ ${-pct}% vs last month", Good)
+                    else -> Pill("＝ same as last month")
+                }
+            }
+        }
+        Gap(10)
+        Row(Modifier.fillMaxWidth().height(130.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+            months.forEachIndexed { i, (name, v) ->
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
+                    if (v > 0) Text(Money.short(v), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    Box(
+                        Modifier.fillMaxWidth().height((if (v > 0) (v / max * 84.0).coerceAtLeast(4.0) else 3.0).dp)
+                            .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)).background(if (i == months.lastIndex) base else old),
+                    )
+                    Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+            }
         }
     }
 }

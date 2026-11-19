@@ -7,7 +7,7 @@ import * as AI from './ai.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.13.1';
+const VERSION = '1.14.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -80,7 +80,6 @@ const check = (name, lbl, on) => `<label class="check"><input type="checkbox" na
 const val = (root, name) => $(`[name="${name}"]`, root)?.value ?? '';
 const num = (root, name) => C.parseNumber(val(root, name));
 const checked = (root, name) => !!$(`[name="${name}"]`, root)?.checked;
-const walletOpts = () => R.wallets().map((w) => [w.id, w.name]);
 
 function toast(msg, ms = 3200) {
   const t = $('#toast');
@@ -134,7 +133,7 @@ function render() {
   if (ui.locked) { app.innerHTML = lockScreen(); $('#pin')?.focus(); return; }
   if (!R.S().onboarded) { app.innerHTML = onboarding(); return; }
   const c = cur();
-  const pages = { home, spend, commit, more, add, income, wallets, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage, monthPlanPage, assistant: assistantPage };
+  const pages = { home, spend, commit, more, add, income, tagsPage, tagDetail, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage, monthPlanPage, assistant: assistantPage };
   const page = pages[c.r === 'currencies' ? 'currencyPage' : c.r] || home;
   if (isTab(c.r)) {
     const tabIcon = (r) => (r === 'assistant' ? '<span class="coin">🪙</span>' : icon(r));
@@ -170,11 +169,10 @@ function home() {
   const b = s.budget;
   const cur = base();
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !navigator.standalone;
-  const over = b.leftToday < 0;
-  const spentToday = b.dailyAllowance - b.leftToday;
-  const todayFrac = b.dailyAllowance > 0 ? Math.max(0, Math.min(1, spentToday / b.dailyAllowance)) : 0;
-  // Green while you are fine, amber when most of today's money is gone, red when you are over.
-  const tone = over ? 'red' : todayFrac >= 0.8 ? 'amber' : 'green';
+  const over = b.flexLeft < 0;
+  const spentPct = Math.round(b.flexSpentFraction * 100), monthPct = Math.round(b.elapsedFraction * 100);
+  // Green while you spend slower than the month passes, amber when you are ahead of it, red when the flexible money is gone.
+  const tone = over ? 'red' : b.flexSpentFraction > b.elapsedFraction + 0.1 ? 'amber' : 'green';
   let html = `<div class="head"><div class="grow"><h1 class="title">${C.fmtMonth(s.cycle.end)}</h1><div class="small">${b.daysLeft} days left in this month</div></div>
     <button class="icon-btn emoji" data-act="toggle-theme" aria-label="Night mode">${isDark() ? '☀️' : '🌙'}</button>
     <button class="icon-btn" data-act="open" data-r="more" aria-label="Settings and more">${icon('settings')}</button></div>`;
@@ -189,11 +187,13 @@ function home() {
   if (b.budget <= 0 && s.salaryExpected <= 0) {
     html += card(`<b>Add your salary to see how much you can spend</b><div class="small">Tap here to set it</div>`, 'tap', 'data-act="open" data-r="income"');
   }
-  // The one question: how much can I spend today?
-  html += card(`<div class="hero-t">${over ? "Over today's budget" : 'You can spend today'}</div>
-    <div class="hero-n"><span id="hero-amt" data-v="${Math.abs(b.leftToday)}">${money(Math.abs(b.leftToday))}</span><span class="hero-c"> ${esc(cur)}</span></div>
-    <div class="bar hero-bar"><i style="width:${todayFrac * 100}%"></i></div>
-    <div class="hero-s">Spent ${money(spentToday)} of ${money(b.dailyAllowance)} today</div>`, `hero ${tone}`);
+  // The one question: how much is left for everyday spending after the commitments?
+  html += card(`<div class="hero-t">${over ? 'Over the flexible amount' : 'Left for flexible spending'}</div>
+    <div class="hero-n"><span id="hero-amt" data-v="${Math.abs(b.flexLeft)}">${money(Math.abs(b.flexLeft))}</span><span class="hero-c"> ${esc(cur)}</span></div>
+    <div class="hero-s">of ${money(Math.max(b.flexTotal, 0))} left after commitments${b.household > 0 ? ' and household shopping' : ''}</div>
+    <div class="hero-row"><span>Month passed</span><b>${monthPct}%</b></div><div class="bar hero-bar"><i style="width:${monthPct}%"></i></div>
+    <div class="hero-row"><span>Flexible money spent</span><b>${spentPct}%</b></div><div class="bar hero-bar"><i style="width:${spentPct}%"></i></div>`, `hero ${tone}`);
+  html += streakCard(s);
   html += quickCard();
   html += converterCard();
   html += planEntryCard();
@@ -347,8 +347,37 @@ function weekCard(s) {
   }
   const pct = d.previous > 0 ? Math.trunc((d.spent - d.previous) / d.previous * 100) : null;
   const [first, second] = C.weekSentences(d.spent, pct, d.topCategory, d.daysUnder, base());
-  return card(`${label('Your week')}<div class="row-flex"><div class="big grow">${money(d.spent)} ${esc(base())}</div>${tag}</div>
-    <div>${esc(first)}</div><div>${esc(second)}</div>`, 'tonal');
+  const wk = weekKey(s.today), saved = R.S().weeklyAi || {};
+  const ai = saved.week === wk ? saved.text : '';
+  if (!ai) maybeWeeklyAi(s, d, wk);
+  const b = s.budget;
+  const body = ai ? `<div class="pre">${esc(ai)}</div>`
+    : ui.weeklyBusy ? `<div class="small">Miqrish is writing your summary...</div>`
+    : `<div>${esc(first)}</div><div>${esc(second)}</div><div class="tipline">💡 ${esc(C.weeklyTip(d.spent, d.previous, d.topCategory, b.flexLeft, b.daysLeft))}</div>` +
+      (AI.hasKey() ? '' : `<div class="small">Add your own key in Miqrish to get this written for you every Friday.</div>`);
+  return card(`${label(ai ? 'Your week · from Miqrish' : 'Your week')}<div class="row-flex"><div class="big grow">${money(d.spent)} ${esc(base())}</div>${tag}</div>${body}`, 'tonal');
+}
+const weekKey = (today) => today - ((C.ymd(today).wd - 5 + 7) % 7);
+/** Friday summary written by the user's own AI key, once per week. Without a key the card keeps the plain numbers. */
+function maybeWeeklyAi(s, d, wk) {
+  if (!AI.hasKey() || R.S().weeklyAiOn === false || ui.weeklyBusy || ui.weeklyFailed === wk) return;
+  ui.weeklyBusy = true;
+  AI.weeklySummary({ currency: base(), spent: d.spent, previous: d.previous, topCategory: d.topCategory, topAmount: d.topAmount, flexLeft: s.budget.flexLeft, flexTotal: s.budget.flexTotal }, R.S().lang === 'AR')
+    .then((text) => { if (text) { R.S().weeklyAi = { week: wk, text }; R.changed(); } else ui.weeklyFailed = wk; })
+    .catch(() => { ui.weeklyFailed = wk; })
+    .finally(() => { ui.weeklyBusy = false; if (cur().r === 'home') render(); });
+}
+
+/** The saving challenge: days in a row where the last 7 days stayed under the weekly share of the flexible money. */
+function streakCard(s) {
+  const k = s.streak;
+  if (!k) return '';
+  const frac = Math.min(Math.max(k.weekSpent / k.target, 0), 1);
+  const head = k.days > 0 ? `🔥 ${k.days} ${k.days === 1 ? 'day' : 'days'} in a row` : 'Saving challenge';
+  const sub = k.days > 0 ? `<span>Every day the last 7 days stayed under</span> <b>${money(k.target)} ${esc(base())}</b>` : `<span>Keep the last 7 days under</span> <b>${money(k.target)} ${esc(base())}</b> <span>to start a streak.</span>`;
+  return card(`<div class="row-flex"><b class="grow">${head}</b>${k.best > k.days ? `<span class="small">best ${k.best}</span>` : ''}</div>
+    <div class="small">${sub}</div>${progress(frac, k.weekSpent > k.target ? 'over' : '')}
+    <div class="small">${k.weekLeft >= 0 ? `<b>${money(k.weekLeft)} ${esc(base())}</b> <span>left for this week</span>` : `<b>${money(-k.weekLeft)} ${esc(base())}</b> <span>over this week</span>`}</div>`);
 }
 
 /** A ring that fills as you save towards one goal (Umra, a car, a wedding...). */
@@ -541,6 +570,7 @@ function spend() {
     const vals = []; for (let d = cycle.start; d < cycle.nextStart; d++) vals.push(sums[d] || 0);
     html += daysCard(vals);
     html += compareCard(perList.slice(0, 5).map(([k, v]) => [nameOf(k), v, prevPer[k] || 0]));
+    html += trendCard(cycle, spent);
     html += card(label('By category · tap to filter') + perList.map(([k, total]) => {
       const limit = limitOf(k);
       const sel = String(ui.spendFilter) === String(k);
@@ -582,6 +612,24 @@ function daysCard(values) {
     `<i class="${v <= 0 ? 'empty' : v >= max * 0.85 ? 'over' : ''}" style="height:${v <= 0 ? 4 : Math.max(4, v / max * 90)}px"></i>`).join('')}</div>`);
 }
 
+/** The last 6 months as bars, with how this month compares to the one before. */
+function trendCard(cycle, spent) {
+  const s = R.S();
+  const cycles = [cycle];
+  for (let i = 0; i < 5; i++) cycles.unshift(C.previousCycle(cycles[0], s.cycleStart));
+  const totals = cycles.map((c) => R.data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && c.contains(t.epochDay)).reduce((a, t) => a + R.base(t), 0));
+  const prev = totals[totals.length - 2];
+  if (totals.filter((v) => v > 0).length < 2) return '';
+  const max = Math.max(...totals, 1);
+  let pillHtml = '';
+  if (prev > 0) {
+    const pct = Math.round((spent - prev) / prev * 100);
+    pillHtml = pct > 0 ? pill(`▲ ${pct}% vs last month`, 'bad') : pct < 0 ? pill(`▼ ${-pct}% vs last month`, 'good') : pill('＝ same as last month');
+  }
+  const bars = totals.map((v, i) => `<div class="tcol"><small>${v > 0 ? money(v) : ''}</small><i class="${i === totals.length - 1 ? 'now' : ''}" style="height:${v > 0 ? Math.max(4, v / max * 84) : 3}px"></i><span>${esc(C.fmtMonth(cycles[i].end).slice(0, 3))}</span></div>`).join('');
+  return card(`<div class="row-flex"><div class="label grow">Last 6 months</div>${pillHtml}</div><div class="trend">${bars}</div>`);
+}
+
 /** This month against last month for the biggest categories: two bars each, longer bar = more money. */
 function compareCard(items) {
   if (!items.length || items.every((i) => i[2] <= 0)) return '';
@@ -609,12 +657,81 @@ function spendList(txns) {
 
 function txnRow(t) {
   const cat = R.byId(R.data.categories, t.categoryId);
-  const wn = (id) => R.byId(R.data.wallets, id)?.name ?? '';
   const title = t.note || cat?.name || (t.type === 'TRANSFER' ? 'Transfer' : '—');
-  const sub = t.type === 'TRANSFER' ? `${wn(t.walletId)} → ${wn(t.toWalletId)}` : `${R.categoryLabel(t.categoryId)} · ${wn(t.walletId)}`;
+  const tagText = R.tagsOf(t).map((g) => `#${g}`).join(' ');
+  const sub = t.type === 'TRANSFER' ? 'Transfer' : R.categoryLabel(t.categoryId) + (tagText ? ` · ${tagText}` : '');
   const sign = t.type === 'INCOME' ? '+' : t.type === 'EXPENSE' ? '−' : '';
   const cls = t.type === 'INCOME' ? 'good-t' : t.type === 'TRANSFER' ? 'muted' : '';
   return row(title, sub, { icon: cat?.name ?? title, act: 'edit-txn', data: `data-id="${t.id}"`, trailing: `<b class="${cls}">${sign}${C.fmt(t.amount)}${t.currency !== base() ? ' ' + esc(t.currency) : ''}</b>` });
+}
+
+// ---------- Tags (projects) ----------
+
+function tagsPage() {
+  const rows = R.tagTotals();
+  const max = Math.max(1, ...rows.map((r) => r.spent));
+  return topbar('Tags') + `<main class="page">` +
+    `<p class="small pad">Add a tag to any spending or income (like a wedding or a trip) and see its total here, across all categories.</p>` +
+    (rows.length ? rows.map((r) => `<section class="card tap" data-act="open-tag" data-name="${esc(r.name)}"><div class="row-flex"><b class="grow">#${esc(r.name)}</b><b>${money(r.spent)} ${esc(base())}</b></div>
+      ${progress(r.spent / max)}<div class="small">${r.count} ${r.count === 1 ? 'record' : 'records'}${r.earned > 0 ? ` · received ${money(r.earned)}` : ''}</div></section>`).join('')
+      : `<p class="empty">No tags yet. When you add an expense, write a tag in the Tags box.</p>`) + `</main>`;
+}
+
+function tagDetail(c) {
+  const name = c.name;
+  const t = R.tagTotals().find((x) => x.name === name);
+  const txns = R.data.txns.filter((x) => R.tagsOf(x).includes(name)).sort((a, b) => b.epochDay - a.epochDay);
+  if (!t) return topbar(`#${name}`) + `<main class="page"><p class="empty">Nothing with this tag.</p></main>`;
+  const cats = Object.entries(t.cats).sort((a, b) => b[1] - a[1]);
+  return topbar(`#${name}`, `<button class="icon-btn" data-act="tag-menu" data-name="${esc(name)}" aria-label="Rename or remove">${icon('settings')}</button>`) + `<main class="page">` +
+    card(`${label('Spent on this tag')}<div class="big">${money(t.spent)} ${esc(base())}</div>${t.earned > 0 ? `<div class="small">Received ${money(t.earned)} ${esc(base())}</div>` : ''}`, 'primary') +
+    (cats.length ? card(label('Where it went') + `<div class="seg3">${cats.map(([, v], i) => `<i style="flex:${v};background:${CHART_COLORS[i % CHART_COLORS.length]}"></i>`).join('')}</div>` +
+      cats.map(([k, v], i) => `<div class="row-flex lg"><i class="dot-c" style="background:${CHART_COLORS[i % CHART_COLORS.length]}"></i><span class="grow">${esc(k)}</span><b>${money(v)}</b><span class="small">${Math.round(v / t.spent * 100)}%</span></div>`).join('')) : '') +
+    label('Records') + txns.map(txnRow).join('') + `</main>`;
+}
+
+function tagMenu(name) {
+  const { el, close } = sheet({
+    title: `#${name}`, body: field('newname', 'Rename tag', name),
+    saveLabel: 'Rename', onSave: (root) => { const n = val(root, 'newname').trim().replace(/^#/, ''); if (!n) return 'Type a name'; R.renameTag(name, n); ui.stack = [{ r: 'more' }, { r: 'tagsPage' }]; render(); },
+    onDelete: () => { R.removeTag(name); ui.stack = [{ r: 'more' }, { r: 'tagsPage' }]; render(); }, deleteLabel: 'Remove tag from everything',
+  });
+}
+
+// ---------- Mark a whole group as paid ----------
+
+function bulkSheet() {
+  const today = C.todayEpoch(), cycle = C.cycleFor(today, R.S().cycleStart);
+  let month = ui.bulkMonth || 0;
+  const startOf = () => (month === 0 ? today : cycle.nextStart);
+  const body = () => {
+    const gs = R.groupPayments(startOf());
+    return chips('bmonth', [[0, 'This month'], [1, 'Next month']], month, 'seg') +
+      (gs.length ? gs.map((g, i) => `<div class="row tap" data-bulk="${i}"><div class="row-main"><div class="row-title"><b>${esc(g.title)}</b></div>
+        <div class="row-sub">${g.items.length} ${g.items.length === 1 ? 'item' : 'items'}</div></div><b>${money(g.total)}</b><span class="chev">›</span></div>`).join('')
+        : '<p class="empty">Nothing to pay in this month.</p>');
+  };
+  const { el, close } = sheet({ title: 'Mark a whole group as paid', body: body() });
+  const redraw = () => { el.querySelector('.sheet-body').innerHTML = body(); };
+  el.addEventListener('click', (e) => {
+    const m = e.target.closest('[data-group="bmonth"] .chip');
+    if (m) { month = +m.dataset.val; ui.bulkMonth = month; redraw(); return; }
+    const r = e.target.closest('[data-bulk]');
+    if (!r) return;
+    const g = R.groupPayments(startOf())[+r.dataset.bulk];
+    if (!g) return;
+    sheet({
+      title: `${g.title}: mark all as paid`,
+      body: `<p>These payments will be recorded as paid now:</p>` + g.items.map((it) => `<div class="pline"><span>${esc(it.name)}${it.n > 1 ? ` × ${it.n}` : ''}</span><b>${money(it.amount)}</b></div>`).join('') +
+        `<div class="pline"><span><b>Total</b></span><b>${money(g.total)} ${esc(base())}</b></div><p class="small">You can undo it right after.</p>`,
+      saveLabel: 'Mark all as paid',
+      onSave: () => {
+        const undo = R.payGroup(g);
+        ui.bulkUndo = { undo, text: `${g.title}: ${g.items.length} ${g.items.length === 1 ? 'item' : 'items'} paid · ${money(g.total)} ${base()}` };
+        close(); render();
+      },
+    });
+  });
 }
 
 // ---------- Add / edit a transaction ----------
@@ -624,36 +741,40 @@ function add(c) {
   const st = c.st || (c.st = initAdd(c, editing));
   const s = R.S();
   const title = editing ? 'Edit' : st.type === 'INCOME' ? 'Add income' : st.type === 'TRANSFER' ? 'Move money' : 'Add expense';
-  const wopts = walletOpts();
   return `${topbar(title, editing ? `<button class="icon-btn" data-act="del-txn" aria-label="Delete">${icon('del')}</button>` : '')}
   <main class="page form" id="add">
     ${editing?.source ? `<p class="small">This was recorded from a bill, installment, gam'eya or loan.</p>` : ''}
-    ${chips('type', [['EXPENSE', 'Expense'], ['INCOME', 'Income'], ['TRANSFER', 'Transfer']], st.type, 'seg')}
+    ${chips('type', st.type === 'TRANSFER' ? [['TRANSFER', 'Transfer']] : [['EXPENSE', 'Expense'], ['INCOME', 'Income']], st.type, 'seg')}
     <div>${label('Amount')}<div class="amount" id="amt"></div><div class="small" id="qnote"></div></div>
     <label class="field"><span>${st.type === 'EXPENSE' ? 'Amount, or quick: koshary 60' : 'Amount'}</span>
       <div class="input-wrap"><input id="quick" name="quick" value="${esc(st.input)}" autocomplete="off" enterkeyhint="done" inputmode="${st.type === 'EXPENSE' ? 'text' : 'decimal'}"></div></label>
     <div id="cats"></div>
     <div id="borrow"></div>
-    ${label(st.type === 'TRANSFER' ? 'From' : 'Wallet')}${chips('wallet', wopts, st.walletId)}
-    ${st.type === 'TRANSFER' ? label('To') + chips('to', wopts, st.toWalletId) : ''}
     ${R.currencies().length > 1 ? label('Currency') + chips('currency', R.currencies().map((x) => [x, x]), st.currency) + `<div class="small" id="conv"></div>` : ''}
     ${label('Date')}${chips('day', [[C.todayEpoch(), 'Today'], [C.todayEpoch() - 1, 'Yesterday']], st.date)}
     ${dateField('date', 'Or pick a day', st.date)}
     ${field('note', 'Note (optional)', st.noteField)}
+    ${tagField(st.tags)}
     <button class="btn filled wide" data-act="save-txn">Save</button>
     <div class="spacer"></div>
   </main>`;
 }
 
+/** A tag (project) field: type words separated by commas, or tap one you used before. */
+function tagField(tags) {
+  const known = R.allTags().slice(0, 10).map((g) => g.name);
+  return field('tags', 'Tags (optional)', (tags || []).join(', '), { ph: 'wedding, trip' }) +
+    (known.length ? `<div class="chips tagpick">${known.map((n) => `<button type="button" class="chip" data-act="tag-pick" data-name="${esc(n)}">#${esc(n)}</button>`).join('')}</div>` : '');
+}
+const parseTags = (text) => R.normTags(String(text).split(/[,،]/));
+
 function initAdd(c, t) {
   const s = R.S();
-  const ws = R.wallets();
   if (t) {
     const cat = R.byId(R.data.categories, t.categoryId);
-    return { type: t.type, input: String(t.amount), noteField: t.note, categoryId: t.categoryId, parentId: cat ? (cat.parentId ?? cat.id) : null, byHand: true, walletId: t.walletId, toWalletId: t.toWalletId, currency: t.currency, date: t.epochDay, person: '', due: null };
+    return { type: t.type, input: String(t.amount), noteField: t.note, categoryId: t.categoryId, parentId: cat ? (cat.parentId ?? cat.id) : null, byHand: true, walletId: t.walletId, toWalletId: t.toWalletId, currency: t.currency, date: t.epochDay, person: '', due: null, tags: t.tags || [] };
   }
-  const walletId = (ws.find((w) => w.id === s.lastWallet) || ws[0])?.id ?? 0;
-  const st = { type: c.type || 'EXPENSE', input: '', noteField: '', categoryId: null, parentId: null, byHand: false, walletId, toWalletId: ws.find((w) => w.id !== walletId)?.id ?? walletId, currency: s.baseCurrency, date: C.todayEpoch(), person: '', due: null };
+  const st = { type: c.type === 'INCOME' ? 'INCOME' : 'EXPENSE', input: '', noteField: '', categoryId: null, parentId: null, byHand: false, walletId: 0, toWalletId: null, currency: s.baseCurrency, date: C.todayEpoch(), person: '', due: null, tags: [] };
   if (st.type === 'EXPENSE' && s.lastCategory) {
     const cat = R.categories().find((x) => x.id === s.lastCategory);
     if (cat) { st.categoryId = cat.id; st.parentId = cat.parentId ?? cat.id; }
@@ -704,16 +825,14 @@ function saveTxn() {
   const amount = q.amount;
   const note = st.noteField.trim() || q.note;
   if (!(amount > 0)) return toast('Type an amount first');
-  if (!st.walletId) return toast('Pick a wallet');
-  if (st.type === 'TRANSFER' && st.toWalletId === st.walletId) return toast('Pick two different wallets');
   if (st.type !== 'TRANSFER' && !st.categoryId) return toast('Pick a category');
   if (st.isBorrowed && !st.person.trim()) return toast('Who did you borrow from?');
   if (st.isBorrowed) {
-    R.addLoan({ person: st.person.trim(), lent: false, amount: amount * R.rateOf(st.currency), walletId: st.walletId, day: st.date, due: st.due, note });
+    R.addLoan({ person: st.person.trim(), lent: false, amount: amount * R.rateOf(st.currency), walletId: 0, day: st.date, due: st.due, note });
   } else {
     R.saveTxn({
-      ...(c.id ? { id: c.id } : {}), type: st.type, amount, currency: st.currency, rate: R.rateOf(st.currency), walletId: st.walletId,
-      toWalletId: st.type === 'TRANSFER' ? st.toWalletId : null, categoryId: st.type === 'TRANSFER' ? null : st.categoryId, note, epochDay: st.date,
+      ...(c.id ? { id: c.id } : {}), type: st.type, amount, currency: st.currency, rate: R.rateOf(st.currency), walletId: st.walletId || 0,
+      toWalletId: st.type === 'TRANSFER' ? st.toWalletId : null, tags: parseTags(val(root, 'tags')), categoryId: st.type === 'TRANSFER' ? null : st.categoryId, note, epochDay: st.date,
     });
     if (st.type === 'EXPENSE' && !c.id) checkOverBudget();
   }
@@ -725,13 +844,12 @@ function checkOverBudget() {
   if (!s.budgetAlert) return;
   const h = R.home();
   const b = h.budget;
-  if (b.leftToday >= 0 || b.budget <= 0) return;
+  if (b.flexLeft >= 0 || b.budget <= 0) return;
   const today = C.isoOf(h.today);
   if (s.overAlert === today) return;
   s.overAlert = today;
   R.changed();
-  const tomorrow = b.daysLeft > 1 ? b.left / (b.daysLeft - 1) : 0;
-  setTimeout(() => toast(`You're ${money(-b.leftToday)} ${base()} over today's budget. Tomorrow you can spend about ${money(Math.max(tomorrow, 0))}.`, 6000), 300);
+  setTimeout(() => toast(`You're ${money(-b.flexLeft)} ${base()} over the flexible amount for this month.`, 6000), 300);
 }
 
 // ---------- Bills ----------
@@ -772,7 +890,7 @@ function billEditor(b) {
     <div class="small" id="share"></div>` +
     dateField('due', 'Next due date', b.nextDue) +
     numField('remind', 'Remind me days before', b.remindDays, { int: true, keepZero: true }) +
-    label('Pay from') + chips('wallet', walletOpts(), b.walletId ?? '') +
+
     (isNew ? '' : `<button type="button" class="btn tonal" data-act="skip-bill" data-id="${b.id}">Skip this time</button>`);
   const { el } = sheet({
     title: isNew ? 'New bill' : b.name, body,
@@ -786,7 +904,7 @@ function billEditor(b) {
       const freq = chipVal(root, 'freq') || 'MONTHLY';
       R.saveBill({
         ...b, name, amount, kind: chipVal(root, 'kind') || 'BILL', frequency: freq, everyN: Math.max(parseInt(val(root, 'everyN')) || 30, 1),
-        nextDue: due, anchorDay: C.ymd(due).d, walletId: +chipVal(root, 'wallet') || null,
+        nextDue: due, anchorDay: C.ymd(due).d, walletId: null,
         remindDays: Math.min(Math.max(parseInt(val(root, 'remind')) || 0, 0), 30), variable: checked(root, 'variable'),
         currency: chipVal(root, 'currency') || b.currency, categoryId: b.categoryId ?? R.guessCategory(name, 'EXPENSE'),
       });
@@ -910,6 +1028,8 @@ function commitOverview() {
   const late = C.commitLate(shown, today), later = C.commitLater(shown, today), done = C.commitDone(shown);
   let html = card(`${label('Left to pay this month')}<div class="big hero-n">${money(left)} ${base()}</div>
     <div>${n === 0 ? 'Nothing left to pay. Well done!' : `${n} payments to go`}</div><div class="small">${esc(monthName)}</div>`, 'primary');
+  if (ui.bulkUndo) html += card(`<div class="row-flex"><div class="grow"><b class="good-t">✓ ${esc(ui.bulkUndo.text)}</b></div><button class="btn text" data-act="bulk-undo">Undo</button><button class="btn text" data-act="bulk-dismiss">OK</button></div>`, 'tonal');
+  if (R.groupPayments(today).length) html += `<button class="btn outline wide" data-act="bulk-open">Mark a whole group as paid</button>`;
   html += `<div class="fchips">${C.COMMIT_FILTERS.map(([v, l]) => `<button class="chip ${ui.cFilter === v ? 'on' : ''}" data-act="commit-filter" data-v="${v}">${l}</button>`).join('')}</div>`;
   html += card(`<div class="cal">${cells}</div>`);
   if (ui.cDay != null) html += `<div class="row-flex pad-t"><div class="grow small">Showing ${esc(C.fmtDay(ui.cDay))}</div><button class="btn text" data-act="commit-day" data-d="${ui.cDay}">Show all</button></div>`;
@@ -1010,8 +1130,7 @@ function instEditor(it) {
     numField('amount', 'Monthly payment', it.amount) +
     `<div class="two">${numField('total', 'Months in total', it.total, { int: true })}${numField('paid', 'Already paid', it.paid, { int: true, keepZero: true })}</div>` +
     dateField('first', 'First payment date', it.firstDue) + `<div class="small" id="sum"></div>` +
-    numField('remind', 'Remind me days before', it.remindDays, { int: true, keepZero: true }) +
-    label('Pay from') + chips('wallet', walletOpts(), it.walletId ?? '');
+    numField('remind', 'Remind me days before', it.remindDays, { int: true, keepZero: true });
   const { el } = sheet({
     title: isNew ? 'New installment' : it.name, body,
     onDelete: isNew ? null : () => R.deleteInstallment(it),
@@ -1023,7 +1142,7 @@ function instEditor(it) {
       R.saveInstallment({
         ...it, name, type: val(root, 'newType').trim() || chipVal(root, 'type') || it.type, provider: val(root, 'provider').trim(),
         amount: a, total: t, paid: Math.min(Math.max(parseInt(val(root, 'paid')) || 0, 0), t), firstDue: C.fromIso(val(root, 'first')) ?? it.firstDue,
-        walletId: +chipVal(root, 'wallet') || null, remindDays: Math.min(Math.max(parseInt(val(root, 'remind')) || 0, 0), 30),
+        walletId: null, remindDays: Math.min(Math.max(parseInt(val(root, 'remind')) || 0, 0), 30),
       });
     },
   });
@@ -1071,7 +1190,7 @@ function circleEditor(c) {
     `<div class="two">${numField('months', 'Months / members', c.months, { int: true })}${numField('turn', 'My turn', c.myTurn, { int: true })}</div>` +
     dateField('first', 'First payment date', c.firstDue) + numField('paid', 'Shares already paid', c.paid, { int: true, keepZero: true }) +
     check('received', 'I already collected my payout', c.payoutReceived) + `<div class="small" id="sum"></div>` +
-    numField('remind', 'Remind me days before', c.remindDays, { int: true, keepZero: true }) + label('Pay from') + chips('wallet', walletOpts(), c.walletId ?? '');
+    numField('remind', 'Remind me days before', c.remindDays, { int: true, keepZero: true });
   const { el } = sheet({
     title: isNew ? "New gam'eya" : c.name, body,
     onDelete: isNew ? null : () => R.deleteCircle(c),
@@ -1084,7 +1203,7 @@ function circleEditor(c) {
       R.saveCircle({
         ...c, name, share: s, months: m, myTurn: t, paid: Math.min(Math.max(parseInt(val(root, 'paid')) || 0, 0), m),
         firstDue: C.fromIso(val(root, 'first')) ?? c.firstDue, payoutReceived: checked(root, 'received'),
-        walletId: +chipVal(root, 'wallet') || null, remindDays: Math.min(Math.max(parseInt(val(root, 'remind')) || 0, 0), 30),
+        walletId: null, remindDays: Math.min(Math.max(parseInt(val(root, 'remind')) || 0, 0), 30),
       });
     },
   });
@@ -1121,7 +1240,7 @@ function newLoan() {
   const body = label('Pick one first') + chips('dir', [['BORROWED', 'I borrowed money (I owe)'], ['LENT', 'I lent money (they owe me)']], '', 'seg') +
     field('person', 'To / from whom', '') + numField('amount', 'Amount', null, { suffix: base() }) +
     dateField('date', 'Date', C.todayEpoch()) + dateField('due', 'Pay back by (optional)', null) + field('note', 'Note (optional)', '') +
-    check('record', 'Record the money in my wallet too', true) + label('Wallet') + chips('wallet', walletOpts(), R.wallets()[0]?.id ?? '');
+    check('record', 'Add it to my balance too', true);
   sheet({
     title: 'New loan', body,
     onSave: (root) => {
@@ -1129,7 +1248,7 @@ function newLoan() {
       if (!chipVal(root, 'dir')) return 'Pick: I borrowed or I lent';
       if (!person) return 'Who is it?';
       if (!(a > 0)) return 'Type the amount';
-      R.addLoan({ person, lent: chipVal(root, 'dir') === 'LENT', amount: a, walletId: +chipVal(root, 'wallet') || null, day: C.fromIso(val(root, 'date')) ?? C.todayEpoch(), due: C.fromIso(val(root, 'due')), note: val(root, 'note').trim(), record: checked(root, 'record') });
+      R.addLoan({ person, lent: chipVal(root, 'dir') === 'LENT', amount: a, walletId: null, day: C.fromIso(val(root, 'date')) ?? C.todayEpoch(), due: C.fromIso(val(root, 'due')), note: val(root, 'note').trim(), record: checked(root, 'record') });
     },
   });
 }
@@ -1305,7 +1424,7 @@ function wealthPage() {
   R.recordWealth();
   const w = R.wealth(), cur = base(), today = C.todayEpoch();
   const ln = (l, v, tone = '') => `<div class="pline"><span>${esc(l)}</span><span class="${tone} b">${esc(v)}</span></div>`;
-  let total = `${label('Total')}<div class="huge">${money(w.total)} ${esc(cur)}</div><div class="gap8"></div>` + ln('In wallets', `${money(w.cash)} ${cur}`) + ln("Gold I bought, at today's price", `${money(w.gold)} ${cur}`);
+  let total = `${label('Total')}<div class="huge">${money(w.total)} ${esc(cur)}</div><div class="gap8"></div>` + ln('Money I have', `${money(w.cash)} ${cur}`) + ln("Gold I bought, at today's price", `${money(w.gold)} ${cur}`);
   if (w.dollars != null) total += ln('In dollars', `$${money(w.dollars)}`);
   if (w.goldGrams != null) total += ln('In gold (21k)', `${C.fmt(Math.round(w.goldGrams * 10) / 10)} g`);
   if (w.dollars == null && w.goldGrams == null) total += `<div class="small">Turn on today's rates in Currencies & gold to see dollars and gold</div>`;
@@ -1402,10 +1521,10 @@ function more() {
     big('📅', 'Month plan', 'Every month like your spreadsheet: income, installments, living, what is left', 'monthPlanPage') +
     big('🐷', 'Piggy bank', 'Everything you saved, month by month', 'piggyPage') +
     big('🎯', 'Goals', 'Umra, a car, a laptop, each with its own date', 'goalsPage') +
-    big('🏦', 'Everything I own', 'Wallets and gold in one number, in dollars and gold, and how it changed', 'wealthPage') +
+    big('🏦', 'Everything I own', 'Your money and gold in one number, in dollars and gold, and how it changed', 'wealthPage') +
     big('🧮', 'Plan ahead', 'Can I afford this? What if I save? When money runs short', 'plan') +
     big('💰', 'Income & salary', 'Your monthly salary, other income, money set aside', 'income') +
-    big('👛', 'Wallets', 'Cash, bank, Vodafone Cash, cards and balances', 'wallets') +
+    big('#️⃣', 'Tags', 'Weddings, trips, projects: see the total of each across categories', 'tagsPage') +
     big('🏷️', 'Categories', 'Categories, sub-categories and monthly limits', 'categories') +
     big('💱', 'Currencies & gold', "Convert money and gold, today's prices, your own rates", 'currencies') +
     big('⚙️', 'Settings', 'Month start, look, savings goal, PIN lock, backup', 'settings') + `</main>`;
@@ -1418,51 +1537,13 @@ function income() {
   return topbar('Income & salary') + `<main class="page" id="income">` +
     card(label('Monthly salary') + `<div class="small">Added by itself every month on its day. If one month is different, edit it in Spend.</div>` +
       numField('salary', 'Salary', s.salary, { suffix: base() }) + numField('salaryDay', 'Day of the month it arrives', s.salaryDay, { int: true }) +
-      label('Goes into') + chips('wallet', walletOpts(), s.salaryWallet || R.wallets()[0]?.id) +
       numField('savings', 'Set aside for savings each month (optional)', s.savingsPerMonth, { suffix: base() }) +
+      numField('household', 'Household shopping each month (optional)', s.household, { suffix: base() }) +
+      `<div class="small">Kept apart from your flexible money. Groceries you add use this amount first.</div>` +
       `<button class="btn filled" data-act="save-income">Save</button>`) +
     `<div class="row-flex pad"><div class="label grow">Income this month · ${money(incomes.reduce((a, t) => a + R.base(t), 0))}</div><button class="btn outline" data-act="open" data-r="add" data-type="INCOME">Add income</button></div>` +
     (incomes.length ? incomes.map(txnRow).join('') : `<p class="empty">Nothing yet this month.</p>`) +
     `<p class="small pad">Other income: gam'eya payout, borrowed money (also saved as a debt), side work, gifts. Pick the category when you add it.</p></main>`;
-}
-
-const WALLET_TYPES = [['CASH', 'Cash'], ['BANK', 'Bank'], ['MOBILE', 'Mobile wallet'], ['CARD', 'Credit card'], ['OTHER', 'Other']];
-function wallets() {
-  const bal = R.balances();
-  const ws = R.wallets();
-  return topbar('Wallets', `<button class="icon-btn" data-act="edit-wallet" data-id="0" aria-label="Add wallet">${icon('add')}</button>`) + `<main class="page">` +
-    card(label('Total') + `<div class="big">${money(ws.reduce((a, w) => a + (bal[w.id] || 0), 0))} ${base()}</div><button class="btn text" data-act="open" data-r="add" data-type="TRANSFER">Move money between wallets</button>`, 'primary') +
-    ws.map((w) => {
-      const b = bal[w.id] || 0;
-      const shown = w.currency !== base() ? b / R.rateOf(w.currency) : b;
-      return row(w.name, (WALLET_TYPES.find((t) => t[0] === w.type)?.[1] ?? 'Other') + (w.currency !== base() ? ` · ${w.currency}` : ''), { icon: w.name, act: 'edit-wallet', data: `data-id="${w.id}"`, trailing: `<b class="${b < 0 ? 'bad-t' : ''}">${C.fmt(shown)}</b>` });
-    }).join('') + `<p class="small pad">Balances start from the opening amount you set and follow everything you record.</p></main>`;
-}
-
-function walletEditor(w) {
-  const isNew = !w;
-  w = w || { id: 0, name: '', type: 'CASH', currency: base(), opening: 0, sort: R.data.wallets.length, archived: false };
-  const balance = R.balances()[w.id];
-  const body = field('name', 'Name', w.name) + chips('type', WALLET_TYPES, w.type) +
-    (R.currencies().length > 1 ? chips('currency', R.currencies().map((x) => [x, x]), w.currency) : '') +
-    numField('opening', 'Opening balance', w.opening, { suffix: w.currency }) +
-    (isNew ? '' : numField('actual', 'Or: how much is in it right now?', null, { suffix: w.currency }) + `<div class="small">We'll fix the balance to match.</div>`);
-  sheet({
-    title: isNew ? 'New wallet' : w.name, body,
-    onDelete: isNew ? null : () => { const x = R.byId(R.data.wallets, w.id); x.archived = true; R.changed(); },
-    onSave: (root) => {
-      const name = val(root, 'name').trim();
-      if (!name) return 'Give it a name';
-      const currency = chipVal(root, 'currency') || w.currency;
-      let o = num(root, 'opening') || 0;
-      const real = num(root, 'actual');
-      if (real != null && balance != null) o += (real * R.rateOf(currency) - balance) / R.rateOf(currency);
-      const nw = { ...w, name, type: chipVal(root, 'type') || w.type, currency, opening: o };
-      if (isNew) R.data.wallets.push({ ...nw, id: R.nextId() });
-      else Object.assign(R.byId(R.data.wallets, w.id), nw);
-      R.changed();
-    },
-  });
 }
 
 function categories() {
@@ -1723,8 +1804,6 @@ const actions = {
       if (group === 'type' && v !== st.type) { st.type = v; st.categoryId = null; st.parentId = null; st.byHand = false; render(); return; }
       if (group === 'parent') { st.parentId = +v; st.categoryId = +v; st.byHand = true; addRefresh(); }
       if (group === 'sub') { st.categoryId = st.categoryId === +v ? st.parentId : +v; st.byHand = true; addRefresh(); }
-      if (group === 'wallet') st.walletId = +v;
-      if (group === 'to') st.toWalletId = +v;
       if (group === 'currency') { st.currency = v; addRefresh(); }
       if (group === 'day') { st.date = +v; $('[name="date"]').value = C.isoOf(+v); }
     }
@@ -1749,6 +1828,17 @@ const actions = {
   'commit-filter': (el) => { ui.cFilter = el.dataset.v; ui.cDay = null; render(); },
   'commit-day': (el) => { const d = +el.dataset.d; ui.cDay = ui.cDay === d ? null : d; render(); },
   'commit-add': () => commitAddSheet(),
+  'bulk-open': () => bulkSheet(),
+  'bulk-undo': () => { if (ui.bulkUndo) { R.undoPayGroup(ui.bulkUndo.undo); ui.bulkUndo = null; toast('Undone'); render(); } },
+  'bulk-dismiss': () => { ui.bulkUndo = null; render(); },
+  'open-tag': (el) => go('tagDetail', { name: el.dataset.name }),
+  'tag-menu': (el) => tagMenu(el.dataset.name),
+  'tag-pick': (el) => {
+    const inp = $('[name="tags"]');
+    const list = parseTags(inp.value);
+    const n = el.dataset.name;
+    inp.value = (list.includes(n) ? list.filter((x) => x !== n) : [...list, n]).join(', ');
+  },
   'commit-icon': (el) => commitIconSheet({ kind: el.dataset.k, refId: +el.dataset.id, name: el.dataset.name }),
   'commit-pay': (el) => {
     const id = +el.dataset.id;
@@ -1774,13 +1864,12 @@ const actions = {
     const root = $('#income');
     R.S().salary = num(root, 'salary') || 0;
     R.S().salaryDay = Math.min(Math.max(parseInt(val(root, 'salaryDay')) || 1, 1), 31);
-    R.S().salaryWallet = +chipVal(root, 'wallet') || R.wallets()[0]?.id || 0;
     R.S().savingsPerMonth = num(root, 'savings') || 0;
+    R.S().household = num(root, 'household') || 0;
     R.changed();
     R.ensureSalary();
     toast('Saved');
   },
-  'edit-wallet': (el) => walletEditor(R.byId(R.data.wallets, +el.dataset.id)),
   'edit-cat': (el) => catEditor(R.byId(R.data.categories, +el.dataset.id)),
   'add-sub': (el) => catEditor(null, +el.dataset.id),
   'save-base': () => { const v = val($('#cur'), 'base').trim().toUpperCase().slice(0, 4); if (v) { R.setSetting('baseCurrency', v); toast('Saved'); } },

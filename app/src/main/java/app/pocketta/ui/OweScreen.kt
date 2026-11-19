@@ -227,8 +227,6 @@ internal fun InstallmentEditor(repo: Repo, inst: Installment, usedTypes: List<St
             Text("Total ${Money.fmt(a * t)} · ends ${p.endDate.format(monthYearFmt)} · ${Money.fmt(p.remainingAmount)} left", style = MaterialTheme.typography.bodySmall)
         }
         NumberField("Remind me days before", remind, { remind = it }, decimal = false)
-        Label("Pay from")
-        Choices(wallets.map { it.id }, walletId, { id -> wallets.firstOrNull { it.id == id }?.name ?: "" }, { walletId = it })
     }
 }
 
@@ -371,8 +369,6 @@ internal fun CircleEditor(repo: Repo, c: CircleEntity, onClose: () -> Unit) {
             Text("You collect ${Money.fmt(cc.payout)} in ${cc.payoutDate.format(monthYearFmt)}", style = MaterialTheme.typography.bodySmall)
         }
         NumberField("Remind me days before", remind, { remind = it }, decimal = false)
-        Label("Pay from")
-        Choices(wallets.map { it.id }, walletId, { id -> wallets.firstOrNull { it.id == id }?.name ?: "" }, { walletId = it })
     }
 }
 
@@ -465,11 +461,7 @@ internal fun NewLoanDialog(repo: Repo, prefs: Prefs, onClose: () -> Unit) {
         TextInput("Note (optional)", note, { note = it })
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = record, onCheckedChange = { record = it })
-            Text(if (lent) "Take it out of my wallet" else "Add it to my wallet (counts as income)", style = MaterialTheme.typography.bodySmall)
-        }
-        if (record) {
-            Label("Wallet")
-            Choices(wallets.map { it.id }, walletId ?: wallets.firstOrNull()?.id, { id -> wallets.firstOrNull { it.id == id }?.name ?: "" }, { walletId = it })
+            Text(if (lent) "Take it out of my balance" else "Add it to my balance (counts as income)", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

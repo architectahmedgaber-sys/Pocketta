@@ -64,8 +64,11 @@ data class Txn(
     val sourceId: Long = 0,
     /** Paid from money set aside every month (quarterly/yearly bills), so it does not hit this month again. */
     val spread: Boolean = false,
+    /** Tags (projects) as one text, tags joined by "|". Use [tagList]. */
+    val tags: String = "",
 ) {
     val base: Double get() = amount * rate
+    val tagList: List<String> get() = Tags.split(tags)
 }
 
 @Entity(tableName = "bills")
@@ -141,3 +144,12 @@ data class SettingRow(
     @PrimaryKey val key: String,
     val value: String,
 )
+
+/** Tags are kept in one text column so old backups and the web file stay compatible. */
+object Tags {
+    fun split(s: String): List<String> = s.split('|').map { it.trim() }.filter { it.isNotEmpty() }
+    fun join(l: List<String>): String = normalize(l).joinToString("|")
+    fun normalize(l: List<String>): List<String> = l.map { it.trim().removePrefix("#").trim() }.filter { it.isNotEmpty() }.distinct().take(5)
+    /** Splits what a person typed: words separated by commas. */
+    fun parse(text: String): List<String> = normalize(text.split(',', '،'))
+}

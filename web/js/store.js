@@ -24,6 +24,8 @@ const DEFAULT_SETTINGS = {
   // 1.3: look, savings goal, today's rates from the internet (your own rates still win)
   theme: 'AUTO', goalName: '', goalAmount: 0, goalSaved: 0, goals: [], piggy: [], piggyTarget: 0, limitAlert: true, limitDismissed: '',
   lang: 'EN', goldBuys: [], monthEndReminder: true, monthEndDismissed: '',
+  // 1.14: flexible money, household shopping reserve, weekly summary from Miqrish
+  household: 0, weeklyAi: { week: '', text: '' }, weeklyAiOn: true,
   salarySteps: {}, livingBase: 0, livingOverrides: {},
   wealthHistory: [], autoRates: true, autoCurrencies: ['USD', 'EUR', 'SAR'], onlineRates: {}, prevOnlineRates: {}, gold: {}, prevGold: {}, ratesUpdated: '', ratesFetchedAt: 0,
 };
@@ -179,11 +181,13 @@ export function categoryLabel(id) {
 function txn(t) {
   return {
     id: nextId(), type: 'EXPENSE', amount: 0, currency: S().baseCurrency, rate: 1, walletId: 0, toWalletId: null,
-    categoryId: null, note: '', epochDay: C.todayEpoch(), createdAt: Date.now(), source: '', sourceId: 0, spread: false, ...t,
+    categoryId: null, note: '', epochDay: C.todayEpoch(), createdAt: Date.now(), source: '', sourceId: 0, spread: false, tags: [], ...t,
   };
 }
 
 export function saveTxn(t) {
+  if (!t.walletId) t = { ...t, walletId: defaultWallet() };
+  if (t.tags) t = { ...t, tags: normTags(t.tags) };
   if (!t.id) data.txns.push(txn(t));
   else { const i = data.txns.findIndex((x) => x.id === t.id); if (i >= 0) data.txns[i] = { ...data.txns[i], ...t }; }
   if (t.type === 'EXPENSE' && t.categoryId && !t.source) S().lastCategory = t.categoryId;
@@ -257,7 +261,86 @@ export function week(today, dayReference) {
   let under = 0;
   if (dayReference > 0) for (let d = from; d <= today; d++) if ((perDay[d] || 0) <= dayReference) under++;
   const best = Object.entries(top).sort((a, b) => b[1] - a[1])[0];
-  return { spent: now.reduce((a, t) => a + base(t), 0), previous: before.reduce((a, t) => a + base(t), 0), topCategory: best ? best[0] : null, daysUnder: under };
+  return { spent: now.reduce((a, t) => a + base(t), 0), previous: before.reduce((a, t) => a + base(t), 0), topCategory: best ? best[0] : null, topAmount: best ? best[1] : 0, daysUnder: under };
+}
+
+// ---------- Tags (projects): one word per tag, any transaction can have several ----------
+
+export const normTags = (list) => [...new Set((list || []).map((x) => String(x).trim().replace(/^#/, '')).filter(Boolean))].slice(0, 5);
+export const tagsOf = (t) => t.tags || [];
+export function allTags() {
+  const m = {};
+  for (const t of data.txns) for (const g of tagsOf(t)) m[g] = (m[g] || 0) + 1;
+  return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, n]) => ({ name, n }));
+}
+/** Per tag: money spent, money earned, number of transactions and the split by category. */
+export function tagTotals() {
+  const m = new Map();
+  const nm = (id) => { const c = byId(data.categories, id); if (!c) return 'No category'; const p = c.parentId ? byId(data.categories, c.parentId) : c; return (p || c).name; };
+  for (const t of data.txns) {
+    if (t.type === 'TRANSFER') continue;
+    for (const g of tagsOf(t)) {
+      const o = m.get(g) || { name: g, spent: 0, earned: 0, count: 0, cats: {}, last: 0 };
+      if (t.type === 'EXPENSE') { o.spent += base(t); const k = nm(t.categoryId); o.cats[k] = (o.cats[k] || 0) + base(t); } else o.earned += base(t);
+      o.count++; o.last = Math.max(o.last, t.epochDay);
+      m.set(g, o);
+    }
+  }
+  return [...m.values()].sort((a, b) => b.last - a.last);
+}
+export function renameTag(from, to) {
+  to = String(to).trim().replace(/^#/, '');
+  if (!to) return;
+  for (const t of data.txns) if (tagsOf(t).includes(from)) t.tags = normTags(tagsOf(t).map((x) => (x === from ? to : x)));
+  changed();
+}
+export function removeTag(name) { for (const t of data.txns) if (tagsOf(t).includes(name)) t.tags = tagsOf(t).filter((x) => x !== name); changed(); }
+
+// ---------- Pay a whole group at once ----------
+
+/** Payments of one group (a provider, credit cards, gam'eya, bills...) that fall due up to the end of the month starting at [monthStart]. */
+export function groupPayments(monthStart) {
+  const s = S();
+  const cycle = C.cycleFor(monthStart, s.cycleStart);
+  const end = cycle.nextStart;
+  const groups = new Map();
+  const add = (key, title, o) => { const g = groups.get(key) || { key, title, items: [], total: 0 }; g.items.push(o); g.total += o.amount; groups.set(key, g); };
+  for (const b of data.bills) {
+    if (b.active === false) continue;
+    const n = C.occurrences(b.nextDue, b.frequency, b.everyN, b.nextDue, end, b.anchorDay).length;
+    if (n > 0) add(b.kind === 'SUB' ? 'subs' : 'bills', b.kind === 'SUB' ? 'Subscriptions' : 'Bills', { kind: 'BILL', id: b.id, name: b.name, n, amount: estimate(b) * rateOf(b.currency) * n });
+  }
+  for (const i of data.installments) {
+    const n = C.plan(i.amount, i.total, i.paid, i.firstDue).unpaidDueIn(-1e9, end).length;
+    if (!n) continue;
+    const card = String(i.type).toLowerCase() === 'credit card';
+    const label = i.provider && i.provider.trim() ? i.provider.trim() : i.type;
+    add(card ? 'cards' : 'p:' + label.toLowerCase(), card ? 'Credit cards' : label, { kind: 'INSTALLMENT', id: i.id, name: i.name, n, amount: i.amount * n });
+  }
+  for (const c of data.circles) {
+    const n = C.circle(c).plan.unpaidDueIn(-1e9, end).length;
+    if (n > 0) add('circles', "Gam'eya", { kind: 'CIRCLE', id: c.id, name: c.name, n, amount: c.share * n });
+  }
+  return [...groups.values()].sort((a, b) => b.total - a.total);
+}
+/** Marks every item of a group as paid. Returns what is needed to undo it. */
+export function payGroup(group) {
+  const undo = { txnIds: [], bills: [] };
+  const before = new Set(data.txns.map((t) => t.id));
+  for (const it of group.items) {
+    for (let k = 0; k < it.n; k++) {
+      if (it.kind === 'BILL') { const b = byId(data.bills, it.id); if (b) { undo.bills.push([b.id, b.nextDue]); payBill(b); } }
+      if (it.kind === 'INSTALLMENT') { const x = byId(data.installments, it.id); if (x) payInstallment(x); }
+      if (it.kind === 'CIRCLE') { const x = byId(data.circles, it.id); if (x) payCircle(x); }
+    }
+  }
+  undo.txnIds = data.txns.filter((t) => !before.has(t.id)).map((t) => t.id);
+  return undo;
+}
+export function undoPayGroup(undo) {
+  for (const id of [...undo.txnIds].reverse()) { const t = byId(data.txns, id); if (t) deleteTxn(t); }
+  for (const [id, due] of [...undo.bills].reverse()) { const b = byId(data.bills, id); if (b) b.nextDue = due; }
+  changed();
 }
 
 // ---------- Bills ----------
@@ -454,7 +537,9 @@ export function home(today = C.todayEpoch()) {
   const all = upcoming(cycle.nextStart + 35);
   const commitments = all.filter((u) => !u.incoming && !u.spread && u.due < cycle.nextStart).reduce((a, u) => a + u.amount, 0);
   const aside = setAside();
-  const b = C.computeBudget({ cycle, today, incomeReceived: income, salaryExpected, setAside: aside, spentBeforeToday: spentBefore, spentToday, commitments, everydaySpent: everyday });
+  const groceries = categoryNamed('Groceries', 'EXPENSE');
+  const householdSpent = s.household > 0 && groceries ? sum(spending.filter((t) => !t.source && t.categoryId === groceries)) : 0;
+  const b = C.computeBudget({ cycle, today, incomeReceived: income, salaryExpected, setAside: aside, spentBeforeToday: spentBefore, spentToday, commitments, everydaySpent: everyday, household: s.household || 0, householdSpent });
   const perDay = {};
   for (const t of spending) perDay[t.epochDay] = (perDay[t.epochDay] || 0) + base(t);
   const days = [];
@@ -462,7 +547,30 @@ export function home(today = C.todayEpoch()) {
   return {
     cycle, today, budget: b, days, dayReference: cycle.length > 0 ? b.budget / cycle.length : 0,
     upcoming: all.filter((u) => u.due < today + 35), setAside: aside, income, salaryExpected,
+    streak: streakNow(today, b, cycle),
   };
+}
+
+/** Flexible spending per day: everyday expenses, without the household shopping that has its own reserve. */
+function flexPerDay(from, to) {
+  const groceries = S().household > 0 ? categoryNamed('Groceries', 'EXPENSE') : null;
+  const m = {};
+  for (const t of data.txns) {
+    if (t.type !== 'EXPENSE' || t.spread || t.source || t.epochDay < from || t.epochDay > to) continue;
+    if (groceries && t.categoryId === groceries) continue;
+    m[t.epochDay] = (m[t.epochDay] || 0) + base(t);
+  }
+  return m;
+}
+/** The saving challenge: days in a row where the last 7 days stayed under the weekly share of the flexible money. */
+function streakNow(today, b, cycle) {
+  if (!(b.flexTotal > 0)) return null;
+  const spendDays = data.txns.filter((t) => t.type === 'EXPENSE' && !t.source).map((t) => t.epochDay);
+  if (!spendDays.length) return null;
+  const first = Math.min(...spendDays);
+  if (today - first < 2) return null;
+  const perDay = flexPerDay(today - 130, today);
+  return C.streak(perDay, today, b.flexTotal / cycle.length * 7, first);
 }
 
 /** Everything the planning tools need: the home numbers, spending per top-level category now and usually, and bills that could wait. */

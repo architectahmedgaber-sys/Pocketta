@@ -131,12 +131,12 @@ object Notifier {
     }
 
     @SuppressLint("MissingPermission")
-    fun overBudget(context: Context, over: Double, tomorrow: Double, currency: String, lang: String = Tr.EN) {
+    fun overBudget(context: Context, over: Double, currency: String, lang: String = Tr.EN) {
         if (!canPost(context)) return
         val n = NotificationCompat.Builder(context, CH_BUDGET)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle(if (lang == Tr.AR) "عدّيت ميزانية النهارده بـ ${Money.fmt(over)} $currency" else "You're over today's budget by ${Money.fmt(over)} $currency")
-            .setContentText(if (lang == Tr.AR) "مصروف بكرة هيقل لـ ${Money.fmt(tomorrow)} $currency" else "Tomorrow's allowance drops to ${Money.fmt(tomorrow)} $currency")
+            .setContentTitle(if (lang == Tr.AR) "عدّيت المبلغ المرن بـ ${Money.fmt(over)} $currency" else "You're over the flexible amount by ${Money.fmt(over)} $currency")
+            .setContentText(if (lang == Tr.AR) "فلوسك المرنة للشهر ده خلصت" else "This month's flexible money is used up")
             .setContentIntent(openApp(context))
             .setAutoCancel(true)
             .build()

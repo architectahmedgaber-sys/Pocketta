@@ -17,6 +17,8 @@ sealed interface Route {
     ) : Route
     data object Income : Route
     data object Wallets : Route
+    data object Tags : Route
+    data class TagDetail(val name: String) : Route
     data object Categories : Route
     data object Currencies : Route
     data object Settings : Route

@@ -391,3 +391,16 @@ main:has(+ .tabs) .chatpage { padding-bottom: 170px; }
 .bubble.error { background: var(--error-c); color: var(--on-error-c); }
 .chatbar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--outline-v); }
 .chatbar input { flex: 1; min-width: 0; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--outline); background: var(--surface); color: var(--text); font: inherit; }
+
+/* 1.14: flexible money card, trend, tags */
+.hero-row { display: flex; justify-content: space-between; font-size: 13px; margin-top: 8px; }
+.hero-row + .bar { margin-top: 4px; }
+.trend { display: flex; align-items: flex-end; gap: 8px; height: 130px; padding-top: 8px; }
+.tcol { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; }
+.tcol i { width: 100%; max-width: 38px; border-radius: 6px 6px 2px 2px; background: var(--outline); }
+.tcol i.now { background: var(--primary); }
+.tcol small { font-size: 10px; color: var(--muted, #6d7b74); }
+.tcol span { font-size: 11px; }
+.tipline { margin-top: 6px; font-weight: 600; }
+.pre { white-space: pre-line; }
+.tagpick { margin-top: -6px; }

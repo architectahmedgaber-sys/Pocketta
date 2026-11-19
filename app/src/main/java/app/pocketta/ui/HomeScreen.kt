@@ -71,17 +71,15 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     val s = state ?: return
     val cur = prefs.baseCurrency
     val b = s.budget
-    val over = b.leftToday < 0
-    val spentToday = b.dailyAllowance - b.leftToday
-    val todayFrac = if (b.dailyAllowance > 0) (spentToday / b.dailyAllowance).toFloat() else 0f
-    // Green while you are fine, amber when most of today's money is gone, red when you are over.
+    val over = b.flexLeft < 0
+    // Green while you spend slower than the month passes, amber when you are ahead of it, red when the flexible money is gone.
     val heroColor = when {
         over -> HeroRed
-        todayFrac >= 0.8f -> HeroAmber
+        b.flexSpentFraction > b.elapsedFraction + 0.1f -> HeroAmber
         else -> HeroGreen
     }
     val heroText = Color.White
-    val target = kotlin.math.abs(b.leftToday).toFloat()
+    val target = kotlin.math.abs(b.flexLeft).toFloat()
     val shownAmount = remember { Animatable(0f) }
     LaunchedEffect(target) { shownAmount.animateTo(target, tween(700)) }
     Box(modifier.fillMaxSize()) {
@@ -108,18 +106,32 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                 }
             }
 
-            // The one question: how much can I spend today?
+            // The one question: how much is left for everyday spending after the commitments?
             SectionCard(container = heroColor) {
-                Text(if (over) "Over today's budget" else "You can spend today", color = heroText, fontWeight = FontWeight.SemiBold)
+                Text(if (over) "Over the flexible amount" else "Left for flexible spending", color = heroText, fontWeight = FontWeight.SemiBold)
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(Money.short(shownAmount.value.toDouble()), fontSize = 52.sp, fontWeight = FontWeight.ExtraBold, color = heroText, maxLines = 1)
                     Text(" $cur", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = heroText, modifier = Modifier.padding(bottom = 10.dp))
                 }
+                Text(
+                    "of ${Money.short(b.flexTotal.coerceAtLeast(0.0))} left after commitments" + if (b.household > 0) " and household shopping" else "",
+                    color = heroText, style = MaterialTheme.typography.bodySmall,
+                )
                 Gap(8)
-                Progress(todayFrac, color = heroText, track = heroText.copy(alpha = 0.25f))
+                Row(Modifier.fillMaxWidth()) {
+                    Text("Month passed", color = heroText, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    Text("${(b.elapsedFraction * 100).toInt()}%", color = heroText, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                }
+                Progress(b.elapsedFraction, color = heroText, track = heroText.copy(alpha = 0.25f))
                 Gap(6)
-                Text("Spent ${Money.short(spentToday)} of ${Money.short(b.dailyAllowance)} today", color = heroText, style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth()) {
+                    Text("Flexible money spent", color = heroText, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    Text("${(b.flexSpentFraction * 100).toInt()}%", color = heroText, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                }
+                Progress(b.flexSpentFraction, color = heroText, track = heroText.copy(alpha = 0.25f))
             }
+
+            StreakCard(s)
 
             QuickAddCard(repo, prefs)
 

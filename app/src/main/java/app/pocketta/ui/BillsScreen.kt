@@ -178,8 +178,6 @@ internal fun BillEditor(repo: Repo, prefs: Prefs, bill: Bill, onClose: () -> Uni
         }
         DateField("Next due date", due, { if (it != null) due = it })
         NumberField("Remind me days before", remind, { remind = it }, decimal = false)
-        Label("Pay from")
-        Choices(wallets.map { it.id }, walletId, { id -> wallets.firstOrNull { it.id == id }?.name ?: "" }, { walletId = it })
         if (bill.id != 0L) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = { scope.launch { repo.skipBill(bill) }; onClose() }) { Text("Skip this time") }

@@ -83,6 +83,12 @@ data class Prefs(
     val livingBase: Double = 0.0,
     /** A different living cost for one month only. */
     val livingOverrides: Map<Int, Double> = emptyMap(),
+    /** Monthly amount kept apart for household shopping (0 = none). */
+    val household: Double = 0.0,
+    /** Friday summary written by the user's own AI key: the Friday (epoch day) it is for, and the text. */
+    val weeklyAiWeek: Long = 0,
+    val weeklyAiText: String = "",
+    val weeklyAiOn: Boolean = true,
 ) {
     fun rateOf(currency: String): Double =
         if (currency == baseCurrency) 1.0 else rates[currency] ?: (if (autoRates) onlineRates[currency] else null) ?: 1.0
@@ -167,6 +173,10 @@ data class Prefs(
                 salarySteps = app.pocketta.core.MonthValues.parse(m["salarySteps"].orEmpty()),
                 livingBase = d("livingBase", 0.0),
                 livingOverrides = app.pocketta.core.MonthValues.parse(m["livingOverrides"].orEmpty()),
+                household = d("household", 0.0),
+                weeklyAiWeek = l("weeklyAiWeek", 0),
+                weeklyAiText = m["weeklyAiText"].orEmpty(),
+                weeklyAiOn = b("weeklyAiOn", true),
             )
         }
 

@@ -61,19 +61,24 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         val b = s.budget
         if (b.budget <= 0 && s.salaryExpected <= 0) return
         val ar = p.lang == Tr.AR
-        val amount = Money.short(kotlin.math.abs(b.dailyAllowance))
+        val amount = Money.short(kotlin.math.abs(b.flexLeft))
         val title = when {
-            b.dailyAllowance < 0 -> if (ar) "ميزانية النهارده سالب (${amount} ${p.baseCurrency})" else "Today's budget is negative ($amount ${p.baseCurrency})"
-            ar -> "تقدر تصرف $amount ${p.baseCurrency} النهارده"
-            else -> "You can spend $amount ${p.baseCurrency} today"
+            b.flexLeft < 0 -> if (ar) "عديت المبلغ المرن بـ $amount ${p.baseCurrency}" else "Over the flexible amount by $amount ${p.baseCurrency}"
+            ar -> "متبقي للمرن $amount ${p.baseCurrency}"
+            else -> "$amount ${p.baseCurrency} left for flexible spending"
         }
         val lines = ArrayList<String>()
         if (s.today.dayOfWeek == DayOfWeek.FRIDAY) {
             val w = repo.week(s.today, s.dayReference)
             if (w.spent > 0) {
-                val pct = if (w.previous > 0) ((w.spent - w.previous) / w.previous * 100).toInt() else null
-                val (first, second) = app.pocketta.core.Planning.weekSentences(w.spent, pct, w.topCategory, w.daysUnder, p.baseCurrency)
-                lines += Tr.t(first, p.lang) + " " + Tr.t(second, p.lang)
+                val ai = runCatching { app.pocketta.ai.AiWeeklyStore.ensure(applicationContext, repo, s, w) }.getOrNull()
+                if (ai != null) lines += ai
+                else {
+                    val pct = if (w.previous > 0) ((w.spent - w.previous) / w.previous * 100).toInt() else null
+                    val (first, second) = app.pocketta.core.Planning.weekSentences(w.spent, pct, w.topCategory, w.daysUnder, p.baseCurrency)
+                    lines += Tr.t(first, p.lang) + " " + Tr.t(second, p.lang)
+                    lines += Tr.t(app.pocketta.core.Streak.weeklyTip(w.spent, w.previous, w.topCategory, b.flexLeft, b.daysLeft), p.lang)
+                }
             }
         }
         Notifier.ratesLine(p, p.lang)?.let { lines += it }
