@@ -165,8 +165,8 @@ fun BalanceDialog(repo: Repo, prefs: Prefs, current: Double, onClose: () -> Unit
         saveEnabled = parseNumber(value) != null,
         onSave = {
             val v = parseNumber(value) ?: 0.0
-            scope.launch { repo.setBalance(v * prefs.rateOf(prefs.baseCurrency)) }
-            onClose()
+            // Close only after saving: closing first cancels this scope before the database write finishes.
+            scope.launch { repo.setBalance(v * prefs.rateOf(prefs.baseCurrency)); onClose() }
         },
     ) {
         NumberField("My money", value, { value = it }, suffix = prefs.baseCurrency)

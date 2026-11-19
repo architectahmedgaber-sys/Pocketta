@@ -1454,6 +1454,8 @@ function wealthPage() {
       if (ch != null) time += ln(l, `${ch >= 0 ? '+' : '−'}${money(Math.abs(ch))} ${cur}`, ch >= 0 ? 'good-t' : 'bad-t');
     }
   }
+  if (w.salaryComing > 0) total += ln('Salary still coming (not counted above)', `${money(w.salaryComing)} ${cur}`);
+  if (w.cash < 0) total += `<div class="small bad-t">Your money is below zero because Pocketta only counts what you typed. Tap Change my balance and type what you really have.</div><div class="gap8"></div>`;
   total += `<button class="btn tonal wide" data-act="edit-balance">Change my balance</button>`;
   return topbar('Everything I own') + `<main class="page">${card(total)}${card(time)}</main>`;
 }

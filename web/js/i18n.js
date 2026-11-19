@@ -198,6 +198,8 @@ const EXTRA = {
   "How much money do I have now?": "معايا كام دلوقتي؟",
   "Cash, bank and mobile wallet together.": "كاش وبنك ومحفظة مع بعض.",
   "Change my balance": "عدّل رصيدي",
+  "Salary still coming (not counted above)": "المرتب لسه جاي (مش محسوب فوق)",
+  "Your money is below zero because Pocketta only counts what you typed. Tap Change my balance and type what you really have.": "فلوسك بالسالب لأن التطبيق بيحسب اللي سجلته بس. اضغط «عدّل رصيدي» واكتب كام معاك فعلاً.",
   "My money": "فلوسي",
   "Type the real total of your cash, bank and mobile wallet. Pocketta fixes the rest.": "اكتب الرقم الحقيقي اللي معاك (كاش + بنك + محفظة مع بعض). التطبيق هيظبط الباقي.",
   "Type a number": "اكتب رقم",

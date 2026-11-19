@@ -672,7 +672,9 @@ export function wealth() {
   const gold = gs ? gs.value : 0;
   const total = cash + gold;
   const usd = s.rates.USD || s.onlineRates.USD;
-  return { cash, gold, total, dollars: usd > 0 ? total / usd : null, goldGrams: s.gold && s.gold['21'] > 0 ? total / s.gold['21'] : null, history: s.wealthHistory || [] };
+  const cycle = C.cycleFor(C.todayEpoch(), s.cycleStart);
+  const salaryComing = s.salary > 0 && !data.txns.some((t) => t.source === 'SALARY' && cycle.contains(t.epochDay)) && salaryDateIn(cycle, s.salaryDay) != null ? s.salary : 0;
+  return { cash, gold, total, salaryComing, dollars: usd > 0 ? total / usd : null, goldGrams: s.gold && s.gold['21'] > 0 ? total / s.gold['21'] : null, history: s.wealthHistory || [] };
 }
 /** Saves today's total once a day (a later call the same day replaces it). */
 export function recordWealth(today = C.todayEpoch()) {
