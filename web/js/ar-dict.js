@@ -401,7 +401,20 @@ export const DICT = {
 "Price per gram": "سعر الجرام",
 "Add gold": "ضيف دهب",
 "Today's price per gram:": "سعر الجرام النهارده:",
-"At month end, offer to move what's left to my savings goal": "في آخر الشهر، اقترح أحط الباقي في هدف الادخار"
+"At month end, offer to move what's left to my savings goal": "في آخر الشهر، اقترح أحط الباقي في هدف الادخار",
+"Left to pay this month": "فاضل تدفعه الشهر ده",
+"Nothing left to pay. Well done!": "مفيش حاجة فاضلة تدفعها. برافو!",
+"# payments to go": "# دفعات فاضلة",
+"Later this month": "بعد كده الشهر ده",
+"Nothing here.": "مفيش حاجة هنا.",
+"Show all": "اعرض الكل",
+"Cards": "الكروت",
+"All": "الكل",
+"Received": "اتسلّم",
+"Expected": "متوقع",
+"Pick from gallery": "اختار من المعرض",
+"Use default": "ارجع للأيقونة الأصلية",
+"Pick a photo or logo from your gallery to show here.": "اختار صورة أو لوجو من المعرض عشان تظهر هنا.",
 };
 export const MONTHS = {"Jan": "يناير", "Feb": "فبراير", "Mar": "مارس", "Apr": "أبريل", "May": "مايو", "Jun": "يونيو", "Jul": "يوليو", "Aug": "أغسطس", "Sep": "سبتمبر", "Oct": "أكتوبر", "Nov": "نوفمبر", "Dec": "ديسمبر", "January": "يناير", "February": "فبراير", "March": "مارس", "April": "أبريل", "June": "يونيو", "July": "يوليو", "August": "أغسطس", "September": "سبتمبر", "October": "أكتوبر", "November": "نوفمبر", "December": "ديسمبر"};
 export const DAYS = {"Mon": "الاثنين", "Tue": "الثلاثاء", "Wed": "الأربعاء", "Thu": "الخميس", "Fri": "الجمعة", "Sat": "السبت", "Sun": "الأحد", "AM": "ص", "PM": "م"};
