@@ -1832,7 +1832,7 @@ document.addEventListener('change', (e) => {
   if (e.target.id !== 'restore-file') return;
   const f = e.target.files[0];
   if (!f) return;
-  f.text().then((text) => confirmSheet('Restore this backup?', 'Everything in the app now will be replaced by the backup.', 'Restore', () => {
+  f.text().then((text) => text.startsWith('SQLite format 3') ? toast("That is the phone's own backup (.db). On the phone use Settings > Save a copy for the web app, then restore that .json file here.") : confirmSheet('Restore this backup?', 'Everything in the app now will be replaced by the backup.', 'Restore', () => {
     if (R.importJson(text)) { ui.stack = [{ r: 'home' }]; toast('Backup restored'); render(); } else toast("That file isn't a Pocketta backup");
   }));
   e.target.value = '';
