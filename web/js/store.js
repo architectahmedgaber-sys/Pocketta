@@ -21,7 +21,7 @@ const DEFAULT_SETTINGS = {
   onboarded: false, cycleStart: 1, baseCurrency: 'EGP', salary: 0, salaryDay: 1, salaryWallet: 0,
   savingsPerMonth: 0, budgetAlert: true, rates: {}, lastCategory: 0, lastWallet: 0, pinHash: '', pinSalt: '', overAlert: '',
   // 1.3: look, savings goal, today's rates from the internet (your own rates still win)
-  theme: 'AUTO', goalName: '', goalAmount: 0, goalSaved: 0, goals: [], piggy: [],
+  theme: 'AUTO', goalName: '', goalAmount: 0, goalSaved: 0, goals: [], piggy: [], piggyTarget: 0, limitAlert: true, limitDismissed: '',
   lang: 'EN', goldBuys: [], monthEndReminder: true, monthEndDismissed: '',
   wealthHistory: [], autoRates: true, autoCurrencies: ['USD', 'EUR', 'SAR'], onlineRates: {}, prevOnlineRates: {}, gold: {}, prevGold: {}, ratesUpdated: '', ratesFetchedAt: 0,
 };
@@ -519,6 +519,34 @@ export function recordWealth(today = C.todayEpoch()) {
   if (JSON.stringify(next) === JSON.stringify(old)) return;
   data.settings.wealthHistory = next;
   persist();
+}
+
+// ---------- Category limits and spending level ----------
+
+/** Top-level expense categories whose spending this cycle is above their monthly limit: [{ name, spent, limit }]. */
+export function categoriesOverLimit(today = C.todayEpoch()) {
+  const cycle = C.cycleFor(today, S().cycleStart);
+  const cats = data.categories.filter((c) => c.kind === 'EXPENSE');
+  const byTop = {};
+  for (const t of data.txns) {
+    if (t.type !== 'EXPENSE' || t.spread || !cycle.contains(t.epochDay)) continue;
+    const c = byId(cats, t.categoryId);
+    if (!c) continue;
+    const top = c.parentId || c.id;
+    byTop[top] = (byTop[top] || 0) + base(t);
+  }
+  return cats.filter((c) => !c.parentId && c.monthlyLimit > 0 && !c.archived && C.limitOver(byTop[c.id] || 0, c.monthlyLimit))
+    .map((c) => ({ id: c.id, name: c.name, spent: byTop[c.id], limit: c.monthlyLimit }));
+}
+
+/** What you spend in a normal month: average of the last 3 finished cycles that had spending, else this cycle so far. */
+export function monthlySpend(today = C.todayEpoch()) {
+  const s = S();
+  const total = (c) => data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && c.contains(t.epochDay)).reduce((a, t) => a + base(t), 0);
+  let c = C.cycleFor(today, s.cycleStart);
+  const cur = total(c), past = [];
+  for (let i = 0; i < 3; i++) { c = C.previousCycle(c, s.cycleStart); const v = total(c); if (v > 0) past.push(v); }
+  return past.length ? past.reduce((a, v) => a + v, 0) / past.length : cur;
 }
 
 // ---------- Piggy bank and goals ----------

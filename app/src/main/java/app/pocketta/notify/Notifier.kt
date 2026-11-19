@@ -36,6 +36,8 @@ object Notifier {
     private const val ID_MONTH_END = 9
     private const val ID_PRICE_RISE = 10
     private const val ID_TEST = 11
+    private const val ID_LIMIT_BASE = 1000
+    private const val ID_SMS_BASE = 100000
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -155,21 +157,63 @@ object Notifier {
         return if (parts.isEmpty()) null else parts.joinToString(" · ")
     }
 
-    /** Last day of the month: offers to move what is left into the savings goal with one tap. */
+    /** Last day of the month: offers to put what is left into the piggy bank (and the savings goal, when one is open) with one tap. */
     @SuppressLint("MissingPermission")
-    fun monthEnd(context: Context, amount: Double, goalName: String, currency: String, lang: String = Tr.EN) {
+    fun monthEnd(context: Context, left: Double, goalMove: Double, goalName: String, currency: String, lang: String = Tr.EN) {
         if (!canPost(context)) return
         val ar = lang == Tr.AR
         val goal = goalName.ifBlank { if (ar) "هدف الادخار" else "your savings goal" }
+        val b = NotificationCompat.Builder(context, CH_BUDGET)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle(if (ar) "الشهر خلصان وفاضلك ${Money.short(left)} $currency" else "The month ends today and you have ${Money.short(left)} $currency left")
+            .setContentText(if (ar) "تحب تحطها في الحصالة؟" else "Put it in your piggy bank?")
+            .setContentIntent(openApp(context))
+            .addAction(0, if (ar) "حطها في الحصالة" else "Put in piggy bank", ActionReceiver.piggyPending(context, left, ID_MONTH_END))
+            .setAutoCancel(true)
+        if (goalMove > 0) b.addAction(0, if (ar) "حطها في $goal" else "Move to $goal", ActionReceiver.goalPending(context, goalMove, ID_MONTH_END))
+        NotificationManagerCompat.from(context).notify(ID_MONTH_END, b.build())
+    }
+
+    /** A category went over its monthly limit. */
+    @SuppressLint("MissingPermission")
+    fun categoryLimit(context: Context, id: Long, name: String, spent: Double, limit: Double, currency: String, lang: String = Tr.EN) {
+        if (!canPost(context)) return
+        val ar = lang == Tr.AR
         val n = NotificationCompat.Builder(context, CH_BUDGET)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle(if (ar) "الشهر خلصان وفاضلك ${Money.short(amount)} $currency" else "The month ends today and you have ${Money.short(amount)} $currency left")
-            .setContentText(if (ar) "تحب تحطها في $goal؟" else "Move it to $goal?")
+            .setContentTitle(if (ar) "عديت ميزانية ${Tr.t(name, lang)} الشهرية" else "You're over your $name limit")
+            .setContentText(
+                if (ar) "صرفت ${Money.short(spent)} من ${Money.short(limit)} $currency"
+                else "Spent ${Money.short(spent)} of ${Money.short(limit)} $currency this month"
+            )
             .setContentIntent(openApp(context))
-            .addAction(0, if (ar) "حطها في الهدف" else "Move to goal", ActionReceiver.goalPending(context, amount, ID_MONTH_END))
             .setAutoCancel(true)
             .build()
-        NotificationManagerCompat.from(context).notify(ID_MONTH_END, n)
+        NotificationManagerCompat.from(context).notify(ID_LIMIT_BASE + id.toInt(), n)
+    }
+
+    /** A bank text message that looks like spending: tap to open Add with the amount filled in. Nothing is saved until you do. */
+    @SuppressLint("MissingPermission")
+    fun smsExpense(context: Context, key: Int, amount: Double, currency: String, merchant: String, lang: String = Tr.EN) {
+        if (!canPost(context)) return
+        val ar = lang == Tr.AR
+        val what = if (merchant.isBlank()) "" else " · $merchant"
+        val open = PendingIntent.getActivity(
+            context, key,
+            Intent(context, MainActivity::class.java).setAction(MainActivity.ACTION_ADD)
+                .putExtra(MainActivity.EXTRA_AMOUNT, amount).putExtra(MainActivity.EXTRA_NOTE, merchant).putExtra(MainActivity.EXTRA_CURRENCY, currency)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val n = NotificationCompat.Builder(context, CH_BUDGET)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle(if (ar) "سجّل مصروف ${Money.fmt(amount)} $currency؟" else "Add an expense of ${Money.fmt(amount)} $currency?")
+            .setContentText((if (ar) "من رسالة البنك" else "From a bank message") + what)
+            .setContentIntent(open)
+            .addAction(0, if (ar) "سجّل" else "Add", open)
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(ID_SMS_BASE + (key and 0xffff), n)
     }
 
     /** The day before and on the day of your turn in a gam'eya: how much you collect, with a one-tap "Got it". */

@@ -67,6 +67,16 @@ data class Prefs(
     val notifyGameya: Boolean = true,
     val notifyRise: Boolean = true,
     val notifyUpdate: Boolean = true,
+    /** Monthly amount to put in the piggy bank (0 = no target). */
+    val piggyTarget: Double = 0.0,
+    /** Tell me when a category passes its monthly limit. */
+    val limitAlert: Boolean = true,
+    /** "cycleStartDay|id,id": the categories already announced this cycle. */
+    val limitAlerted: String = "",
+    /** Suggest an expense from bank text messages (off until you turn it on and allow it). */
+    val smsSuggest: Boolean = false,
+    /** Recent message fingerprints, so one message is suggested once. */
+    val smsSeen: String = "",
 ) {
     fun rateOf(currency: String): Double =
         if (currency == baseCurrency) 1.0 else rates[currency] ?: (if (autoRates) onlineRates[currency] else null) ?: 1.0
@@ -143,6 +153,11 @@ data class Prefs(
                 notifyGameya = b("notifyGameya", true),
                 notifyRise = b("notifyRise", true),
                 notifyUpdate = b("notifyUpdate", true),
+                piggyTarget = d("piggyTarget", 0.0),
+                limitAlert = b("limitAlert", true),
+                limitAlerted = m["limitAlerted"].orEmpty(),
+                smsSuggest = b("smsSuggest", false),
+                smsSeen = m["smsSeen"].orEmpty(),
             )
         }
 

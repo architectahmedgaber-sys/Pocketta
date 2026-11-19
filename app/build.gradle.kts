@@ -89,6 +89,8 @@ dependencies {
     implementation("androidx.glance:glance-material3:1.1.1")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.fragment:fragment-ktx:1.8.5")
+    // Reads receipt photos on the phone (bundled model, no download).
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 
     val room = "2.6.1"
     implementation("androidx.room:room-runtime:$room")

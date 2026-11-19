@@ -44,6 +44,7 @@ fun NotificationsScreen(repo: Repo, nav: Nav, prefs: Prefs) {
     var allowed by remember { mutableStateOf(Notifier.canPost(context)) }
     var sentTest by remember { mutableStateOf(false) }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> allowed = granted || Notifier.canPost(context) }
+    val askSms = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> scope.launch { repo.set("smsSuggest", granted) } }
 
     fun openAppNotificationSettings() {
         runCatching {
@@ -86,10 +87,20 @@ fun NotificationsScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                 SwitchRow("Gam'eya", "Your installments, and the day before and on your turn", prefs.notifyGameya) { v -> scope.launch { repo.set("notifyGameya", v) } }
                 SwitchRow("Going over today's budget", "Once a day, right when you pass it", prefs.budgetAlert) { v -> scope.launch { repo.set("budgetAlert", v) } }
                 SwitchRow("Morning message", "Today's number, the dollar and gold, and your week on Friday", prefs.morning) { v -> scope.launch { repo.set("morning", v) } }
-                SwitchRow("End of the month", "Offers to move what's left to your savings goal", prefs.monthEndReminder) { v -> scope.launch { repo.set("monthEndReminder", v) } }
+                SwitchRow("End of the month", "Offers to put what's left in your piggy bank", prefs.monthEndReminder) { v -> scope.launch { repo.set("monthEndReminder", v) } }
+                SwitchRow("Category over its limit", "Once a month per category, only after you pass the limit you set", prefs.limitAlert) { v -> scope.launch { repo.set("limitAlert", v) } }
                 SwitchRow("Prices are rising", "When a category runs 20% above your usual", prefs.notifyRise) { v -> scope.launch { repo.set("notifyRise", v) } }
                 SwitchRow("New version of Pocketta", "Checked every few hours, once per version", prefs.notifyUpdate) { v -> scope.launch { repo.set("notifyUpdate", v) } }
                 SwitchRow("No recent backup", "Once a week while you have no recent backup", prefs.backupReminder) { v -> scope.launch { repo.set("backupReminder", v) } }
+            }
+            SectionCard {
+                Label("Bank messages")
+                Gap(4)
+                SwitchRow("Suggest expenses from bank messages", "When a bank text looks like spending, a notification offers to add it. Read on this phone only, never sent anywhere. You confirm every one.", prefs.smsSuggest) { v ->
+                    if (!v) scope.launch { repo.set("smsSuggest", false) }
+                    else if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == android.content.pm.PackageManager.PERMISSION_GRANTED) scope.launch { repo.set("smsSuggest", true) }
+                    else askSms.launch(Manifest.permission.RECEIVE_SMS)
+                }
             }
             SectionCard {
                 Label("If a notification comes late")

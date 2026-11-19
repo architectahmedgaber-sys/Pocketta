@@ -59,6 +59,8 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.FlowRow
+import app.pocketta.core.CycleMath
+import app.pocketta.core.LimitAlerts
 import app.pocketta.core.Money
 import app.pocketta.core.QuickText
 import app.pocketta.data.Category
@@ -116,12 +118,44 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
         } else if (walletId == 0L) {
             walletId = wallets.firstOrNull { it.id == prefs.lastWallet }?.id ?: wallets.first().id
             toWalletId = wallets.firstOrNull { it.id != walletId }?.id ?: walletId
+            if (route.amount > 0 && input.isEmpty()) input = numText(route.amount)
+            if (route.note.isNotBlank() && noteField.isEmpty()) noteField = route.note
+            if (route.currency.isNotBlank() && route.currency in prefs.currencies) currency = route.currency
             val wanted = if (route.category != 0L) route.category else prefs.lastCategory
             if (type == TxType.EXPENSE && wanted != 0L) {
                 val c = categories.firstOrNull { it.id == wanted && !it.archived }
                 if (c != null) { categoryId = c.id; parentId = c.parentId ?: c.id }
             }
         }
+    }
+
+    // Receipt photo: read the total and fill in the amount.
+    var receiptUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var scanState by remember { mutableStateOf<String?>(null) }
+    fun readReceipt(uri: android.net.Uri?) {
+        if (uri == null) return
+        scanState = "Reading the receipt..."
+        scope.launch {
+            val text = app.pocketta.scan.ReceiptScanner.read(context, uri)
+            val total = text?.let { app.pocketta.core.ReceiptParser.total(it) }
+            if (total != null) {
+                input = numText(total)
+                scanState = "Found " + Money.fmt(total) + ". Check it is right."
+            } else {
+                scanState = "Could not find an amount. Type it in."
+            }
+        }
+    }
+    val takePhoto = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) readReceipt(receiptUri) else scanState = null
+    }
+    val pickPhoto = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { readReceipt(it) }
+    fun startCamera() {
+        val dir = java.io.File(context.cacheDir, "receipts").apply { mkdirs() }
+        val f = java.io.File(dir, "r" + System.currentTimeMillis() + ".jpg")
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".files", f)
+        receiptUri = uri
+        takePhoto.launch(uri)
     }
 
     // Typing "koshary 60" in the note works too: the number becomes the amount when the keypad is empty.
@@ -239,6 +273,13 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                             }
                         }
                     }
+                }
+                if (type == TxType.EXPENSE && editing == null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        androidx.compose.material3.OutlinedButton(onClick = { startCamera() }, modifier = Modifier.weight(1f)) { Text("Scan receipt") }
+                        androidx.compose.material3.OutlinedButton(onClick = { pickPhoto.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("From gallery") }
+                    }
+                    scanState?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
                 OutlinedTextField(
                     value = noteField,
@@ -377,7 +418,22 @@ fun DayPicker(date: LocalDate, onPick: (LocalDate) -> Unit, onDismiss: () -> Uni
     ) { DatePicker(state = state) }
 }
 
+/** After an expense: say so once per cycle when a category has gone over its monthly limit. Under the limit, nothing. */
+suspend fun checkCategoryLimits(context: Context, repo: Repo) {
+    val p = repo.prefs()
+    if (!p.limitAlert) return
+    val over = repo.categoriesOverLimit()
+    if (over.isEmpty()) return
+    val day = CycleMath.cycleFor(LocalDate.now(), p.cycleStart).start.toEpochDay()
+    val fresh = LimitAlerts.fresh(day, p.limitAlerted, over.map { it.first.id })
+    if (fresh.isEmpty()) return
+    val known = LimitAlerts.parse(p.limitAlerted).let { (d, ids) -> if (d == day) ids else emptySet() }
+    repo.set("limitAlerted", LimitAlerts.format(day, known + fresh))
+    for ((c, spent) in over.filter { it.first.id in fresh }) Notifier.categoryLimit(context, c.id, c.name, spent, c.monthlyLimit, p.baseCurrency, p.lang)
+}
+
 suspend fun checkOverBudget(context: Context, repo: Repo, prefs: Prefs) {
+    runCatching { checkCategoryLimits(context, repo) }
     if (!prefs.budgetAlert) return
     val h = repo.home()
     val b = h.budget

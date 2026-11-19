@@ -5,7 +5,7 @@ import { startArabic } from './i18n.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.9.0';
+const VERSION = '1.10.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -193,6 +193,7 @@ function home() {
   html += wealthEntry();
   html += gameyaCards(s);
   html += weekCard(s);
+  html += limitCard(s);
   html += monthEndCard(s);
   html += goalCard();
   const sp = b.spentFraction, cm = b.committedFraction, rest = Math.max(1 - sp - cm, 0);
@@ -355,16 +356,25 @@ function goalCard() {
       <div class="small">${frac >= 1 ? 'Goal reached!' : `Saved ${money(s.goalSaved)} of ${money(s.goalAmount)}`}</div>
       <button class="btn text" data-act="goal-add">Add to goal</button></div></div>`);
 }
-/** Last 2 days of the month: offers to move what is left into the savings goal. */
+/** A category went over its monthly limit. Nothing is shown while every category is under its limit. */
+function limitCard(s) {
+  const st = R.S();
+  if (st.limitAlert === false || st.limitDismissed === String(s.cycle.start)) return '';
+  const over = R.categoriesOverLimit(s.today);
+  if (!over.length) return '';
+  return card(`${label('Over the limit')}${over.map((o) => `<div class="row-flex line"><div class="grow"><b>${esc(o.name)}</b></div><span class="bad-t">${money(o.spent)} of ${money(o.limit)} ${esc(base())}</span></div>`).join('')}
+    <div class="btns"><button class="btn text" data-act="limit-skip">OK</button></div>`, 'tonal');
+}
+/** Last 2 days of the month: offers to put what is left into the piggy bank. */
 function monthEndCard(s) {
   const st = R.S(), b = s.budget;
   if (st.monthEndReminder === false || b.daysLeft > 2 || st.monthEndDismissed === C.isoOf(s.cycle.end)) return '';
-  const amt = C.suggestMove(b.left, st.goalAmount, st.goalSaved);
-  if (!amt) return '';
-  ui.monthEnd = { amt, key: C.isoOf(s.cycle.end) };
-  return card(`<div class="grow"><b>${b.daysLeft > 1 ? 'The month ends tomorrow. Left:' : 'The month ends today. Left:'} ${money(amt)} ${esc(base())}</b>
-    <div class="small">Move it to your savings goal?</div></div>
-    <div class="btns"><button class="btn filled" data-act="month-move">Move to goal</button><button class="btn text" data-act="month-skip">Not now</button></div>`, 'tonal');
+  if (!(b.left > 0)) return '';
+  const goalAmt = C.suggestMove(b.left, st.goalAmount, st.goalSaved);
+  ui.monthEnd = { left: b.left, goalAmt, key: C.isoOf(s.cycle.end) };
+  return card(`<div class="grow"><b>${b.daysLeft > 1 ? 'The month ends tomorrow. Left:' : 'The month ends today. Left:'} ${money(b.left)} ${esc(base())}</b>
+    <div class="small">Put it in your piggy bank?</div></div>
+    <div class="btns"><button class="btn filled" data-act="month-piggy">Put in piggy bank</button>${goalAmt > 0 ? `<button class="btn tonal" data-act="month-move">Move to goal</button>` : ''}<button class="btn text" data-act="month-skip">Not now</button></div>`, 'tonal');
 }
 function goalSheet() {
   sheet({
@@ -383,6 +393,13 @@ function piggySheet(dir) {
     onSave: (root) => { let v = num(root, 'amount'); if (dir < 0) v = Math.min(v, total); if (v > 0) R.piggyAdd(dir * v); },
   });
 }
+function piggyTargetSheet() {
+  sheet({
+    title: 'Monthly target',
+    body: numField('amount', 'Amount each month (0 to remove)', R.S().piggyTarget || null, { suffix: base() }),
+    onSave: (root) => R.setSetting('piggyTarget', Math.max(0, num(root, 'amount'))),
+  });
+}
 function piggyPage() {
   const s = R.S(), hist = s.piggy || [], total = C.piggyTotal(hist), months = C.piggyMonths(hist, C.todayEpoch());
   const avg = C.piggyAverage(months);
@@ -390,6 +407,19 @@ function piggyPage() {
     ${avg != null ? `<div class="small">Saved over ${months.length} months, about ${money(avg)} a month</div>` : ''}
     <div class="btns"><button class="btn filled" data-act="piggy-in">Put in</button><button class="btn tonal" data-act="piggy-out" ${total > 0 ? '' : 'disabled'}>Take out</button></div>`, 'primary');
   let body = hero;
+  const cover = C.coverMonths(total, R.monthlySpend());
+  if (cover != null) body += card(`${label('How long it lasts')}<div class="mid">Your piggy bank covers ${cover} months of your spending</div><div class="small">You spend about ${money(R.monthlySpend())} a month</div>`);
+  const target = s.piggyTarget || 0;
+  if (!(target > 0)) {
+    body += card(`${label('Monthly target')}<div class="small">Pick an amount to put in every month and see how many months in a row you hit it.</div><div class="btns"><button class="btn filled" data-act="piggy-target">Set a monthly target</button></div>`);
+  } else {
+    const got = C.piggyThisMonth(months, C.todayEpoch()), hit = got >= target, run = C.piggyStreak(months, target, C.todayEpoch()) + (hit ? 1 : 0);
+    body += card(`${label('Monthly target')}<div><b>This month: ${money(got)} of ${money(target)} ${esc(base())}</b></div>
+      <div class="bar"><i style="width:${Math.min(100, got / target * 100)}%${hit ? ';background:var(--good)' : ''}"></i></div>
+      <div class="${hit ? 'good-t' : 'small'}">${hit ? "You hit this month's target" : `Still ${money(target - got)} to go this month`}</div>
+      <div><b>${run === 0 ? 'No streak yet. Hit the target this month to start one.' : run === 1 ? '1 month in a row' : `${run} months in a row`}</b></div>
+      <div class="btns"><button class="btn text" data-act="piggy-target">Change target</button></div>`);
+  }
   if (!months.length) body += card(`<div class="small">Nothing in your piggy bank yet. Tap Put in when you set money aside.</div>`);
   else {
     const shown = months.slice(-6), top = Math.max(1, ...shown.map((m) => m.saved));
@@ -1254,7 +1284,8 @@ function settings() {
       field('goalName', 'Name', s.goalName) + `<div class="two">${numField('goalAmount', 'Goal amount', s.goalAmount, { suffix: base() })}${numField('goalSaved', 'Saved so far', s.goalSaved, { suffix: base() })}</div>` +
       `<button class="btn filled" data-act="save-goal">Save</button>`) +
     card(label('Alerts') + `<label class="switch-row"><span>Tell me when I go over today's budget</span><input type="checkbox" data-act="toggle-alert" ${s.budgetAlert ? 'checked' : ''}></label>
-      <label class="switch-row"><span>At month end, offer to move what's left to my savings goal</span><input type="checkbox" data-act="toggle-monthend" ${s.monthEndReminder !== false ? 'checked' : ''}></label>
+      <label class="switch-row"><span>Tell me when a category goes over its monthly limit</span><input type="checkbox" data-act="toggle-limit" ${s.limitAlert !== false ? 'checked' : ''}></label>
+      <label class="switch-row"><span>At month end, offer to put what's left in my piggy bank</span><input type="checkbox" data-act="toggle-monthend" ${s.monthEndReminder !== false ? 'checked' : ''}></label>
       <div class="small">Bills, installments and gam'eya shares that are due soon (by the days you choose on each one) show on Home and as a number on the app icon.</div>`) +
     card(label('Privacy') + (s.pinHash
       ? `<div class="row-flex"><span class="grow">PIN lock is on</span><button class="btn text" data-act="pin-set">Change</button><button class="btn text danger" data-act="pin-off">Turn off</button></div>`
@@ -1376,7 +1407,11 @@ const actions = {
   'goal-new': () => goalEditSheet(null),
   'goal-edit': (el) => goalEditSheet(+el.dataset.id),
   'goal-addto': (el) => goalAddSheet(+el.dataset.id),
-  'month-move': () => { const m = ui.monthEnd; if (!m) return; R.S().monthEndDismissed = m.key; R.addToMainGoal(m.amt); toast('Moved to your goal'); },
+  'month-move': () => { const m = ui.monthEnd; if (!m) return; R.S().monthEndDismissed = m.key; R.addToMainGoal(m.goalAmt); toast('Moved to your goal'); },
+  'month-piggy': () => { const m = ui.monthEnd; if (!m) return; R.S().monthEndDismissed = m.key; R.piggyAdd(m.left); toast('Put in your piggy bank'); },
+  'limit-skip': () => { const c = R.home().cycle; R.setSetting('limitDismissed', String(c.start)); },
+  'toggle-limit': (el) => R.setSetting('limitAlert', el.checked),
+  'piggy-target': () => piggyTargetSheet(),
   'month-skip': () => { if (ui.monthEnd) R.setSetting('monthEndDismissed', ui.monthEnd.key); },
   'toggle-monthend': (el) => R.setSetting('monthEndReminder', el.checked),
   'gold-add': () => {
