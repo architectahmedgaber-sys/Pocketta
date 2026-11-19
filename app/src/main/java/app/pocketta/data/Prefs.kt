@@ -77,6 +77,12 @@ data class Prefs(
     val smsSuggest: Boolean = false,
     /** Recent message fingerprints, so one message is suggested once. */
     val smsSeen: String = "",
+    /** Raises: from this month on (year*12+month-1) the salary is this much. */
+    val salarySteps: Map<Int, Double> = emptyMap(),
+    /** What a normal month of everyday living costs, for the month plan. */
+    val livingBase: Double = 0.0,
+    /** A different living cost for one month only. */
+    val livingOverrides: Map<Int, Double> = emptyMap(),
 ) {
     fun rateOf(currency: String): Double =
         if (currency == baseCurrency) 1.0 else rates[currency] ?: (if (autoRates) onlineRates[currency] else null) ?: 1.0
@@ -158,6 +164,9 @@ data class Prefs(
                 limitAlerted = m["limitAlerted"].orEmpty(),
                 smsSuggest = b("smsSuggest", false),
                 smsSeen = m["smsSeen"].orEmpty(),
+                salarySteps = app.pocketta.core.MonthValues.parse(m["salarySteps"].orEmpty()),
+                livingBase = d("livingBase", 0.0),
+                livingOverrides = app.pocketta.core.MonthValues.parse(m["livingOverrides"].orEmpty()),
             )
         }
 

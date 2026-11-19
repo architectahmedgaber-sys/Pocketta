@@ -36,6 +36,8 @@ interface MoneyDao {
     suspend fun lastWithNote(type: String, note: String): Txn?
     @Query("SELECT COUNT(*) FROM txns WHERE source = :source AND epochDay >= :from AND epochDay < :to")
     suspend fun countSource(source: String, from: Long, to: Long): Int
+    @Query("DELETE FROM txns WHERE source = :source AND sourceId = :sourceId")
+    suspend fun deleteTxnsFor(source: String, sourceId: Long)
     @Insert suspend fun insertTxn(t: Txn): Long
     @Update suspend fun updateTxn(t: Txn)
     @Delete suspend fun deleteTxn(t: Txn)
