@@ -47,11 +47,19 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 @Composable
-fun MoreScreen(nav: Nav, modifier: Modifier) {
+fun MoreScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
+    val scope = rememberCoroutineScope()
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        SectionCard {
+            Label("Look")
+            Gap(6)
+            Choices(listOf("AUTO", "LIGHT", "DARK"), prefs.theme, { when (it) { "LIGHT" -> "☀️ Light"; "DARK" -> "🌙 Dark"; else -> "Auto" } }, { v ->
+                scope.launch { repo.set("theme", v) }
+            })
+        }
         MoreCard("🪙", "Miqrish", "Your AI money advisor. Chat to add, change and calculate, with your own key") { nav.open(Route.Assistant) }
         MoreCard("📅", "Month plan", "Every month like your spreadsheet: income, installments, living, what is left") { nav.open(Route.MonthPlan) }
         MoreCard("🐷", "Piggy bank", "Everything you saved, month by month") { nav.open(Route.Piggy) }

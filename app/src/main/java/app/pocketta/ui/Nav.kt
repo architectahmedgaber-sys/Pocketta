@@ -29,7 +29,7 @@ sealed interface Route {
     data object Assistant : Route
 }
 
-val tabs = listOf(Route.Home, Route.Spend, Route.Commit)
+val tabs = listOf(Route.Home, Route.Spend, Route.Commit, Route.More)
 
 /** A tiny back stack: one tab at the bottom, screens opened on top of it. */
 class Nav {

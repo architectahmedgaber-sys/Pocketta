@@ -94,10 +94,6 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                     Text(s.cycle.end.format(monthFmt), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("${b.daysLeft} days left in this month", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = { scope.launch { repo.set("theme", if (dark) "LIGHT" else "DARK") } }) {
-                    Text(if (dark) "☀️" else "🌙", fontSize = 20.sp)
-                }
-                IconButton(onClick = { nav.open(Route.More) }) { Icon(Icons.Filled.Settings, contentDescription = "Settings and more") }
             }
             if (prefs.updateVersion.isNotEmpty() && prefs.updateUrl.isNotEmpty() && Online.isNewer(prefs.updateVersion, BuildConfig.VERSION_NAME)) {
                 SectionCard(container = MaterialTheme.colorScheme.tertiaryContainer, onClick = { nav.open(Route.Settings) }) {
