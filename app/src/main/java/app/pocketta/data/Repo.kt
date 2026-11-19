@@ -865,6 +865,9 @@ class Repo private constructor(private val app: Context) {
         return true
     }
 
+    /** Replaces all data with portable JSON text (used by cloud sync). No restart needed. */
+    suspend fun importPortable(text: String): Boolean = withContext(Dispatchers.IO) { importJsonText(text) }
+
     /** Replaces all data with a backup file. The app must restart after this. */
     suspend fun importFrom(uri: Uri): Boolean = withContext(Dispatchers.IO) {
         val tmp = File(app.cacheDir, "restore.db")
