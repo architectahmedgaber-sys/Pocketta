@@ -17,7 +17,6 @@ object ArabicWords {
     /** Patterns for texts that contain a name or other changing words. "@1" is the first captured part. */
     val rules: List<Pair<Regex, String>> = listOf(
         Regex("""Pay all of (.+) \((\S+)\)""") to "ادفع كل @1 (@2)",
-        Regex("""Done by (.+)""") to "تخلص @1",
         Regex("""(.+) · (\d+)% of your salary""") to "@1 · @2٪ من مرتبك",
         Regex("""(.+) paid · (\S+) (\S+)""") to "@1 اتدفع · @2 @3",
         Regex("""Mark (\d+) payments? as paid""") to "علّم @1 دفعات إنها اتدفعت",
