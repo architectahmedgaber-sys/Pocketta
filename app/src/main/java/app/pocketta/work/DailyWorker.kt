@@ -27,10 +27,26 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             repo.ensureSalary()
             val today = LocalDate.now()
             val items = repo.upcoming(p, today.plusDays(15))
+            // Payments of the same company or type that are due together get one reminder (with "Pay all").
+            val groups = LinkedHashMap<String, Pair<String, MutableList<app.pocketta.data.Upcoming>>>()
             for (u in items) {
                 val remind = remindDays(repo, u.kind, u.id)
                 val wanted = if (u.kind == "CIRCLE") p.notifyGameya else p.notifyDue
-                if (wanted && !u.due.isAfter(today.plusDays(remind.toLong()))) Notifier.due(applicationContext, u, today, p.baseCurrency, p.lang)
+                if (!wanted || u.due.isAfter(today.plusDays(remind.toLong()))) continue
+                val g: Pair<String, String>? = when (u.kind) {
+                    "INSTALLMENT" -> repo.dao.installment(u.id)?.let { i ->
+                        if (i.type.equals("Credit card", ignoreCase = true)) "cards" to "Credit cards"
+                        else i.provider.trim().ifEmpty { i.type }.let { l -> ("p:" + l.lowercase()) to l }
+                    }
+                    "BILL" -> "bills" to "Bills"
+                    else -> null
+                }
+                if (g == null) Notifier.due(applicationContext, u, today, p.baseCurrency, p.lang)
+                else groups.getOrPut(g.first) { g.second to ArrayList() }.second += u
+            }
+            for ((_, g) in groups) {
+                if (g.second.size == 1) Notifier.due(applicationContext, g.second.first(), today, p.baseCurrency, p.lang)
+                else Notifier.dueGroup(applicationContext, g.first, g.second, today, p.baseCurrency, p.lang)
             }
             if (p.notifyGameya) runCatching { gameyaTurns(repo, today, p.baseCurrency, p.lang) }
         }

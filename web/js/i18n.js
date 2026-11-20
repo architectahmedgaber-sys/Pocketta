@@ -3,6 +3,24 @@
 import { DICT, MONTHS, DAYS, RULES } from './ar-dict.js';
 
 const EXTRA = {
+  "Due today or late": "مستحق النهاردة أو متأخر",
+  "Pay them all": "ادفعهم كلهم",
+  "Review first": "راجع الأول",
+  "Coming months": "الشهور الجاية",
+  "Commitments this month": "التزامات الشهر ده",
+  "# payments to go": "# دفعات فاضلة", "# payment to go": "دفعة فاضلة",
+  "# payments": "# دفعات", "# payment": "دفعة",
+  "# selected": "# مختارة",
+  "Mark as paid": "تم الدفع",
+  "Select all": "اختيار الكل", "Select": "اختيار",
+  "Open or close": "فتح أو قفل",
+  "Money left after paying": "الفلوس اللي هتفضل بعد الدفع",
+  "# left": "فاضل #", "# paid": "اتدفع #", "# left in total": "فاضل # بالكامل",
+  "Paid # of #": "اتدفع # من #",
+  "Mark # payments as paid": "علّم # دفعات إنها اتدفعت", "Mark # payment as paid": "علّم دفعة إنها اتدفعت",
+  "# payments paid": "# دفعات اتدفعت", "# payment paid": "دفعة اتدفعت",
+  "Credit cards": "كروت الائتمان", "Subscriptions": "الاشتراكات",
+  "Late · ": "متأخر · ",
   "🔒 Your money data is locked on this device before it is sent. Only you can open it, with your encryption password. Nobody else can, not even us.": "🔒 فلوسك بتتقفل على جهازك قبل ما تتبعت. إنت بس اللي تفتحها بكلمة سر التشفير. محدش غيرك يقدر، حتى إحنا.",
   "Encrypted on this device": "مشفّرة على جهازك",
   "Lock your data": "اقفل بياناتك",
@@ -408,6 +426,11 @@ const EXTRA_RULES = [
   ["Most of it went to (.+), and (\\d+) days were under your daily budget\\.", "أغلبه راح على @1، و@2 أيام كانوا تحت ميزانيتك اليومية."],
   ["Most of it went to (.+)\\.", "أغلبه راح على @1."],
   ["▲ (\\d+)% vs your usual", "▲ @1% عن المعتاد"],
+  ["Done by (.+)", "تخلص @1"],
+  ["Pay all of (.+) \\((\\S+)\\)", "ادفع كل @1 (@2)"],
+  ["(.+) · (\\d+)% of your salary", "@1 · @2٪ من مرتبك"],
+  ["(.+) is lighter by (\\S+)", "@1 أخف بـ @2"],
+  ["(.+) paid · (\\S+) (\\S+)", "@1 اتدفع · @2 @3"],
 ];
 const rules = [...RULES, ...EXTRA_RULES].map(([re, to]) => [new RegExp('^' + re + '$'), to]);
 const cache = new Map();

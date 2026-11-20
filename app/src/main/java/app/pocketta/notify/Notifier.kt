@@ -102,6 +102,34 @@ object Notifier {
         NotificationManagerCompat.from(context).notify(id, b.build())
     }
 
+    /** One reminder for several payments of the same company or type, with one button to pay them all. */
+    @SuppressLint("MissingPermission")
+    fun dueGroup(context: Context, title: String, items: List<Upcoming>, today: LocalDate, currency: String, lang: String = Tr.EN) {
+        if (!canPost(context) || items.isEmpty()) return
+        val first = items.minOf { it.due }
+        val days = ChronoUnit.DAYS.between(today, first)
+        val whenText = when {
+            days < 0 -> "late"
+            days == 0L -> "due today"
+            days == 1L -> "due tomorrow"
+            else -> "due in $days days"
+        }
+        val id = (("group:" + title).hashCode()) and 0x7fffffff
+        val total = items.sumOf { it.amount }
+        val head = Tr.t(title, lang) + ": " + Tr.t("${items.size} payments", lang) + " " + Tr.t(whenText, lang)
+        val body = items.joinToString(" · ") { it.title }
+        val b = NotificationCompat.Builder(context, CH_DUE)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle(head)
+            .setContentText("${Money.fmt(total)} $currency · $body")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("${Money.fmt(total)} $currency\n$body"))
+            .setContentIntent(openApp(context, MainActivity.ACTION_BILLS))
+            .setAutoCancel(true)
+        val ids = items.joinToString(",") { it.kind + ":" + it.id }
+        b.addAction(0, Tr.t("Pay all", lang), ActionReceiver.groupPending(context, ids, id))
+        NotificationManagerCompat.from(context).notify(id, b.build())
+    }
+
     @SuppressLint("MissingPermission")
     fun update(context: Context, version: String, lang: String = Tr.EN) {
         if (!canPost(context)) return
