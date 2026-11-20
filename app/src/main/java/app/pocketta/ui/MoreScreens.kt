@@ -65,6 +65,7 @@ fun MoreScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
         MoreCard("🏦", "Everything I own", "Your money and gold in one number, in dollars and gold, and how it changed") { nav.open(Route.Wealth) }
         MoreCard("🧮", "Plan ahead", "Can I afford this? What if I save? When money runs short") { nav.open(Route.Plan) }
         MoreCard("💰", "Income & salary", "Your monthly salary, other income, money set aside") { nav.open(Route.Income) }
+        MoreCard("📊", "Category by month", "Pick a category or tag: total, every day, and all its spending") { nav.open(Route.CategoryMonth()) }
         MoreCard("#️⃣", "Tags", "Weddings, trips, projects: see the total of each across categories") { nav.open(Route.Tags) }
         MoreCard("🏷️", "Categories", "Categories, sub-categories and monthly limits") { nav.open(Route.Categories) }
         MoreCard("💱", "Currencies & gold", "Convert money and gold, today's prices, your own rates") { nav.open(Route.Currencies) }

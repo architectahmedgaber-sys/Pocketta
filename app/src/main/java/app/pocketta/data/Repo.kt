@@ -110,6 +110,8 @@ data class WealthView(
     val history: List<WealthPoint>,
     /** This month's salary when its day hasn't posted it yet; not part of the total. */
     val salaryComing: Double = 0.0,
+    /** Money moved into the piggy bank (it is still yours, so it counts in the total). */
+    val piggyHeld: Double = 0.0,
 )
 
 /** A repeated expense (same note and amount) offered as a one-tap button. */
@@ -207,7 +209,13 @@ class Repo private constructor(private val app: Context) {
 
     suspend fun saveTxn(t0: Txn): Long {
         val t = (if (t0.walletId == 0L) t0.copy(walletId = defaultWallet(prefs())) else t0).copy(tags = Tags.join(t0.tagList))
-        val id = if (t.id == 0L) dao.insertTxn(t) else { dao.updateTxn(t); t.id }
+        val id = if (t.id == 0L) dao.insertTxn(t) else {
+            val old = dao.txn(t.id)
+            dao.updateTxn(t)
+            if (old != null && old.source == Source.PIGGY) piggyApply(old.sourceId, t.base - old.base)
+            if (old != null && old.source == Source.PIGGYOUT) piggyApply(old.sourceId, old.base - t.base)
+            t.id
+        }
         if (t.type == TxType.EXPENSE && t.categoryId != null && t.source == Source.NONE) dao.put(SettingRow("lastCategory", t.categoryId.toString()))
         dao.put(SettingRow("lastWallet", t.walletId.toString()))
         changed()
@@ -222,6 +230,8 @@ class Repo private constructor(private val app: Context) {
                 if (t.type == TxType.INCOME) dao.updateCircle(it.copy(payoutReceived = false))
                 else dao.updateCircle(it.copy(paid = (it.paid - 1).coerceAtLeast(0)))
             }
+            Source.PIGGY -> piggyApply(t.sourceId, -t.base)
+            Source.PIGGYOUT -> piggyApply(t.sourceId, t.base)
             Source.LOAN -> dao.loan(t.sourceId)?.let { l ->
                 // A repayment (money moving the other way) is undone; deleting the loan's first record leaves the loan.
                 val isRepayment = (l.lent && t.type == TxType.INCOME) || (!l.lent && t.type == TxType.EXPENSE)
@@ -272,8 +282,8 @@ class Repo private constructor(private val app: Context) {
     suspend fun week(today: LocalDate, dayReference: Double): WeekData {
         val from = today.minusDays(6).toEpochDay()
         val to = today.toEpochDay() + 1
-        val now = dao.txns(from, to).filter { it.type == TxType.EXPENSE && !it.spread }
-        val before = dao.txns(from - 7, from).filter { it.type == TxType.EXPENSE && !it.spread }
+        val now = dao.txns(from, to).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY }
+        val before = dao.txns(from - 7, from).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY }
         val cats = dao.categories().associateBy { it.id }
         fun topName(id: Long?): String? = id?.let { cats[it] }?.let { c -> (c.parentId?.let { cats[it] } ?: c).name }
         val top = now.groupBy { topName(it.categoryId) }.filterKeys { it != null }
@@ -633,10 +643,10 @@ class Repo private constructor(private val app: Context) {
         fun sum(l: List<Txn>, src: String) = l.filter { it.source == src }.sumOf { it.base }
         val payout = sum(inc, Source.CIRCLE)
         val loansIn = sum(inc, Source.LOAN)
-        val committedSources = setOf(Source.BILL, Source.INSTALLMENT, Source.CIRCLE, Source.LOAN)
+        val committedSources = setOf(Source.BILL, Source.INSTALLMENT, Source.CIRCLE, Source.LOAN, Source.PIGGY)
         return PlanMonth(
             ym = ym, actual = true,
-            salary = inc.sumOf { it.base } - payout - loansIn,
+            salary = inc.sumOf { it.base } - payout - loansIn - sum(inc, Source.PIGGYOUT),
             payout = payout, loansIn = loansIn,
             bills = sum(exp, Source.BILL), installments = sum(exp, Source.INSTALLMENT), cards = 0.0,
             circleShares = sum(exp, Source.CIRCLE), loansOut = sum(exp, Source.LOAN),
@@ -740,13 +750,14 @@ class Repo private constructor(private val app: Context) {
         val p = prefs()
         val cash = walletTotal(p)
         val gold = Gold.summary(p.goldBuys, p.gold)?.value ?: 0.0
-        val total = cash + gold
+        val piggyHeld = dao.allTxns().sumOf { when (it.source) { Source.PIGGY -> it.base; Source.PIGGYOUT -> -it.base; else -> 0.0 } }
+        val total = cash + piggyHeld + gold
         val usdRate = p.rates["USD"] ?: p.onlineRates["USD"]
         val cycle = CycleMath.cycleFor(LocalDate.now(), p.cycleStart)
         val posted = dao.countSource(Source.SALARY, cycle.start.toEpochDay(), cycle.nextStart.toEpochDay()) > 0
         val coming = if (p.salary > 0 && !posted && salaryDateIn(cycle, p.salaryDay) != null) p.salary else 0.0
         return WealthView(salaryComing = coming,
-            cash = cash, gold = gold, total = total,
+            cash = cash, piggyHeld = piggyHeld, gold = gold, total = total,
             dollars = Planning.inDollars(total, usdRate),
             goldGrams = Planning.inGoldGrams(total, p.gold["21"]),
             history = p.wealthHistory,
@@ -796,6 +807,101 @@ class Repo private constructor(private val app: Context) {
         piggyAdd(amount)
     }
 
+    // ---------- Piggy bank as a kind of spending ----------
+
+    /** Moves [amount] into (or out of) the piggy bank and the goal it belongs to. goalId: -1 = general piggy bank, 0 = main goal, n = extra goal. */
+    private suspend fun piggyApply(goalId: Long, amount: Double) {
+        if (amount == 0.0) return
+        val p = prefs()
+        if (goalId == 0L) dao.put(SettingRow("goalSaved", (p.goalSaved + amount).coerceAtLeast(0.0).toString()))
+        else if (goalId > 0L) dao.put(SettingRow("goals", GoalList.format(p.goals.map { if (it.id == goalId) it.copy(saved = (it.saved + amount).coerceAtLeast(0.0)) else it })))
+        val next = Piggy.add(p.piggy, LocalDate.now().toEpochDay(), amount)
+        dao.put(SettingRow("piggy", Piggy.format(next)))
+    }
+
+    /** The "Piggy bank" categories are made when first needed, so old data works too. */
+    private suspend fun piggyCategory(kind: String): Long {
+        ensureSeeded()
+        val name = if (kind == TxType.INCOME) "From piggy bank" else "Piggy bank"
+        return categoryNamed(name, kind) ?: dao.insertCategory(Category(name = name, kind = kind, sort = 99))
+    }
+
+    /** "Piggy" as a kind of spending: recorded with the expenses, counts against what is left, and goes into the piggy bank by itself. */
+    suspend fun savePiggy(amount: Double, goalId: Long = -1, epochDay: Long = LocalDate.now().toEpochDay(), note: String = ""): Boolean {
+        if (amount <= 0) return false
+        val p = prefs()
+        dao.insertTxn(Txn(type = TxType.EXPENSE, amount = amount, currency = p.baseCurrency, rate = 1.0, walletId = defaultWallet(p),
+            categoryId = piggyCategory(TxType.EXPENSE), note = note.ifBlank { "Piggy bank" }, epochDay = epochDay, source = Source.PIGGY, sourceId = goalId))
+        piggyApply(goalId, amount)
+        changed()
+        return true
+    }
+
+    /** Takes money back out of the piggy bank and records it as income "From piggy bank". */
+    suspend fun takeFromPiggy(amount: Double, goalId: Long = -1, epochDay: Long = LocalDate.now().toEpochDay()): Boolean {
+        if (amount <= 0) return false
+        val p = prefs()
+        dao.insertTxn(Txn(type = TxType.INCOME, amount = amount, currency = p.baseCurrency, rate = 1.0, walletId = defaultWallet(p),
+            categoryId = piggyCategory(TxType.INCOME), note = "From piggy bank", epochDay = epochDay, source = Source.PIGGYOUT, sourceId = goalId))
+        piggyApply(goalId, -amount)
+        changed()
+        return true
+    }
+
+    /** After the salary arrives: the amount planned for the piggy bank this cycle (0 = nothing to ask). Never moves by itself. */
+    suspend fun piggyAutoDue(today: LocalDate = LocalDate.now()): Double {
+        val p = prefs()
+        if (p.piggyAuto <= 0 && p.piggyAutoPct <= 0) return 0.0
+        val cycle = CycleMath.cycleFor(today, p.cycleStart)
+        if (p.piggyAutoDone == cycle.start.toEpochDay()) return 0.0
+        val salary = dao.txns(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay()).firstOrNull { it.source == Source.SALARY } ?: return 0.0
+        val amount = if (p.piggyAuto > 0) p.piggyAuto else Math.round(salary.base * p.piggyAutoPct / 100.0).toDouble()
+        return amount.coerceAtLeast(0.0)
+    }
+
+    suspend fun piggyAutoAnswer(yes: Boolean, today: LocalDate = LocalDate.now()) {
+        val amount = piggyAutoDue(today)
+        if (amount <= 0) return
+        if (yes) savePiggy(amount, note = "Piggy bank (monthly)")
+        val p = prefs()
+        dao.put(SettingRow("piggyAutoDone", CycleMath.cycleFor(today, p.cycleStart).start.toEpochDay().toString()))
+        changed()
+    }
+
+    /** Things bought lately (same name, last price): the add screen offers them as one-tap chips. */
+    data class RecentItem(val note: String, val amount: Double, val categoryId: Long?)
+
+    suspend fun recentItems(limit: Int = 6): List<RecentItem> {
+        val since = LocalDate.now().toEpochDay() - 90
+        val p = prefs()
+        val seen = LinkedHashMap<String, MutableList<Txn>>()
+        for (t in dao.allTxns().sortedWith(compareByDescending<Txn> { it.epochDay }.thenByDescending { it.createdAt })) {
+            if (t.type != TxType.EXPENSE || t.source != Source.NONE || t.note.isBlank() || t.epochDay < since) continue
+            seen.getOrPut(t.note.trim().lowercase()) { ArrayList() } += t
+        }
+        return seen.values.sortedByDescending { it.size }.take(limit).map { l ->
+            val t = l.first()
+            RecentItem(t.note.trim(), if (t.currency == p.baseCurrency) t.amount else t.base, t.categoryId)
+        }
+    }
+
+    /** One month of one category (or tag): its spending, last month's total, and the top-level categories to pick from. */
+    data class CategoryMonth(val txns: List<Txn>, val total: Double, val previousTotal: Double, val limit: Double, val cycle: Cycle)
+
+    suspend fun categoryMonth(categoryId: Long?, tag: String?, offset: Int, today: LocalDate = LocalDate.now()): CategoryMonth {
+        val p = prefs()
+        var cycle = CycleMath.cycleFor(today, p.cycleStart)
+        repeat(offset) { cycle = cycle.previous(p.cycleStart) }
+        val prev = cycle.previous(p.cycleStart)
+        val cats = dao.categories().associateBy { it.id }
+        fun topOf(id: Long?): Long? = id?.let { cats[it] }?.let { it.parentId ?: it.id }
+        fun mine(t: Txn) = t.type == TxType.EXPENSE && t.source != Source.PIGGY && (if (tag != null) t.tagList.contains(tag) else topOf(t.categoryId) == categoryId)
+        val now = dao.txns(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay()).filter { mine(it) }
+            .sortedWith(compareByDescending<Txn> { it.epochDay }.thenByDescending { it.createdAt })
+        val before = dao.txns(prev.start.toEpochDay(), prev.nextStart.toEpochDay()).filter { mine(it) }
+        return CategoryMonth(now, now.sumOf { it.base }, before.sumOf { it.base }, categoryId?.let { cats[it]?.monthlyLimit } ?: 0.0, cycle)
+    }
+
     /** Top-level expense categories whose spending this cycle is above their monthly limit, as (category, spent). */
     suspend fun categoriesOverLimit(today: LocalDate = LocalDate.now()): List<Pair<Category, Double>> {
         val p = prefs()
@@ -805,7 +911,7 @@ class Repo private constructor(private val app: Context) {
         if (limited.isEmpty()) return emptyList()
         val byTop = HashMap<Long, Double>()
         for (t in dao.txns(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay())) {
-            if (t.type != TxType.EXPENSE || t.spread || t.categoryId == null) continue
+            if (t.type != TxType.EXPENSE || t.spread || t.source == Source.PIGGY || t.categoryId == null) continue
             val c = cats[t.categoryId] ?: continue
             val top = c.parentId ?: c.id
             byTop[top] = (byTop[top] ?: 0.0) + t.base
@@ -818,7 +924,7 @@ class Repo private constructor(private val app: Context) {
         val p = prefs()
         var cycle = CycleMath.cycleFor(today, p.cycleStart)
         suspend fun total(c: Cycle) = dao.txns(c.start.toEpochDay(), c.nextStart.toEpochDay())
-            .filter { it.type == TxType.EXPENSE && !it.spread }.sumOf { it.base }
+            .filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY }.sumOf { it.base }
         val past = ArrayList<Double>()
         repeat(3) {
             cycle = cycle.previous(p.cycleStart)

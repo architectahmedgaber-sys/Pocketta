@@ -175,7 +175,7 @@ ${if (notes.isEmpty()) "" else "\nWhat you already know about this user:\n" + no
                 val ym = LocalDate.now().minusMonths((n(a, "months_ago") ?: 0).toLong().coerceAtLeast(0))
                 val from = ym.withDayOfMonth(1)
                 val cats = dao.categories().associateBy { it.id }
-                val rows = dao.txns(from.toEpochDay(), from.plusMonths(1).toEpochDay()).filter { it.type == TxType.EXPENSE && !it.spread }
+                val rows = dao.txns(from.toEpochDay(), from.plusMonths(1).toEpochDay()).filter { it.type == TxType.EXPENSE && !it.spread && it.source != app.pocketta.data.Source.PIGGY }
                 val by = rows.groupBy { t -> t.categoryId?.let { cats[it] }?.let { c -> (c.parentId?.let { cats[it] } ?: c).name } ?: "Other" }
                     .mapValues { e -> e.value.sumOf { it.base } }.entries.sortedByDescending { it.value }
                 return "Month ${from.year}-${from.monthValue}: " + by.joinToString("; ") { "${it.key} ${money(it.value)}" }.ifEmpty { "no spending" } + "; total ${money(by.sumOf { it.value })}"

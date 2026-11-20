@@ -39,6 +39,7 @@ import app.pocketta.core.CycleMath
 import app.pocketta.core.Money
 import app.pocketta.data.Prefs
 import app.pocketta.data.Repo
+import app.pocketta.data.Source
 import app.pocketta.data.Txn
 import app.pocketta.data.TxType
 import java.time.LocalDate
@@ -64,7 +65,7 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     val prevCycle = cycle.previous(prefs.cycleStart)
     val prevFlow = remember(cycle.start) { repo.dao.txnsFlow(prevCycle.start.toEpochDay(), prevCycle.nextStart.toEpochDay()) }
     val prevTxns by prevFlow.collectAsState(initial = emptyList())
-    val prevPerParent = prevTxns.filter { it.type == TxType.EXPENSE }.groupBy { topOf(it.categoryId) }.mapValues { e -> e.value.sumOf { it.base } }
+    val prevPerParent = prevTxns.filter { it.type == TxType.EXPENSE && it.source != Source.PIGGY }.groupBy { topOf(it.categoryId) }.mapValues { e -> e.value.sumOf { it.base } }
     var trend by remember { mutableStateOf<List<Pair<String, Double>>>(emptyList()) }
     LaunchedEffect(cycle.start, txns) {
         val cs = ArrayList<app.pocketta.core.Cycle>()
@@ -72,10 +73,11 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
         cs += c
         repeat(5) { c = c.previous(prefs.cycleStart); cs += c }
         trend = cs.reversed().map { x ->
-            x.end.format(shortMonthFmt) to repo.dao.txns(x.start.toEpochDay(), x.nextStart.toEpochDay()).filter { it.type == TxType.EXPENSE && !it.spread }.sumOf { it.base }
+            x.end.format(shortMonthFmt) to repo.dao.txns(x.start.toEpochDay(), x.nextStart.toEpochDay())  .filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY }.sumOf { it.base }
         }
     }
-    val expenses = txns.filter { it.type == TxType.EXPENSE }
+    val saved = txns.filter { it.source == Source.PIGGY }.sumOf { it.base }
+    val expenses = txns.filter { it.type == TxType.EXPENSE && it.source != Source.PIGGY }
     val spent = expenses.sumOf { it.base }
     val income = txns.filter { it.type == TxType.INCOME }.sumOf { it.base }
     val perParent = expenses.groupBy { topOf(it.categoryId) }.mapValues { e -> e.value.sumOf { it.base } }
@@ -108,7 +110,7 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                                     currency = prefs.baseCurrency,
                                     spent = spent,
                                     income = income,
-                                    previousSpent = prevTxns.filter { it.type == TxType.EXPENSE }.sumOf { it.base },
+                                    previousSpent = prevTxns.filter { it.type == TxType.EXPENSE && it.source != Source.PIGGY }.sumOf { it.base },
                                     categories = perParent.map { SummaryImage.Slice(byId[it.key]?.name ?: "No category", it.value) },
                                 ),
                                 prefs.lang,
@@ -126,6 +128,14 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                     SectionCard(Modifier.weight(1f)) {
                         Label("Income")
                         Big(Money.short(income), Good, size = 22)
+                    }
+                }
+                if (saved > 0) {
+                    Gap()
+                    SectionCard(Modifier.padding(horizontal = 16.dp)) {
+                        Label("Put in piggy bank")
+                        Big("🐷 " + Money.short(saved), PiggyColor, size = 22)
+                        Text("Counted against what is left, but not as everyday spending.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 Gap()
@@ -165,6 +175,7 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                                         if (limit > 0) "${Money.short(total)} / ${Money.short(limit)}" else "${Money.short(total)} · ${if (spent > 0) (total / spent * 100).toInt() else 0}%",
                                         fontWeight = FontWeight.SemiBold,
                                     )
+                                    if (pid != null) TextButton(onClick = { nav.open(Route.CategoryMonth(categoryId = pid)) }) { Text("Details ›") }
                                 }
                                 val frac = if (limit > 0) (total / limit).toFloat() else if (spent > 0) (total / spent).toFloat() else 0f
                                 val color = when (Budget.level(total, limit)) {
@@ -214,6 +225,9 @@ fun SpendScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
 
 private val weekdayFmt = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)
 
+/** Purple for money put in the piggy bank. */
+val PiggyColor = androidx.compose.ui.graphics.Color(0xFF6B4FBB)
+
 fun dayTitle(d: LocalDate, today: LocalDate): String = when (d) {
     today -> "Today"
     today.minusDays(1) -> "Yesterday"
@@ -222,17 +236,22 @@ fun dayTitle(d: LocalDate, today: LocalDate): String = when (d) {
 
 @Composable
 fun TxnRow(t: Txn, categories: List<app.pocketta.data.Category>, onClick: () -> Unit) {
-    val title = t.note.ifBlank { categories.firstOrNull { it.id == t.categoryId }?.name ?: if (t.type == TxType.TRANSFER) "Transfer" else "—" }
+    val title = (if (t.source == Source.PIGGY) "🐷 " else "") + t.note.ifBlank { categories.firstOrNull { it.id == t.categoryId }?.name ?: if (t.type == TxType.TRANSFER) "Transfer" else "—" }
     val sub = when (t.type) {
         TxType.TRANSFER -> "Transfer"
-        else -> categoryLabel(categories, t.categoryId) + t.tagList.joinToString("") { " · #$it" }
+        else -> categoryLabel(categories, t.categoryId) + t.tagList.joinToString("") { " · #$it" } +
+            listOf(
+                when (t.need) { "NEED" -> "Need"; "WANT" -> "Want"; else -> "" },
+                when (t.how) { "CASH" -> "Cash"; "CARD" -> "Card"; "WALLET" -> "Wallet"; else -> "" },
+                t.place,
+            ).filter { it.isNotBlank() }.joinToString("") { " · $it" }
     }
     ListRow(title, sub, icon = categories.firstOrNull { it.id == t.categoryId }?.name ?: title, onClick = onClick) {
         val sign = when (t.type) { TxType.INCOME -> "+"; TxType.EXPENSE -> "−"; else -> "" }
         val text = sign + Money.fmt(t.amount) + if (t.currency != Money.currency) " ${t.currency}" else ""
         Text(
             text, fontWeight = FontWeight.SemiBold,
-            color = when (t.type) { TxType.INCOME -> Good; TxType.TRANSFER -> MaterialTheme.colorScheme.onSurfaceVariant; else -> MaterialTheme.colorScheme.onSurface },
+            color = if (t.source == Source.PIGGY) PiggyColor else when (t.type) { TxType.INCOME -> Good; TxType.TRANSFER -> MaterialTheme.colorScheme.onSurfaceVariant; else -> MaterialTheme.colorScheme.onSurface },
         )
     }
 }

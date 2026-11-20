@@ -21,7 +21,7 @@ class ActionReceiver : BroadcastReceiver() {
                 try {
                     val repo = Repo.get(context)
                     val p = repo.prefs()
-                    if (amount > 0 && p.goalAmount > 0) repo.addToMainGoal(amount)
+                    if (amount > 0 && p.goalAmount > 0) repo.savePiggy(amount, goalId = 0L)
                     NotificationManagerCompat.from(context).cancel(notifId)
                 } finally {
                     job.finish()
@@ -35,7 +35,7 @@ class ActionReceiver : BroadcastReceiver() {
             val job = goAsync()
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    if (amount > 0) Repo.get(context).piggyAdd(amount)
+                    if (amount > 0) Repo.get(context).savePiggy(amount)
                     NotificationManagerCompat.from(context).cancel(notifId)
                 } finally {
                     job.finish()

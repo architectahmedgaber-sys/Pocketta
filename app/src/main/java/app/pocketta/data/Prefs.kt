@@ -71,6 +71,15 @@ data class Prefs(
     val notifyUpdate: Boolean = true,
     /** Monthly amount to put in the piggy bank (0 = no target). */
     val piggyTarget: Double = 0.0,
+    /** Automatic piggy bank: a fixed amount or a share of the salary, asked after the salary arrives. */
+    val piggyAuto: Double = 0.0,
+    val piggyAutoPct: Double = 0.0,
+    /** Start day of the cycle that was already answered. */
+    val piggyAutoDone: Long = 0,
+    /** Optional boxes on the add screen. */
+    val addNeed: Boolean = false,
+    val addHow: Boolean = false,
+    val addWhere: Boolean = false,
     /** Tell me when a category passes its monthly limit. */
     val limitAlert: Boolean = true,
     /** "cycleStartDay|id,id": the categories already announced this cycle. */
@@ -169,6 +178,12 @@ data class Prefs(
                 notifyRise = b("notifyRise", true),
                 notifyUpdate = b("notifyUpdate", true),
                 piggyTarget = d("piggyTarget", 0.0),
+                piggyAuto = d("piggyAuto", 0.0),
+                piggyAutoPct = d("piggyAutoPct", 0.0),
+                piggyAutoDone = l("piggyAutoDone", 0),
+                addNeed = b("addNeed", false),
+                addHow = b("addHow", false),
+                addWhere = b("addWhere", false),
                 limitAlert = b("limitAlert", true),
                 limitAlerted = m["limitAlerted"].orEmpty(),
                 smsSuggest = b("smsSuggest", false),

@@ -111,6 +111,13 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
                 })
             }
             SectionCard {
+                Label("Add screen")
+                Text("Show more boxes when you add something, so you can see where money goes and where it comes from.", style = MaterialTheme.typography.bodySmall)
+                Toggle("Need or want?", prefs.addNeed) { v -> scope.launch { repo.set("addNeed", v) } }
+                Toggle("Paid how? (cash, card, wallet)", prefs.addHow) { v -> scope.launch { repo.set("addHow", v) } }
+                Toggle("Where, or who it came from", prefs.addWhere) { v -> scope.launch { repo.set("addWhere", v) } }
+            }
+            SectionCard {
                 Label("Savings goal")
                 Text("Set a goal (Umra, car, wedding...) and watch the ring fill up.", style = MaterialTheme.typography.bodySmall)
                 Gap(8)

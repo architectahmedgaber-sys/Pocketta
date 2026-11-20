@@ -18,6 +18,9 @@ object Source {
     const val INSTALLMENT = "INSTALLMENT"
     const val CIRCLE = "CIRCLE"
     const val LOAN = "LOAN"
+    /** Money put into the piggy bank (an expense that is saved, not spent) and money taken back out (income). */
+    const val PIGGY = "PIGGY"
+    const val PIGGYOUT = "PIGGYOUT"
 }
 
 @Entity(tableName = "wallets")
@@ -66,6 +69,10 @@ data class Txn(
     val spread: Boolean = false,
     /** Tags (projects) as one text, tags joined by "|". Use [tagList]. */
     val tags: String = "",
+    /** Optional extra boxes on the add screen: NEED or WANT, CASH / CARD / WALLET, and a place (or who it came from). */
+    val need: String = "",
+    val how: String = "",
+    val place: String = "",
 ) {
     val base: Double get() = amount * rate
     val tagList: List<String> get() = Tags.split(tags)

@@ -60,7 +60,7 @@ private fun MonthContent(s: HomeState) {
                     value(Money.short(b.left) + " left", 22, leftColor)
                     Spacer(GlanceModifier.height(2.dp))
                     label("Spent ${Money.short(b.spent)} · bills ${Money.short(b.committed)}", 11)
-                    label("${b.daysLeft} days left", 11)
+                    label("${b.daysLeft} days left" + if (b.daysLeft > 0 && b.left > 0) " · " + Money.short(b.left / b.daysLeft) + " a day" else "", 11)
                 }
             }
         }
