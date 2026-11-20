@@ -23,7 +23,7 @@ const DEFAULT_SETTINGS = {
   onboarded: false, cycleStart: 1, baseCurrency: 'EGP', country: '', salary: 0, salaryDay: 1, salaryWallet: 0,
   savingsPerMonth: 0, budgetAlert: true, rates: {}, lastCategory: 0, lastWallet: 0, pinHash: '', pinSalt: '', overAlert: '',
   // 1.3: look, savings goal, today's rates from the internet (your own rates still win)
-  theme: 'AUTO', goalName: '', goalAmount: 0, goalSaved: 0, goals: [], piggy: [], piggyTarget: 0, limitAlert: true, limitDismissed: '',
+  theme: 'AUTO', goalName: '', goalAmount: 0, goalSaved: 0, goals: [], piggy: [], piggyTarget: 0, piggyAuto: 0, piggyAutoPct: 0, piggyAutoDone: 0, limitAlert: true, limitDismissed: '', addFields: {},
   lang: 'EN', goldBuys: [], monthEndReminder: true, monthEndDismissed: '',
   // 1.14: flexible money, household shopping reserve, weekly summary from Miqrish
   household: 0, weeklyAi: { week: '', text: '' }, weeklyAiOn: true,
@@ -222,7 +222,15 @@ export function saveTxn(t) {
   if (!t.walletId) t = { ...t, walletId: defaultWallet() };
   if (t.tags) t = { ...t, tags: normTags(t.tags) };
   if (!t.id) data.txns.push(txn(t));
-  else { const i = data.txns.findIndex((x) => x.id === t.id); if (i >= 0) data.txns[i] = { ...data.txns[i], ...t }; }
+  else {
+    const i = data.txns.findIndex((x) => x.id === t.id);
+    if (i >= 0) {
+      const old = data.txns[i];
+      data.txns[i] = { ...old, ...t };
+      if (old.source === 'PIGGY') piggyApply(old.sourceId, base(data.txns[i]) - base(old));
+      if (old.source === 'PIGGYOUT') piggyApply(old.sourceId, base(old) - base(data.txns[i]));
+    }
+  }
   if (t.type === 'EXPENSE' && t.categoryId && !t.source) S().lastCategory = t.categoryId;
   S().lastWallet = t.walletId;
   changed();
@@ -230,6 +238,8 @@ export function saveTxn(t) {
 
 export function deleteTxn(t) {
   data.txns = data.txns.filter((x) => x.id !== t.id);
+  if (t.source === 'PIGGY') piggyApply(t.sourceId, -base(t));
+  if (t.source === 'PIGGYOUT') piggyApply(t.sourceId, base(t));
   if (t.source === 'INSTALLMENT') { const i = byId(data.installments, t.sourceId); if (i) i.paid = Math.max(i.paid - 1, 0); }
   if (t.source === 'CIRCLE') {
     const c = byId(data.circles, t.sourceId);
@@ -246,6 +256,18 @@ export function deleteTxn(t) {
     }
   }
   changed();
+}
+
+/** Things bought lately (same name, last price): the add screen offers them as one-tap chips. */
+export function recentItems(limit = 6) {
+  const today = C.todayEpoch(), seen = new Map();
+  for (const t of [...data.txns].sort((a, b) => b.epochDay - a.epochDay || b.createdAt - a.createdAt)) {
+    if (t.type !== 'EXPENSE' || t.source || !t.note.trim() || t.epochDay < today - 90) continue;
+    const k = t.note.trim().toLowerCase();
+    const o = seen.get(k) || { note: t.note.trim(), amount: t.currency === S().baseCurrency ? t.amount : base(t), categoryId: t.categoryId, n: 0 };
+    o.n++; seen.set(k, o);
+  }
+  return [...seen.values()].sort((a, b) => b.n - a.n).slice(0, limit);
 }
 
 /** Guesses the category for a quick note like "koshary": same note as before, or a category with that name. */
@@ -285,7 +307,7 @@ export function suggestions(today = C.todayEpoch()) {
 /** The last 7 days against the 7 before, for the Friday/Saturday card. */
 export function week(today, dayReference) {
   const from = today - 6;
-  const ex = (a, b) => data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && t.epochDay >= a && t.epochDay < b);
+  const ex = (a, b) => data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && t.source !== 'PIGGY' && t.epochDay >= a && t.epochDay < b);
   const now = ex(from, today + 1), before = ex(from - 7, from);
   const top = {};
   for (const t of now) { const c = byId(data.categories, t.categoryId); if (!c) continue; const p = c.parentId ? byId(data.categories, c.parentId) : c; top[p.name] = (top[p.name] || 0) + base(t); }
@@ -613,7 +635,7 @@ export function planData(today = C.todayEpoch()) {
   const totals = (from, toExcl, upTo = null) => {
     const m = {};
     for (const t of data.txns) {
-      if (t.type !== 'EXPENSE' || t.spread || t.epochDay < from || t.epochDay >= toExcl || (upTo != null && t.epochDay > upTo)) continue;
+      if (t.type !== 'EXPENSE' || t.spread || t.source === 'PIGGY' || t.epochDay < from || t.epochDay >= toExcl || (upTo != null && t.epochDay > upTo)) continue;
       const n = topName(t.categoryId); m[n] = (m[n] || 0) + base(t);
     }
     return m;
@@ -670,11 +692,12 @@ export function wealth() {
   const cash = Object.values(bal).reduce((a, v) => a + v, 0);
   const gs = C.goldSummary(s.goldBuys || [], s.gold || {});
   const gold = gs ? gs.value : 0;
-  const total = cash + gold;
+  const piggyHeld = data.txns.reduce((a, t) => a + (t.source === 'PIGGY' ? base(t) : t.source === 'PIGGYOUT' ? -base(t) : 0), 0);
+  const total = cash + piggyHeld + gold;
   const usd = s.rates.USD || s.onlineRates.USD;
   const cycle = C.cycleFor(C.todayEpoch(), s.cycleStart);
   const salaryComing = s.salary > 0 && !data.txns.some((t) => t.source === 'SALARY' && cycle.contains(t.epochDay)) && salaryDateIn(cycle, s.salaryDay) != null ? s.salary : 0;
-  return { cash, gold, total, salaryComing, dollars: usd > 0 ? total / usd : null, goldGrams: s.gold && s.gold['21'] > 0 ? total / s.gold['21'] : null, history: s.wealthHistory || [] };
+  return { cash, piggyHeld, gold, total, salaryComing, dollars: usd > 0 ? total / usd : null, goldGrams: s.gold && s.gold['21'] > 0 ? total / s.gold['21'] : null, history: s.wealthHistory || [] };
 }
 /** Saves today's total once a day (a later call the same day replaces it). */
 export function recordWealth(today = C.todayEpoch()) {
@@ -695,7 +718,7 @@ export function categoriesOverLimit(today = C.todayEpoch()) {
   const cats = data.categories.filter((c) => c.kind === 'EXPENSE');
   const byTop = {};
   for (const t of data.txns) {
-    if (t.type !== 'EXPENSE' || t.spread || !cycle.contains(t.epochDay)) continue;
+    if (t.type !== 'EXPENSE' || t.spread || t.source === 'PIGGY' || !cycle.contains(t.epochDay)) continue;
     const c = byId(cats, t.categoryId);
     if (!c) continue;
     const top = c.parentId || c.id;
@@ -708,7 +731,7 @@ export function categoriesOverLimit(today = C.todayEpoch()) {
 /** What you spend in a normal month: average of the last 3 finished cycles that had spending, else this cycle so far. */
 export function monthlySpend(today = C.todayEpoch()) {
   const s = S();
-  const total = (c) => data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && c.contains(t.epochDay)).reduce((a, t) => a + base(t), 0);
+  const total = (c) => data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && t.source !== 'PIGGY' && c.contains(t.epochDay)).reduce((a, t) => a + base(t), 0);
   let c = C.cycleFor(today, s.cycleStart);
   const cur = total(c), past = [];
   for (let i = 0; i < 3; i++) { c = C.previousCycle(c, s.cycleStart); const v = total(c); if (v > 0) past.push(v); }
@@ -721,6 +744,58 @@ export function monthlySpend(today = C.todayEpoch()) {
 export function piggyAdd(amount) {
   if (!amount) return;
   data.settings.piggy = C.piggyAdd(S().piggy || [], C.todayEpoch(), amount);
+  changed();
+}
+/** Moves [amount] into (or out of) the piggy bank and the goal it belongs to. goalId: -1 = general piggy, 0 = main goal, n = extra goal. */
+function piggyApply(goalId, amount) {
+  if (!amount) return;
+  if (goalId === 0) data.settings.goalSaved = Math.max((S().goalSaved || 0) + amount, 0);
+  else if (goalId > 0) data.settings.goals = (S().goals || []).map((g) => (g.id === goalId ? { ...g, saved: Math.max(g.saved + amount, 0) } : g));
+  data.settings.piggy = C.piggyAdd(S().piggy || [], C.todayEpoch(), amount);
+}
+/** Piggy bank category (created on first use, so old data works too). */
+function piggyCategory(kind) {
+  const name = kind === 'INCOME' ? 'From piggy bank' : 'Piggy bank';
+  ensureSeeded();
+  let id = categoryNamed(name, kind);
+  if (id == null) {
+    id = nextId();
+    data.categories.push({ id, name, parentId: null, kind, monthlyLimit: 0, sort: 99, archived: false });
+  }
+  return id;
+}
+/** "Piggy" as a kind of spending: recorded with the expenses, counts against what is left, and goes into the piggy bank by itself. */
+export function savePiggyTxn({ amount, goalId = -1, epochDay = C.todayEpoch(), note = '', tags = [] }) {
+  if (!(amount > 0)) return false;
+  data.txns.push(txn({ type: 'EXPENSE', amount, walletId: defaultWallet(), categoryId: piggyCategory('EXPENSE'), note: note || 'Piggy bank', epochDay, source: 'PIGGY', sourceId: goalId, tags: normTags(tags) }));
+  piggyApply(goalId, amount);
+  changed();
+  return true;
+}
+/** Takes money back out of the piggy bank and records it as income "From piggy bank". */
+export function takeFromPiggy({ amount, goalId = -1, epochDay = C.todayEpoch() }) {
+  if (!(amount > 0)) return false;
+  data.txns.push(txn({ type: 'INCOME', amount, walletId: defaultWallet(), categoryId: piggyCategory('INCOME'), note: 'From piggy bank', epochDay, source: 'PIGGYOUT', sourceId: goalId }));
+  piggyApply(goalId, -amount);
+  changed();
+  return true;
+}
+/** After the salary arrives: the amount the user planned to move to the piggy bank this cycle (0 = nothing to ask). Never moves by itself. */
+export function piggyAutoDue(today = C.todayEpoch()) {
+  const s = S();
+  if (!(s.piggyAuto > 0 || s.piggyAutoPct > 0)) return 0;
+  const cycle = C.cycleFor(today, s.cycleStart);
+  if (s.piggyAutoDone === cycle.start) return 0;
+  const sal = data.txns.find((t) => t.source === 'SALARY' && cycle.contains(t.epochDay));
+  if (!sal) return 0;
+  const amt = s.piggyAuto > 0 ? s.piggyAuto : Math.round(base(sal) * s.piggyAutoPct / 100);
+  return amt > 0 ? amt : 0;
+}
+export function piggyAutoAnswer(yes, today = C.todayEpoch()) {
+  const amt = piggyAutoDue(today);
+  if (amt <= 0) return;
+  if (yes) savePiggyTxn({ amount: amt, note: 'Piggy bank (monthly)' });
+  data.settings.piggyAutoDone = C.cycleFor(today, S().cycleStart).start;
   changed();
 }
 /** Adds to the main savings goal; the money also goes into the piggy bank. */
@@ -776,9 +851,9 @@ function actualMonth(ym, tx) {
   const inc = tx.filter((t) => t.type === 'INCOME'), exp = tx.filter((t) => t.type === 'EXPENSE');
   const sum = (l, src) => l.filter((t) => t.source === src).reduce((a, t) => a + base(t), 0);
   const payout = sum(inc, 'CIRCLE'), loansIn = sum(inc, 'LOAN');
-  const committed = ['BILL', 'INSTALLMENT', 'CIRCLE', 'LOAN'];
+  const committed = ['BILL', 'INSTALLMENT', 'CIRCLE', 'LOAN', 'PIGGY'];
   return {
-    ym, actual: true, salary: inc.reduce((a, t) => a + base(t), 0) - payout - loansIn, payout, loansIn,
+    ym, actual: true, salary: inc.reduce((a, t) => a + base(t), 0) - payout - loansIn - sum(inc, 'PIGGYOUT'), payout, loansIn,
     bills: sum(exp, 'BILL'), installments: sum(exp, 'INSTALLMENT'), cards: 0, circleShares: sum(exp, 'CIRCLE'), loansOut: sum(exp, 'LOAN'),
     living: exp.filter((t) => !committed.includes(t.source)).reduce((a, t) => a + base(t), 0), lines: [],
   };
