@@ -29,7 +29,7 @@ object WidgetData {
     suspend fun weekDays(context: Context, s: HomeState): List<Pair<LocalDate, Double>> {
         val from = s.today.minusDays(6)
         val per = repo(context).dao.txns(from.toEpochDay(), s.today.toEpochDay() + 1)
-            .filter { it.type == TxType.EXPENSE && !it.spread }
+            .filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY }
             .groupBy { it.epochDay }.mapValues { e -> e.value.sumOf { it.base } }
         return (0..6).map { i -> from.plusDays(i.toLong()).let { d -> d to (per[d.toEpochDay()] ?: 0.0) } }
     }
@@ -41,7 +41,7 @@ object WidgetData {
         val dao = repo(context).dao
         val cats = dao.categories().filter { it.kind == TxType.EXPENSE }.associateBy { it.id }
         val txns = dao.txns(s.cycle.start.toEpochDay(), s.cycle.nextStart.toEpochDay())
-            .filter { it.type == TxType.EXPENSE && !it.spread && it.categoryId != null }
+            .filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && it.categoryId != null }
         val byTop = HashMap<Long, Double>()
         for (t in txns) {
             val c = cats[t.categoryId] ?: continue
@@ -59,7 +59,7 @@ object WidgetData {
         if (all.isEmpty()) return null
         val cats = dao.categories().associateBy { it.id }
         val txns = dao.txns(s.cycle.start.toEpochDay(), s.cycle.nextStart.toEpochDay())
-            .filter { it.type == TxType.EXPENSE && !it.spread && it.categoryId != null }
+            .filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && it.categoryId != null }
         return all.map { c ->
             val spent = txns.filter { t ->
                 val tc = cats[t.categoryId]

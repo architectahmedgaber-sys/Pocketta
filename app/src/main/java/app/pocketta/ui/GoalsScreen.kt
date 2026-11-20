@@ -159,7 +159,7 @@ fun GoalsScreen(repo: Repo, nav: Nav, prefs: Prefs) {
             confirmButton = {
                 TextButton(onClick = {
                     val v = parseNumber(addText) ?: 0.0
-                    if (v > 0) scope.launch { if (a.id == MAIN) repo.addToMainGoal(v) else repo.addToGoal(a.id, v) }
+                    if (v > 0) scope.launch { repo.savePiggy(v, goalId = if (a.id == MAIN) 0L else a.id) }
                     adding = null
                 }) { Text("Save") }
             },

@@ -136,7 +136,7 @@ function render() {
   if (ui.locked) { app.innerHTML = lockScreen(); $('#pin')?.focus(); return; }
   if (!R.S().onboarded) { app.innerHTML = onboarding(); return; }
   const c = cur();
-  const pages = { home, spend, commit, more, add, income, tagsPage, tagDetail, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage, monthPlanPage, assistant: assistantPage };
+  const pages = { home, spend, commit, more, add, income, tagsPage, tagDetail, catMonth, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage, monthPlanPage, assistant: assistantPage };
   const page = pages[c.r === 'currencies' ? 'currencyPage' : c.r] || home;
   if (isTab(c.r)) {
     const tabIcon = (r) => (r === 'assistant' ? '<span class="coin">🪙</span>' : icon(r));
@@ -204,6 +204,7 @@ function home() {
   html += gameyaCards(s);
   html += weekCard(s);
   html += limitCard(s);
+  html += piggyAutoCard();
   html += monthEndCard(s);
   html += goalCard();
   const sp = b.spentFraction, cm = b.committedFraction, rest = Math.max(1 - sp - cm, 0);
@@ -404,6 +405,13 @@ function limitCard(s) {
   return card(`${label('Over the limit')}${over.map((o) => `<div class="row-flex line"><div class="grow"><b>${esc(o.name)}</b></div><span class="bad-t">${money(o.spent)} of ${money(o.limit)} ${esc(base())}</span></div>`).join('')}
     <div class="btns"><button class="btn text" data-act="limit-skip">OK</button></div>`, 'tonal');
 }
+/** After the salary arrives: asks before moving the planned amount to the piggy bank. Nothing moves until the user taps yes. */
+function piggyAutoCard() {
+  const amt = R.piggyAutoDue();
+  if (!(amt > 0)) return '';
+  return card(`<div class="grow"><b>Move to your piggy bank?</b><div class="big piggy-t">${money(amt)} ${esc(base())}</div><div class="small">Your monthly saving, now that the salary is in.</div></div>
+    <div class="btns"><button class="btn filled" data-act="pig-auto-yes">Yes, move it</button><button class="btn text" data-act="pig-auto-no">Not this month</button></div>`, 'tonal');
+}
 /** Last 2 days of the month: offers to put what is left into the piggy bank. */
 function monthEndCard(s) {
   const st = R.S(), b = s.budget;
@@ -418,7 +426,7 @@ function monthEndCard(s) {
 function goalSheet() {
   sheet({
     title: 'Add to goal', body: numField('amount', 'Amount', null, { suffix: base() }),
-    onSave: (root) => { const v = num(root, 'amount'); if (v > 0) R.addToMainGoal(v); },
+    onSave: (root) => { const v = num(root, 'amount'); if (v > 0) R.savePiggyTxn({ amount: v, goalId: 0 }); },
   });
 }
 
@@ -429,7 +437,16 @@ function piggySheet(dir) {
   sheet({
     title: dir > 0 ? 'Put in' : 'Take out',
     body: numField('amount', 'Amount', null, { suffix: base() }) + (dir < 0 ? `<div class="small">In your piggy bank: ${money(total)} ${esc(base())}</div>` : ''),
-    onSave: (root) => { let v = num(root, 'amount'); if (dir < 0) v = Math.min(v, total); if (v > 0) R.piggyAdd(dir * v); },
+    onSave: (root) => { let v = num(root, 'amount'); if (dir < 0) v = Math.min(v, total); if (v > 0) { if (dir > 0) R.savePiggyTxn({ amount: v }); else R.takeFromPiggy({ amount: v }); } },
+  });
+}
+function piggyAutoSheet() {
+  const st = R.S();
+  sheet({
+    title: 'Automatic piggy bank',
+    body: `<div class="small">When your salary arrives, Pocketta asks if it should move this to the piggy bank. It only moves after you say yes.</div>` +
+      numField('amount', 'Fixed amount each month (0 to turn off)', st.piggyAuto || null, { suffix: base() }) + numField('pct', 'Or a share of the salary, in %', st.piggyAutoPct || null, { suffix: '%' }),
+    onSave: (root) => { st.piggyAuto = Math.max(0, num(root, 'amount') || 0); st.piggyAutoPct = Math.min(100, Math.max(0, num(root, 'pct') || 0)); R.changed(); },
   });
 }
 function piggyTargetSheet() {
@@ -448,6 +465,7 @@ function piggyPage() {
   let body = hero;
   const cover = C.coverMonths(total, R.monthlySpend());
   if (cover != null) body += card(`${label('How long it lasts')}<div class="mid">Your piggy bank covers ${cover} months of your spending</div><div class="small">You spend about ${money(R.monthlySpend())} a month</div>`);
+  body += card(`<div class="row-flex"><div class="grow">${label('Automatic piggy bank')}<div class="small">${s.piggyAuto > 0 ? `<b>${money(s.piggyAuto)} ${esc(base())}</b> each month, after you say yes` : s.piggyAutoPct > 0 ? `<b>${s.piggyAutoPct}%</b> of the salary each month, after you say yes` : 'Off. Choose an amount and Pocketta asks you when the salary arrives.'}</div></div><button class="btn tonal" data-act="piggy-auto">Set</button></div>`);
   const target = s.piggyTarget || 0;
   if (!(target > 0)) {
     body += card(`${label('Monthly target')}<div class="small">Pick an amount to put in every month and see how many months in a row you hit it.</div><div class="btns"><button class="btn filled" data-act="piggy-target">Set a monthly target</button></div>`);
@@ -501,7 +519,7 @@ function goalsPage() {
 function goalAddSheet(id) {
   sheet({
     title: 'Add to goal', body: numField('amount', 'Amount', null, { suffix: base() }) + `<div class="small">Also goes into your piggy bank</div>`,
-    onSave: (root) => { const v = num(root, 'amount'); if (v > 0) { if (id === 0) R.addToMainGoal(v); else R.addToGoal(id, v); } },
+    onSave: (root) => { const v = num(root, 'amount'); if (v > 0) R.savePiggyTxn({ amount: v, goalId: id }); },
   });
 }
 function goalEditSheet(id) {
@@ -550,8 +568,9 @@ function spend() {
   const { cycle, txns } = spendData();
   const s = R.S();
   const prev = C.previousCycle(cycle, s.cycleStart);
-  const prevExp = R.data.txns.filter((t) => prev.contains(t.epochDay) && t.type === 'EXPENSE');
-  const exp = txns.filter((t) => t.type === 'EXPENSE');
+  const prevExp = R.data.txns.filter((t) => prev.contains(t.epochDay) && t.type === 'EXPENSE' && t.source !== 'PIGGY');
+  const exp = txns.filter((t) => t.type === 'EXPENSE' && t.source !== 'PIGGY');
+  const saved = txns.filter((t) => t.source === 'PIGGY').reduce((a, t) => a + R.base(t), 0);
   const spent = exp.reduce((a, t) => a + R.base(t), 0);
   const income = txns.filter((t) => t.type === 'INCOME').reduce((a, t) => a + R.base(t), 0);
   const per = {}, prevPer = {};
@@ -565,7 +584,8 @@ function spend() {
     <div class="center"><div class="mid">${C.fmtMonth(cycle.end)} ${C.ymd(cycle.end).y}</div><div class="small">${C.fmtDay(cycle.start)} → ${C.fmtDay(cycle.end)}</div></div>
     <button class="icon-btn" data-act="spend-next" ${ui.spendOffset === 0 ? 'disabled' : ''} aria-label="Next month">${icon('right')}</button>
     ${spent > 0 ? `<button class="btn text" data-act="share-month">Share</button>` : ''}</div>
-    <div class="two">${card(label('Spent') + `<div class="big">${money(spent)}</div>`)}${card(label('Income') + `<div class="big good-t">${money(income)}</div>`)}</div>`;
+    <div class="two">${card(label('Spent') + `<div class="big">${money(spent)}</div>`)}${card(label('Income') + `<div class="big good-t">${money(income)}</div>`)}</div>
+    ${saved > 0 ? card(label('Put in piggy bank') + `<div class="big piggy-t">🐷 ${money(saved)}</div><div class="small">Counted against what is left, but not as everyday spending.</div>`) : ''}`;
   if (perList.length) {
     html += donutCard(perList.map(([k, v]) => [nameOf(k), v, limitOf(k)]), spent);
     const sums = {};
@@ -580,7 +600,7 @@ function spend() {
       const frac = limit > 0 ? total / limit : spent > 0 ? total / spent : 0;
       const lv = C.level(total, limit);
       return `<div class="catline tap" data-act="spend-filter" data-k="${k}"><div class="row-flex"><span class="grow ${sel ? 'sel' : ''}">${esc(nameOf(k))}</span>
-        <b>${limit > 0 ? `${money(total)} / ${money(limit)}` : `${money(total)} · ${spent > 0 ? Math.floor(total / spent * 100) : 0}%`}</b></div>${progress(frac, lv === 'ok' ? '' : lv)}</div>`;
+        ${k !== 'none' ? `<button class="btn text" data-act="open-catmonth" data-key="c:${k}">Details ›</button>` : ''}<b>${limit > 0 ? `${money(total)} / ${money(limit)}` : `${money(total)} · ${spent > 0 ? Math.floor(total / spent * 100) : 0}%`}</b></div>${progress(frac, lv === 'ok' ? '' : lv)}</div>`;
     }).join(''));
   }
   html += `<div class="pad"><input class="search" id="spend-search" type="search" placeholder="Search notes and categories" value="${esc(ui.spendSearch)}"></div>
@@ -620,7 +640,7 @@ function trendCard(cycle, spent) {
   const s = R.S();
   const cycles = [cycle];
   for (let i = 0; i < 5; i++) cycles.unshift(C.previousCycle(cycles[0], s.cycleStart));
-  const totals = cycles.map((c) => R.data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && c.contains(t.epochDay)).reduce((a, t) => a + R.base(t), 0));
+  const totals = cycles.map((c) => R.data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && t.source !== 'PIGGY' && c.contains(t.epochDay)).reduce((a, t) => a + R.base(t), 0));
   const prev = totals[totals.length - 2];
   if (totals.filter((v) => v > 0).length < 2) return '';
   const max = Math.max(...totals, 1);
@@ -660,12 +680,62 @@ function spendList(txns) {
 
 function txnRow(t) {
   const cat = R.byId(R.data.categories, t.categoryId);
-  const title = t.note || cat?.name || (t.type === 'TRANSFER' ? 'Transfer' : '—');
+  const title = (t.source === 'PIGGY' ? '🐷 ' : '') + (t.note || cat?.name || (t.type === 'TRANSFER' ? 'Transfer' : '—'));
   const tagText = R.tagsOf(t).map((g) => `#${g}`).join(' ');
-  const sub = t.type === 'TRANSFER' ? 'Transfer' : R.categoryLabel(t.categoryId) + (tagText ? ` · ${tagText}` : '');
+  const extra = [t.need === 'NEED' ? 'Need' : t.need === 'WANT' ? 'Want' : '', t.how === 'CASH' ? 'Cash' : t.how === 'CARD' ? 'Card' : t.how === 'WALLET' ? 'Wallet' : '', t.where || ''].filter(Boolean);
+  const sub = t.type === 'TRANSFER' ? 'Transfer' : R.categoryLabel(t.categoryId) + (tagText ? ` · ${tagText}` : '') + (extra.length ? ` · ${extra.join(' · ')}` : '');
   const sign = t.type === 'INCOME' ? '+' : t.type === 'EXPENSE' ? '−' : '';
-  const cls = t.type === 'INCOME' ? 'good-t' : t.type === 'TRANSFER' ? 'muted' : '';
+  const cls = t.source === 'PIGGY' ? 'piggy-t' : t.type === 'INCOME' ? 'good-t' : t.type === 'TRANSFER' ? 'muted' : '';
   return row(title, sub, { icon: cat?.name ?? title, act: 'edit-txn', data: `data-id="${t.id}"`, trailing: `<b class="${cls}">${sign}${C.fmt(t.amount)}${t.currency !== base() ? ' ' + esc(t.currency) : ''}</b>` });
+}
+
+
+// ---------- Category by month ----------
+
+/** Month, category (or tag), total, every day, and all the spending in it. */
+function catMonth() {
+  const s = R.S();
+  ui.cmOffset = ui.cmOffset || 0;
+  let cycle = C.cycleFor(C.todayEpoch(), s.cycleStart);
+  for (let i = 0; i < ui.cmOffset; i++) cycle = C.previousCycle(cycle, s.cycleStart);
+  const prev = C.previousCycle(cycle, s.cycleStart);
+  const tops = R.categories().filter((x) => x.kind === 'EXPENSE' && x.parentId == null && x.name !== 'Piggy bank').sort((a, b) => a.sort - b.sort);
+  const tags = R.allTags().map((g) => g.name);
+  const sel = ui.cmKey || (tops[0] ? `c:${tops[0].id}` : null);
+  const mine = (t) => t.type === 'EXPENSE' && t.source !== 'PIGGY' && (sel?.startsWith('t:') ? R.tagsOf(t).includes(sel.slice(2)) : topOf(t.categoryId) === +(sel || '').slice(2));
+  const now = R.data.txns.filter((t) => cycle.contains(t.epochDay) && mine(t)).sort((a, b) => b.epochDay - a.epochDay || b.createdAt - a.createdAt);
+  const before = R.data.txns.filter((t) => prev.contains(t.epochDay) && mine(t));
+  const total = now.reduce((a, t) => a + R.base(t), 0), was = before.reduce((a, t) => a + R.base(t), 0);
+  const cat = sel?.startsWith('c:') ? R.byId(R.data.categories, +sel.slice(2)) : null;
+  const name = cat ? cat.name : sel ? `#${sel.slice(2)}` : '';
+  const pct = was > 0 ? Math.round((total - was) / was * 100) : null;
+  let html = topbar('Category by month') + `<main class="page">
+    <div class="month-nav"><button class="icon-btn" data-act="cm-prev" aria-label="Previous month">${icon('left')}</button>
+    <div class="center"><div class="mid">${C.fmtMonth(cycle.end)} ${C.ymd(cycle.end).y}</div><div class="small">${C.fmtDay(cycle.start)} → ${C.fmtDay(cycle.end)}</div></div>
+    <button class="icon-btn" data-act="cm-next" ${ui.cmOffset === 0 ? 'disabled' : ''} aria-label="Next month">${icon('right')}</button></div>`;
+  if (!sel) return html + `<p class="empty">No categories yet.</p></main>`;
+  html += card(chips('cmpick', [...tops.map((x) => [`c:${x.id}`, x.name]), ...tags.map((g) => [`t:${g}`, `#${g}`])], sel));
+  html += card(`${label('Spent')}<div class="mid">${esc(name)}</div><div class="big">${money(total)} ${esc(base())}</div>` +
+    `<div class="small">${was > 0 ? `Last month ${money(was)}` : 'Nothing last month'}</div>` +
+    (pct != null ? (pct > 0 ? pill(`▲ ${pct}% vs last month`, 'bad') : pct < 0 ? pill(`▼ ${-pct}% vs last month`, 'good') : pill('＝ same as last month')) : '') +
+    (cat && cat.monthlyLimit > 0 ? `<div class="small pad-t">Monthly limit ${money(cat.monthlyLimit)}</div><div class="small">${total > cat.monthlyLimit ? 'Over by ' + money(total - cat.monthlyLimit) : 'Left ' + money(cat.monthlyLimit - total)}</div>${progress(total / cat.monthlyLimit, C.level(total, cat.monthlyLimit) === 'ok' ? '' : C.level(total, cat.monthlyLimit))}` : ''));
+  if (!now.length) return html + `<p class="empty">Nothing spent here this month.</p></main>`;
+  const per = {};
+  for (const t of now) per[t.epochDay] = (per[t.epochDay] || 0) + R.base(t);
+  const vals = []; for (let d = cycle.start; d < cycle.nextStart; d++) vals.push(per[d] || 0);
+  html += daysCard(vals);
+  const top = Object.entries(per).sort((a, b) => b[1] - a[1])[0];
+  html += `<div class="small pad-t">Most expensive day</div><div><b>${C.fmtDay(+top[0])} · ${money(top[1])} ${esc(base())}</b></div>`;
+  if (cat) {
+    const subs = {};
+    for (const t of now) { const sc = R.byId(R.data.categories, t.categoryId); const k = sc && sc.parentId ? sc.name : 'Other'; subs[k] = (subs[k] || 0) + R.base(t); }
+    const list = Object.entries(subs).sort((a, b) => b[1] - a[1]);
+    if (list.length > 1) html += card(label('Inside it') + list.map(([k, v]) => `<div class="catline"><div class="row-flex"><span class="grow">${esc(k)}</span><b>${money(v)} · ${Math.floor(v / total * 100)}%</b></div>${progress(v / total)}</div>`).join(''));
+  }
+  const biggest = [...now].sort((a, b) => R.base(b) - R.base(a)).slice(0, 3);
+  html += card(label('Biggest three') + biggest.map(txnRow).join(''));
+  html += label('All of it, newest first') + now.map(txnRow).join('');
+  return html + '<div class="spacer"></div></main>';
 }
 
 // ---------- Tags (projects) ----------
@@ -743,22 +813,34 @@ function add(c) {
   const editing = c.id ? R.byId(R.data.txns, c.id) : null;
   const st = c.st || (c.st = initAdd(c, editing));
   const s = R.S();
-  const title = editing ? 'Edit' : st.type === 'INCOME' ? 'Add income' : st.type === 'TRANSFER' ? 'Move money' : 'Add expense';
+  const af = s.addFields || {};
+  const piggy = st.type === 'PIGGY', income = st.type === 'INCOME';
+  const title = editing ? 'Edit' : income ? 'Add income' : piggy ? 'Put in piggy bank' : st.type === 'TRANSFER' ? 'Move money' : 'Add expense';
+  const types = st.type === 'TRANSFER' ? [['TRANSFER', 'Transfer']] : editing ? [['EXPENSE', 'Expense'], ['INCOME', 'Income']] : [['EXPENSE', 'Expense'], ['INCOME', 'Income'], ['PIGGY', '🐷 Piggy bank']];
+  const today = C.todayEpoch();
+  const otherDay = st.showDate || (st.date !== today && st.date !== today - 1);
+  const recent = !editing && st.type === 'EXPENSE' ? R.recentItems() : [];
+  const goals = [[-1, 'General piggy bank']].concat(s.goalAmount > 0 ? [[0, s.goalName || 'My goal']] : [], (s.goals || []).map((g) => [g.id, g.name]));
   return `${topbar(title, editing ? `<button class="icon-btn" data-act="del-txn" aria-label="Delete">${icon('del')}</button>` : '')}
   <main class="page form" id="add">
-    ${editing?.source ? `<p class="small">This was recorded from a bill, installment, gam'eya or loan.</p>` : ''}
-    ${chips('type', st.type === 'TRANSFER' ? [['TRANSFER', 'Transfer']] : [['EXPENSE', 'Expense'], ['INCOME', 'Income']], st.type, 'seg')}
-    <div>${label('Amount')}<div class="amount" id="amt"></div><div class="small" id="qnote"></div></div>
-    <label class="field"><span>${st.type === 'EXPENSE' ? 'Amount, or quick: koshary 60' : 'Amount'}</span>
-      <div class="input-wrap"><input id="quick" name="quick" value="${esc(st.input)}" autocomplete="off" enterkeyhint="done" inputmode="${st.type === 'EXPENSE' ? 'text' : 'decimal'}"></div></label>
+    ${editing?.source ? `<p class="small">This was recorded from a bill, installment, gam'eya, loan or your piggy bank.</p>` : ''}
+    ${chips('type', types, st.type, 'seg')}
+    <div class="amount" id="amt"></div><div class="small" id="qnote"></div>
+    <label class="field"><span>Amount</span>
+      <div class="input-wrap"><input id="quick" name="quick" value="${esc(st.input)}" placeholder="0" autocomplete="off" enterkeyhint="next" inputmode="decimal"></div></label>
+    ${piggy ? '' : field('note', income ? 'What is it?' : 'What did you buy?', st.noteField, { ph: income ? 'salary, side work…' : 'koshary, coffee…' })}
+    ${recent.length ? `<div class="small">Bought before: tap one</div><div class="chips recent">${recent.map((r, i) => `<button type="button" class="chip" data-act="recent-pick" data-i="${i}">${esc(r.note)} · ${C.fmt(r.amount)}</button>`).join('')}</div>` : ''}
     <div id="cats"></div>
     <div id="borrow"></div>
+    ${piggy ? label('Goes to') + chips('goal', goals, st.goal ?? -1) + field('note', 'Note (optional)', st.noteField) : ''}
     ${R.currencies().length > 1 ? label('Currency') + chips('currency', R.currencies().map((x) => [x, x]), st.currency) + `<div class="small" id="conv"></div>` : ''}
-    ${label('Date')}${chips('day', [[C.todayEpoch(), 'Today'], [C.todayEpoch() - 1, 'Yesterday']], st.date)}
-    ${dateField('date', 'Or pick a day', st.date)}
-    ${field('note', 'Note (optional)', st.noteField)}
-    ${tagField(st.tags)}
-    <button class="btn filled wide" data-act="save-txn">Save</button>
+    ${label('Date')}${chips('day', [[today, 'Today'], [today - 1, 'Yesterday'], ['other', 'Other day']], otherDay ? 'other' : st.date)}
+    ${otherDay ? dateField('date', 'Pick a day', st.date) : `<input type="hidden" name="date" value="${C.isoOf(st.date)}">`}
+    ${piggy ? '' : tagField(st.tags)}
+    ${!piggy && af.need && st.type === 'EXPENSE' ? label('Need or want?') + chips('need', [['NEED', 'Need'], ['WANT', 'Want']], st.need || '') : ''}
+    ${!piggy && af.how ? label(income ? 'Received how?' : 'Paid how?') + chips('how', [['CASH', 'Cash'], ['CARD', 'Card'], ['WALLET', 'Mobile wallet']], st.how || '') : ''}
+    ${!piggy && af.where ? field('where', income ? 'Came from' : 'Where', st.where || '', { ph: income ? 'who or what' : 'shop or place' }) : ''}
+    <button class="btn filled wide" data-act="save-txn">${piggy ? 'Save in piggy bank' : 'Save'}</button>
     <div class="spacer"></div>
   </main>`;
 }
@@ -775,9 +857,9 @@ function initAdd(c, t) {
   const s = R.S();
   if (t) {
     const cat = R.byId(R.data.categories, t.categoryId);
-    return { type: t.type, input: String(t.amount), noteField: t.note, categoryId: t.categoryId, parentId: cat ? (cat.parentId ?? cat.id) : null, byHand: true, walletId: t.walletId, toWalletId: t.toWalletId, currency: t.currency, date: t.epochDay, person: '', due: null, tags: t.tags || [] };
+    return { type: t.type, input: String(t.amount), noteField: t.note, categoryId: t.categoryId, parentId: cat ? (cat.parentId ?? cat.id) : null, byHand: true, walletId: t.walletId, toWalletId: t.toWalletId, currency: t.currency, date: t.epochDay, person: '', due: null, tags: t.tags || [], need: t.need || '', how: t.how || '', where: t.where || '', goal: -1 };
   }
-  const st = { type: c.type === 'INCOME' ? 'INCOME' : 'EXPENSE', input: '', noteField: '', categoryId: null, parentId: null, byHand: false, walletId: 0, toWalletId: null, currency: s.baseCurrency, date: c.date ?? C.todayEpoch(), person: '', due: null, tags: [] };
+  const st = { type: c.type === 'INCOME' ? 'INCOME' : c.type === 'PIGGY' ? 'PIGGY' : 'EXPENSE', need: '', how: '', where: '', goal: -1, showDate: false, input: '', noteField: '', categoryId: null, parentId: null, byHand: false, walletId: 0, toWalletId: null, currency: s.baseCurrency, date: c.date ?? C.todayEpoch(), person: '', due: null, tags: [] };
   if (st.type === 'EXPENSE' && s.lastCategory) {
     const cat = R.categories().find((x) => x.id === s.lastCategory);
     if (cat) { st.categoryId = cat.id; st.parentId = cat.parentId ?? cat.id; }
@@ -794,13 +876,14 @@ function addRefresh() {
   $('#amt').textContent = `${q.amount != null ? C.fmt(q.amount) : '0'} ${st.currency}`;
   $('#amt').classList.toggle('muted', q.amount == null);
   $('#qnote').textContent = q.note && !st.noteField ? `Note: ${q.note}` : '';
-  if (!st.byHand && q.note && st.type !== 'TRANSFER') {
-    const g = R.guessCategory(q.note, st.type);
+  const itemName = st.noteField.trim() || q.note;
+  if (!st.byHand && itemName && st.type !== 'TRANSFER' && st.type !== 'PIGGY') {
+    const g = R.guessCategory(itemName, st.type);
     if (g) { st.categoryId = g; const cat = R.byId(R.data.categories, g); st.parentId = cat.parentId ?? cat.id; }
   }
-  if (st.type !== 'TRANSFER') {
+  if (st.type !== 'TRANSFER' && st.type !== 'PIGGY') {
     const kind = st.type === 'INCOME' ? 'INCOME' : 'EXPENSE';
-    const cats = R.categories().filter((x) => x.kind === kind).sort((a, b) => a.sort - b.sort);
+    const cats = R.categories().filter((x) => x.kind === kind && x.name !== 'Piggy bank' && x.name !== 'From piggy bank').sort((a, b) => a.sort - b.sort);
     const parents = cats.filter((x) => x.parentId == null);
     const subs = cats.filter((x) => x.parentId != null && x.parentId === st.parentId);
     $('#cats').innerHTML = label('Category') + chips('parent', parents.map((x) => [x.id, x.name]), st.parentId) +
@@ -823,6 +906,13 @@ function saveTxn() {
   const st = c.st;
   const root = $('#add');
   st.noteField = val(root, 'note');
+  if (st.type === 'PIGGY') {
+    const pq = C.parseQuick(st.input);
+    if (!(pq.amount > 0)) return toast('Type an amount first');
+    R.savePiggyTxn({ amount: pq.amount * R.rateOf(st.currency), goalId: st.goal ?? -1, epochDay: st.date, note: st.noteField.trim() });
+    toast('Saved in your piggy bank');
+    return back();
+  }
   if (st.isBorrowed) { st.person = val(root, 'person'); st.due = C.fromIso(val(root, 'due')); }
   const q = C.parseQuick(st.input);
   const amount = q.amount;
@@ -835,7 +925,8 @@ function saveTxn() {
   } else {
     R.saveTxn({
       ...(c.id ? { id: c.id } : {}), type: st.type, amount, currency: st.currency, rate: R.rateOf(st.currency), walletId: st.walletId || 0,
-      toWalletId: st.type === 'TRANSFER' ? st.toWalletId : null, tags: parseTags(val(root, 'tags')), categoryId: st.type === 'TRANSFER' ? null : st.categoryId, note, epochDay: st.date,
+      toWalletId: st.type === 'TRANSFER' ? st.toWalletId : null, tags: parseTags(val(root, 'tags')),
+      ...($('[data-group="need"]', root) ? { need: chipVal(root, 'need') || '' } : {}), ...($('[data-group="how"]', root) ? { how: chipVal(root, 'how') || '' } : {}), ...($('[name="where"]', root) ? { where: val(root, 'where').trim() } : {}), categoryId: st.type === 'TRANSFER' ? null : st.categoryId, note, epochDay: st.date,
     });
     if (st.type === 'EXPENSE' && !c.id) checkOverBudget();
   }
@@ -1627,7 +1718,7 @@ function wealthPage() {
   R.recordWealth();
   const w = R.wealth(), cur = base(), today = C.todayEpoch();
   const ln = (l, v, tone = '') => `<div class="pline"><span>${esc(l)}</span><span class="${tone} b">${esc(v)}</span></div>`;
-  let total = `${label('Total')}<div class="huge">${money(w.total)} ${esc(cur)}</div><div class="gap8"></div>` + ln('Money I have', `${money(w.cash)} ${cur}`) + ln("Gold I bought, at today's price", `${money(w.gold)} ${cur}`);
+  let total = `${label('Total')}<div class="huge">${money(w.total)} ${esc(cur)}</div><div class="gap8"></div>` + ln('Money I have', `${money(w.cash)} ${cur}`) + (w.piggyHeld > 0 ? ln('In my piggy bank', `${money(w.piggyHeld)} ${cur}`) : '') + ln("Gold I bought, at today's price", `${money(w.gold)} ${cur}`);
   if (w.dollars != null) total += ln('In dollars', `$${money(w.dollars)}`);
   if (w.goldGrams != null) total += ln('In gold (21k)', `${C.fmt(Math.round(w.goldGrams * 10) / 10)} g`);
   if (w.dollars == null && w.goldGrams == null) total += `<div class="small">Turn on today's rates in Currencies & gold to see dollars and gold</div>`;
@@ -1730,6 +1821,7 @@ function more() {
     big('🏦', 'Everything I own', 'Your money and gold in one number, in dollars and gold, and how it changed', 'wealthPage') +
     big('🧮', 'Plan ahead', 'Can I afford this? What if I save? When money runs short', 'plan') +
     big('💰', 'Income & salary', 'Your monthly salary, other income, money set aside', 'income') +
+    big('📊', 'Category by month', 'Pick a category or tag: total, every day, and all its spending', 'catMonth') +
     big('#️⃣', 'Tags', 'Weddings, trips, projects: see the total of each across categories', 'tagsPage') +
     big('🏷️', 'Categories', 'Categories, sub-categories and monthly limits', 'categories') +
     big('💱', 'Currencies & gold', "Convert money and gold, today's prices, your own rates", 'currencies') +
@@ -1832,6 +1924,8 @@ function settings() {
     card(label('Savings goal') + `<div class="small">Set a goal (Umra, car, wedding...) and watch the ring fill up on Today.</div>` +
       field('goalName', 'Name', s.goalName) + `<div class="two">${numField('goalAmount', 'Goal amount', s.goalAmount, { suffix: base() })}${numField('goalSaved', 'Saved so far', s.goalSaved, { suffix: base() })}</div>` +
       `<button class="btn filled" data-act="save-goal">Save</button>`) +
+    card(label('Add screen') + `<div class="small">Show more boxes when you add something, so you can see where money goes and where it comes from.</div>` +
+      [['need', 'Need or want?'], ['how', 'Paid how? (cash, card, wallet)'], ['where', 'Where, or who it came from']].map(([k, l]) => `<label class="switch-row"><span>${esc(l)}</span><input type="checkbox" data-act="toggle-addfield" data-k="${k}" ${(s.addFields || {})[k] ? 'checked' : ''}></label>`).join('')) +
     card(label('Alerts') + `<label class="switch-row"><span>Tell me when I go over today's budget</span><input type="checkbox" data-act="toggle-alert" ${s.budgetAlert ? 'checked' : ''}></label>
       <label class="switch-row"><span>Tell me when a category goes over its monthly limit</span><input type="checkbox" data-act="toggle-limit" ${s.limitAlert !== false ? 'checked' : ''}></label>
       <label class="switch-row"><span>At month end, offer to put what's left in my piggy bank</span><input type="checkbox" data-act="toggle-monthend" ${s.monthEndReminder !== false ? 'checked' : ''}></label>
@@ -2038,8 +2132,8 @@ function afterRender(c) {
     if (!c.id && !c.focused) { c.focused = true; setTimeout(() => q.focus(), 60); }
     q.addEventListener('input', () => { c.st.input = q.value; addRefresh(); });
     q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveTxn(); } });
-    $('[name="date"]').addEventListener('change', (e) => { const d = C.fromIso(e.target.value); if (d != null) { c.st.date = d; syncChips('day', d); } });
-    $('[name="note"]').addEventListener('input', (e) => { c.st.noteField = e.target.value; addRefresh(); });
+    $('[name="date"]')?.addEventListener('change', (e) => { const d = C.fromIso(e.target.value); if (d != null) { c.st.date = d; } });
+    $('[name="note"]')?.addEventListener('input', (e) => { c.st.noteField = e.target.value; addRefresh(); });
   }
   if (c.r === 'home') {
     const el = $('#hero-amt');
@@ -2116,11 +2210,14 @@ const actions = {
   'goal-new': () => goalEditSheet(null),
   'goal-edit': (el) => goalEditSheet(+el.dataset.id),
   'goal-addto': (el) => goalAddSheet(+el.dataset.id),
-  'month-move': () => { const m = ui.monthEnd; if (!m) return; R.S().monthEndDismissed = m.key; R.addToMainGoal(m.goalAmt); toast('Moved to your goal'); },
-  'month-piggy': () => { const m = ui.monthEnd; if (!m) return; R.S().monthEndDismissed = m.key; R.piggyAdd(m.left); toast('Put in your piggy bank'); },
+  'month-move': () => { const m = ui.monthEnd; if (!m) return; R.S().monthEndDismissed = m.key; R.savePiggyTxn({ amount: m.goalAmt, goalId: 0 }); toast('Moved to your goal'); },
+  'month-piggy': () => { const m = ui.monthEnd; if (!m) return; R.S().monthEndDismissed = m.key; R.savePiggyTxn({ amount: m.left }); toast('Put in your piggy bank'); },
   'limit-skip': () => { const c = R.home().cycle; R.setSetting('limitDismissed', String(c.start)); },
   'toggle-limit': (el) => R.setSetting('limitAlert', el.checked),
   'piggy-target': () => piggyTargetSheet(),
+  'piggy-auto': () => piggyAutoSheet(),
+  'pig-auto-yes': () => { R.piggyAutoAnswer(true); toast('Moved to your piggy bank'); },
+  'pig-auto-no': () => R.piggyAutoAnswer(false),
   'month-skip': () => { if (ui.monthEnd) R.setSetting('monthEndDismissed', ui.monthEnd.key); },
   'toggle-monthend': (el) => R.setSetting('monthEndReminder', el.checked),
   'gold-add': () => {
@@ -2152,19 +2249,34 @@ const actions = {
       if (group === 'parent') { st.parentId = +v; st.categoryId = +v; st.byHand = true; addRefresh(); }
       if (group === 'sub') { st.categoryId = st.categoryId === +v ? st.parentId : +v; st.byHand = true; addRefresh(); }
       if (group === 'currency') { st.currency = v; addRefresh(); }
-      if (group === 'day') { st.date = +v; $('[name="date"]').value = C.isoOf(+v); }
+      if (group === 'day') { if (v === 'other') { st.showDate = true; render(); return; } st.date = +v; st.showDate = false; $('[name="date"]').value = C.isoOf(+v); }
+      if (group === 'goal') st.goal = +v;
+      if (group === 'need' || group === 'how') st[group] = el.classList.contains('on') ? v : '';
     }
+    if (group === 'cmpick') { ui.cmKey = el.dataset.val; render(); }
     if (group === 'aiprov') { AI.cfg.setProvider(el.dataset.val); render(); }
     if (group === 'catkind') { ui.catKind = el.dataset.val; render(); }
     if (group === 'theme') { R.setSetting('theme', el.dataset.val); }
     if (group === 'lang') { R.S().lang = el.dataset.val; R.changed(); setTimeout(() => location.reload(), 250); }
   },
   'save-txn': () => saveTxn(),
+  'recent-pick': (el) => {
+    const c = cur(), r = R.recentItems()[+el.dataset.i];
+    if (!r || c.r !== 'add') return;
+    c.st.input = String(r.amount); c.st.noteField = r.note;
+    const cat = R.byId(R.data.categories, r.categoryId);
+    if (cat) { c.st.categoryId = cat.id; c.st.parentId = cat.parentId ?? cat.id; c.st.byHand = true; }
+    render();
+  },
+  'toggle-addfield': (el) => { const f = { ...(R.S().addFields || {}) }; f[el.dataset.k] = el.checked; R.setSetting('addFields', f); },
   'edit-txn': (el) => go('add', { id: +el.dataset.id }),
   'del-txn': () => {
     const t = R.byId(R.data.txns, cur().id);
     if (t) confirmSheet('Delete this?', `${t.note || 'This record'} · ${C.fmt(t.amount)} ${t.currency}`, 'Delete', () => { R.deleteTxn(t); back(); });
   },
+  'cm-prev': () => { ui.cmOffset = (ui.cmOffset || 0) + 1; render(); },
+  'cm-next': () => { ui.cmOffset = Math.max(0, (ui.cmOffset || 0) - 1); render(); },
+  'open-catmonth': (el) => { ui.cmKey = el.dataset.key; ui.cmOffset = ui.spendOffset || 0; go('catMonth'); },
   'spend-prev': () => { ui.spendOffset++; ui.spendFilter = null; render(); },
   'spend-next': () => { if (ui.spendOffset > 0) { ui.spendOffset--; ui.spendFilter = null; render(); } },
   'spend-filter': (el) => { ui.spendFilter = String(ui.spendFilter) === el.dataset.k ? null : el.dataset.k; render(); },
@@ -2380,7 +2492,7 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('change', (e) => {
   const a = e.target.dataset?.act;
-  if (a === 'toggle-alert' || a === 'toggle-auto' || a === 'toggle-monthend') actions[a](e.target);
+  if (a === 'toggle-alert' || a === 'toggle-auto' || a === 'toggle-monthend' || a === 'toggle-addfield') actions[a](e.target);
   if (e.target.id === 'conv-from') { ui.conv.from = e.target.value; convRefresh(); }
   if (e.target.id === 'conv-to') { ui.conv.to = e.target.value; convRefresh(); }
 });

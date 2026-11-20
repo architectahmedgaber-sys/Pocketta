@@ -30,6 +30,8 @@ sealed interface Route {
     data object Goals : Route
     data object MonthPlan : Route
     data object Assistant : Route
+    /** One month of one category (categoryId) or one tag: its total, every day and all its spending. */
+    data class CategoryMonth(val categoryId: Long = 0, val tag: String = "") : Route
 }
 
 val tabs = listOf(Route.Home, Route.Spend, Route.Assistant, Route.Commit, Route.More)

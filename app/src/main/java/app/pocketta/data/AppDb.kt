@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [Wallet::class, Category::class, Txn::class, Bill::class, Installment::class, CircleEntity::class, Loan::class, SettingRow::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDb : RoomDatabase() {
@@ -23,10 +23,19 @@ abstract class AppDb : RoomDatabase() {
             }
         }
 
+        /** 1.20: need or want, how it was paid, and where it was bought. */
+        val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE txns ADD COLUMN need TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE txns ADD COLUMN how TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE txns ADD COLUMN place TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         @Volatile private var instance: AppDb? = null
 
         fun get(context: Context): AppDb = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, AppDb::class.java, NAME).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            instance ?: Room.databaseBuilder(context.applicationContext, AppDb::class.java, NAME).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
 
         /** Closes the database so its file can be replaced by a backup. */

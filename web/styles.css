@@ -452,3 +452,4 @@ main:has(+ .tabs) .chatpage { padding-bottom: 170px; }
 .selbar .small { color: inherit; opacity: .85; }
 .selbar .btn.filled { background: #fff; color: var(--primary); }
 .pamt { width: 90px; text-align: center; border: 1px solid var(--outline); border-radius: 8px; padding: 6px; background: var(--surface); color: var(--text); font: inherit; }
+.piggy-t{color:#6b4fbb!important}

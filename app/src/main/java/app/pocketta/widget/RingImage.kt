@@ -48,4 +48,4 @@ fun RingBox(fraction: Float, color: Int, size: androidx.compose.ui.unit.Dp, cont
 
 /** A ring size that fits the widget with room for [reserve] dp of text under it. */
 fun ringSizeFor(size: androidx.compose.ui.unit.DpSize, reserve: Int): androidx.compose.ui.unit.Dp =
-    minOf(size.width.value - 28f, size.height.value - 28f - reserve).coerceIn(44f, 130f).dp
+    minOf(size.width.value - 44f, size.height.value - 44f - reserve).coerceIn(44f, 130f).dp

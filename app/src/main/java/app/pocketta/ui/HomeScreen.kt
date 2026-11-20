@@ -142,6 +142,7 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
             WealthCard(repo, nav, prefs)
             GameyaCard(repo, prefs)
             WeekCard(repo, s)
+            PiggyAutoCard(repo, prefs)
             GoalCard(repo, prefs)
 
             SectionCard {

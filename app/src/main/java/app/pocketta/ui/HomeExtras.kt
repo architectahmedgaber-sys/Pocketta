@@ -222,6 +222,25 @@ fun StreakCard(s: HomeState) {
 
 /** A ring that fills as you save towards one goal (Umra, a car, a wedding...). */
 @Composable
+fun PiggyAutoCard(repo: Repo, prefs: Prefs) {
+    if (prefs.piggyAuto <= 0 && prefs.piggyAutoPct <= 0) return
+    val scope = rememberCoroutineScope()
+    val version by repo.version.collectAsState()
+    var due by remember { mutableStateOf(0.0) }
+    androidx.compose.runtime.LaunchedEffect(version, prefs.piggyAuto, prefs.piggyAutoPct, prefs.piggyAutoDone) { due = repo.piggyAutoDue() }
+    if (due <= 0) return
+    SectionCard(container = MaterialTheme.colorScheme.secondaryContainer) {
+        Text("Move to your piggy bank?", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        Text(Money.short(due) + " " + prefs.baseCurrency, fontWeight = FontWeight.Bold, fontSize = 28.sp)
+        Text("Your monthly saving, now that the salary is in.", style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.Button(onClick = { scope.launch { repo.piggyAutoAnswer(true) } }) { Text("Yes, move it") }
+            TextButton(onClick = { scope.launch { repo.piggyAutoAnswer(false) } }) { Text("Not this month") }
+        }
+    }
+}
+
+@Composable
 fun GoalCard(repo: Repo, prefs: Prefs) {
     if (prefs.goalAmount <= 0.0) return
     val scope = rememberCoroutineScope()
@@ -261,7 +280,7 @@ fun GoalCard(repo: Repo, prefs: Prefs) {
             confirmButton = {
                 TextButton(onClick = {
                     val v = parseNumber(addText) ?: 0.0
-                    if (v > 0) scope.launch { repo.addToMainGoal(v) }
+                    if (v > 0) scope.launch { repo.savePiggy(v, goalId = 0L) }
                     addText = ""
                     adding = false
                 }) { Text("Save") }

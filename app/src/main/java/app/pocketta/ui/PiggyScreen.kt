@@ -51,6 +51,9 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
     androidx.compose.runtime.LaunchedEffect(prefs.piggy.size, total) { spend = repo.monthlySpend() }
     val cover = Piggy.coverMonths(total, spend)
     var editTarget by remember { mutableStateOf(false) }
+    var editAuto by remember { mutableStateOf(false) }
+    var autoText by remember { mutableStateOf("") }
+    var pctText by remember { mutableStateOf("") }
     var targetText by remember { mutableStateOf("") }
 
     Scaffold(topBar = { BackBar("Piggy bank", { nav.back() }) }) { pad ->
@@ -86,6 +89,20 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                     Text("Your piggy bank covers " + cover + " months of your spending", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                     Text("You spend about " + Money.short(spend) + " a month", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+            SectionCard {
+                Label("Automatic piggy bank")
+                Gap(4)
+                Text(
+                    when {
+                        prefs.piggyAuto > 0 -> Money.short(prefs.piggyAuto) + " " + cur + " each month, after you say yes"
+                        prefs.piggyAutoPct > 0 -> prefs.piggyAutoPct.toInt().toString() + "% of the salary each month, after you say yes"
+                        else -> "Off. Choose an amount and Pocketta asks you when the salary arrives."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Gap(6)
+                Button(onClick = { autoText = if (prefs.piggyAuto > 0) numText(prefs.piggyAuto) else ""; pctText = if (prefs.piggyAutoPct > 0) numText(prefs.piggyAutoPct) else ""; editAuto = true }) { Text("Set") }
             }
             SectionCard {
                 Label("Monthly target")
@@ -168,6 +185,30 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
         }
     }
 
+    if (editAuto) {
+        AlertDialog(
+            onDismissRequest = { editAuto = false },
+            title = { Text("Automatic piggy bank") },
+            text = {
+                Column {
+                    Text("When your salary arrives, Pocketta asks if it should move this to the piggy bank. It only moves after you say yes.", style = MaterialTheme.typography.bodySmall)
+                    NumberField("Fixed amount each month (0 to turn off)", autoText, { autoText = it }, suffix = cur)
+                    NumberField("Or a share of the salary, in %", pctText, { pctText = it }, suffix = "%")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        repo.set("piggyAuto", (parseNumber(autoText) ?: 0.0).coerceAtLeast(0.0))
+                        repo.set("piggyAutoPct", (parseNumber(pctText) ?: 0.0).coerceIn(0.0, 100.0))
+                    }
+                    editAuto = false
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editAuto = false }) { Text("Cancel") } },
+        )
+    }
+
     if (editTarget) {
         AlertDialog(
             onDismissRequest = { editTarget = false },
@@ -197,7 +238,7 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
             confirmButton = {
                 TextButton(onClick = {
                     val v = (parseNumber(text) ?: 0.0).let { if (mode < 0) it.coerceAtMost(total) else it }
-                    if (v > 0) scope.launch { repo.piggyAdd(mode * v) }
+                    if (v > 0) scope.launch { if (mode > 0) repo.savePiggy(v) else repo.takeFromPiggy(v) }
                     dialog = null
                 }) { Text("Save") }
             },

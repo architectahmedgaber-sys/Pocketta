@@ -75,6 +75,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+/** The third kind on the add screen: money put in the piggy bank. It is saved as an expense that does not count as spending. */
+const val PIGGY = "PIGGY"
+
 @Composable
 fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
     val scope = rememberCoroutineScope()
@@ -99,6 +102,13 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
     var knownTags by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(Unit) { knownTags = repo.allTags().take(10) }
     var loaded by remember { mutableStateOf(route.txnId == 0L) }
+    // Piggy bank as a kind of spending: where it goes (-1 = general piggy bank, 0 = main goal, n = another goal).
+    var goal by remember { mutableLongStateOf(-1L) }
+    var need by remember { mutableStateOf("") }
+    var how by remember { mutableStateOf("") }
+    var place by remember { mutableStateOf("") }
+    var recent by remember { mutableStateOf<List<Repo.RecentItem>>(emptyList()) }
+    LaunchedEffect(Unit) { recent = repo.recentItems() }
 
     // Load the transaction being edited, or pick sensible defaults for a new one.
     LaunchedEffect(route.txnId, categories.isNotEmpty()) {
@@ -110,6 +120,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
             input = numText(t.amount)
             noteField = t.note
             tagsText = t.tagList.joinToString(", ")
+            need = t.need; how = t.how; place = t.place
             categoryId = t.categoryId
             parentId = categories.firstOrNull { it.id == t.categoryId }?.let { it.parentId ?: it.id }
             pickedByHand = true
@@ -177,19 +188,24 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
         }
     }
 
-    val kindCats = categories.filter { it.kind == (if (type == TxType.INCOME) TxType.INCOME else TxType.EXPENSE) }
+    val kindCats = categories.filter { it.kind == (if (type == TxType.INCOME) TxType.INCOME else TxType.EXPENSE) && it.name != "Piggy bank" && it.name != "From piggy bank" }
     val parents = kindCats.filter { it.parentId == null }
     val subs = kindCats.filter { it.parentId != null && it.parentId == parentId }
     val catName = categories.firstOrNull { it.id == categoryId }?.name
     val isBorrowed = type == TxType.INCOME && catName.equals("Borrowed", true) && editing == null
 
     val canSave = amount != null && amount > 0 && walletId != 0L &&
-        (type == TxType.TRANSFER || categoryId != null) &&
+        (type == TxType.TRANSFER || type == PIGGY || categoryId != null) &&
         (!isBorrowed || person.isNotBlank())
 
     fun save() {
         if (!canSave || amount == null) return
         scope.launch {
+            if (type == PIGGY) {
+                repo.savePiggy(amount * prefs.rateOf(currency), goalId = goal, epochDay = date.toEpochDay(), note = note)
+                nav.back()
+                return@launch
+            }
             if (isBorrowed) {
                 repo.addLoan(person.trim(), lent = false, amount = amount * prefs.rateOf(currency), walletId = walletId, day = date, due = dueDate, note = note)
             } else {
@@ -200,6 +216,9 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                         walletId = walletId, toWalletId = if (type == TxType.TRANSFER) toWalletId else null,
                         categoryId = if (type == TxType.TRANSFER) null else categoryId,
                         note = note, epochDay = date.toEpochDay(), tags = Tags.join(Tags.parse(tagsText)),
+                        need = if (prefs.addNeed && type == TxType.EXPENSE) need else base.need,
+                        how = if (prefs.addHow) how else base.how,
+                        place = if (prefs.addWhere) place.trim() else base.place,
                     )
                 )
                 if (type == TxType.EXPENSE && editing == null) checkOverBudget(context, repo, prefs)
@@ -212,6 +231,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
         editing != null -> "Edit"
         type == TxType.INCOME -> "Add income"
         type == TxType.TRANSFER -> "Move money"
+        type == PIGGY -> "Put in piggy bank"
         else -> "Add expense"
     }
     fun press(k: String) {
@@ -241,7 +261,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                     Text("This was recorded from a bill, installment, gam'eya or loan.", style = MaterialTheme.typography.bodySmall)
                 }
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    val types = if (type == TxType.TRANSFER) listOf(TxType.TRANSFER to "Transfer") else listOf(TxType.EXPENSE to "Expense", TxType.INCOME to "Income")
+                    val types = if (type == TxType.TRANSFER) listOf(TxType.TRANSFER to "Transfer") else if (editing != null) listOf(TxType.EXPENSE to "Expense", TxType.INCOME to "Income") else listOf(TxType.EXPENSE to "Expense", TxType.INCOME to "Income", PIGGY to "🐷 Piggy bank")
                     types.forEachIndexed { i, (t, label) ->
                         SegmentedButton(
                             selected = type == t,
@@ -288,14 +308,38 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                     onValueChange = {
                         noteField = it
                     },
-                    placeholder = { Text(if (type == TxType.EXPENSE) "What was it? e.g. koshary 60" else "Note (optional)") },
+                    placeholder = { Text(if (type == TxType.EXPENSE) "What did you buy? e.g. koshary" else "Note (optional)") },
                     singleLine = true,
                     shape = FieldShape,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, capitalization = KeyboardCapitalization.Sentences),
                     keyboardActions = KeyboardActions(onDone = { save() }),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (type != TxType.TRANSFER) {
+                if (type == TxType.EXPENSE && editing == null && recent.isNotEmpty()) {
+                    Label("Bought before: tap one")
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (r in recent) {
+                            FilterChip(
+                                selected = false,
+                                onClick = {
+                                    input = numText(r.amount); noteField = r.note
+                                    val c = categories.firstOrNull { it.id == r.categoryId }
+                                    if (c != null) { categoryId = c.id; parentId = c.parentId ?: c.id; pickedByHand = true }
+                                },
+                                label = { Text(r.note + " · " + Money.fmt(r.amount)) },
+                            )
+                        }
+                    }
+                }
+                if (type == PIGGY) {
+                    Label("Goes to")
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = goal == -1L, onClick = { goal = -1L }, label = { Text("General piggy bank") })
+                        if (prefs.goalAmount > 0) FilterChip(selected = goal == 0L, onClick = { goal = 0L }, label = { Text(prefs.goalName.ifBlank { "My goal" }) })
+                        for (g in prefs.goals) FilterChip(selected = goal == g.id, onClick = { goal = g.id }, label = { Text(g.name) })
+                    }
+                }
+                if (type != TxType.TRANSFER && type != PIGGY) {
                     Label("Category")
                     CategoryGrid(parents, parentId) { c -> parentId = c.id; categoryId = c.id; pickedByHand = true }
                     if (subs.isNotEmpty()) {
@@ -316,6 +360,25 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                         DateField("Pay back by (optional)", dueDate, { dueDate = it }, allowClear = true)
                         Text("This also goes to Owe → Loans as money you owe.", style = MaterialTheme.typography.bodySmall)
                     }
+                }
+                if (type != PIGGY) {
+                if (prefs.addNeed && type == TxType.EXPENSE) {
+                    Label("Need or want?")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = need == "NEED", onClick = { need = if (need == "NEED") "" else "NEED" }, label = { Text("Need") })
+                        FilterChip(selected = need == "WANT", onClick = { need = if (need == "WANT") "" else "WANT" }, label = { Text("Want") })
+                    }
+                }
+                if (prefs.addHow) {
+                    Label(if (type == TxType.INCOME) "Received how?" else "Paid how?")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for ((k, l) in listOf("CASH" to "Cash", "CARD" to "Card", "WALLET" to "Mobile wallet")) {
+                            FilterChip(selected = how == k, onClick = { how = if (how == k) "" else k }, label = { Text(l) })
+                        }
+                    }
+                }
+                if (prefs.addWhere) {
+                    TextInput(if (type == TxType.INCOME) "Came from" else "Where", place, { place = it })
                 }
                 Label("Tags (optional)")
                 OutlinedTextField(
@@ -346,6 +409,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                     )
                     if (pick) DayPicker(date, { date = it; pick = false }, { pick = false })
                 }
+                }
                 Gap(4)
             }
             Keypad(::press)
@@ -353,7 +417,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                 onClick = { save() }, enabled = canSave,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).height(54.dp),
                 shape = RoundedCornerShape(18.dp),
-            ) { Text(if (editing != null) "Save changes" else "Save", fontSize = 17.sp) }
+            ) { Text(if (editing != null) "Save changes" else if (type == PIGGY) "Save in piggy bank" else "Save", fontSize = 17.sp) }
         }
     }
 }

@@ -229,7 +229,7 @@ function run(name, a) {
       const t = new Date(); t.setMonth(t.getMonth() - Math.max(0, Math.trunc(toNum(a.months_ago) || 0)), 1);
       const from = C.epochOf(t.getFullYear(), t.getMonth() + 1, 1), to = C.addMonths(from, 1, 1);
       const by = {};
-      for (const x of d.txns.filter((x) => x.type === 'EXPENSE' && !x.spread && x.epochDay >= from && x.epochDay < to)) {
+      for (const x of d.txns.filter((x) => x.type === 'EXPENSE' && !x.spread && x.source !== 'PIGGY' && x.epochDay >= from && x.epochDay < to)) {
         const c = R.byId(d.categories, x.categoryId), top = c ? (c.parentId ? R.byId(d.categories, c.parentId) || c : c).name : 'Other';
         by[top] = (by[top] || 0) + R.base(x);
       }
