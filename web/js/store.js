@@ -362,7 +362,7 @@ export function payGroup(group) {
   const before = new Set(data.txns.map((t) => t.id));
   for (const it of group.items) {
     for (let k = 0; k < it.n; k++) {
-      if (it.kind === 'BILL') { const b = byId(data.bills, it.id); if (b) { undo.bills.push([b.id, b.nextDue]); payBill(b); } }
+      if (it.kind === 'BILL') { const b = byId(data.bills, it.id); if (b) { undo.bills.push([b.id, b.nextDue]); payBill(b, it.each ?? null); } }
       if (it.kind === 'INSTALLMENT') { const x = byId(data.installments, it.id); if (x) payInstallment(x); }
       if (it.kind === 'CIRCLE') { const x = byId(data.circles, it.id); if (x) payCircle(x); }
     }

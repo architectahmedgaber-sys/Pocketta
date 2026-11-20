@@ -951,6 +951,19 @@ const iconStore = {
     try { localStorage.setItem('pocketta.icons', JSON.stringify(m)); } catch { toast('Not enough room to keep the picture'); }
   },
 };
+/** Which collapsible group an item belongs to: [key, title]. */
+function commitGroupOf(kind, refId, name) {
+  if (kind === 'SUB') return ['subs', 'Subscriptions'];
+  if (kind === 'BILL') return ['bills', 'Bills'];
+  if (kind === 'CIRCLE') return ['circles', "Gam'eya"];
+  if (kind === 'LOAN') return ['loans', 'Loans'];
+  if (kind === 'CARD') return ['cards', 'Credit cards'];
+  if (kind === 'INCOME') return ['income', 'Income'];
+  const inst = R.data.installments.find((x) => x.id === refId);
+  const lab = inst && inst.provider && inst.provider.trim() ? inst.provider.trim() : (inst ? inst.type : name || 'Installments');
+  return ['p:' + lab.toLowerCase(), lab];
+}
+const payKind = (k) => (k === 'SUB' || k === 'BILL' ? 'BILL' : k === 'CARD' || k === 'INSTALLMENT' ? 'INSTALLMENT' : k === 'CIRCLE' ? 'CIRCLE' : null);
 const iconKey = (i) => ({ BILL: 'b', SUB: 'b', INSTALLMENT: 'i', CARD: 'i', CIRCLE: 'c', LOAN: 'l' }[i.kind] || 's') + (i.kind === 'INCOME' ? '' : i.refId);
 
 function commitBadge(i, size = 44) {
@@ -969,7 +982,7 @@ function commitItems(off = 0) {
   for (let k = 0; k > off; k--) cycle = C.previousCycle(cycle, s.cycleStart);
   const lo = off === 0 ? -1e9 : cycle.start; // other months: only that month's own payments
   const out = [];
-  const push = (o) => out.push({ incoming: false, payable: false, paid: false, ...o });
+  const push = (o) => { const [gk, gt] = commitGroupOf(o.kind, o.refId, o.name); out.push({ incoming: false, payable: false, paid: false, gk, gt, ...o }); };
   for (const b of off < 0 ? [] : R.data.bills) {
     C.occurrences(b.nextDue, b.frequency, b.everyN, b.nextDue, cycle.nextStart, b.anchorDay).forEach((d, idx) => {
       if (d >= lo) push({ kind: b.kind === 'SUB' ? 'SUB' : 'BILL', refId: b.id, name: b.name, sub: C.describeFreq(b.frequency, b.everyN), amount: b.amount * R.rateOf(b.currency), date: d, payable: idx === 0 && off === 0 });
@@ -1011,21 +1024,87 @@ function commitItems(off = 0) {
 /** Everyday expenses and income (not bill/installment payments) on one day, so a tapped calendar day shows what was added. */
 const plainTxnsOn = (d) => R.data.txns.filter((t) => t.epochDay === d && !t.source && t.type !== 'TRANSFER');
 
+/** An item can be ticked when it is an unpaid payment of this month (not income, not a loan). */
+const selectable = (i, off) => off === 0 && !i.paid && !i.incoming && payKind(i.kind) != null;
+const selKey = (i) => `${i.kind}:${i.refId}:${i.date}`;
+
+/** Selected items as payment lines for R.payGroup: one line per item with a count. */
+function selectedLines(items) {
+  const m = new Map();
+  for (const i of items) {
+    const k = payKind(i.kind) + i.refId;
+    const l = m.get(k) || { kind: payKind(i.kind), id: i.refId, name: i.name, n: 0, amount: 0 };
+    l.n++; l.amount += i.amount; m.set(k, l);
+  }
+  return [...m.values()];
+}
+
+/** "Done by" and what is left, for a group of installments. */
+function groupPayoff(gk) {
+  let end = null, left = 0;
+  const upd = (p) => { if (p.done) return; left += p.remainingAmount; end = end == null || p.endDate > end ? p.endDate : end; };
+  if (gk === 'circles') R.data.circles.forEach((c) => upd(C.circle(c).plan));
+  else if (gk === 'cards' || gk.startsWith('p:')) {
+    R.data.installments.forEach((i) => { if (commitGroupOf(String(i.type).toLowerCase() === 'credit card' ? 'CARD' : 'INSTALLMENT', i.id, i.name)[0] === gk) upd(C.plan(i.amount, i.total, i.paid, i.firstDue)); });
+  } else return null;
+  return end == null ? null : { end, left };
+}
+
+function commitOutlook(off) {
+  const s = R.S(), rows = [];
+  for (let o = 0; o < 4; o++) {
+    const { out, cycle } = commitItems(o);
+    rows.push({ o, name: C.fmtMonth(cycle.start), total: out.filter((i) => !i.incoming).reduce((a, i) => a + i.amount, 0) });
+  }
+  const max = Math.max(...rows.map((r) => r.total), 1);
+  const bars = rows.map((r) => `<button class="ob ${r.o === off ? 'on' : ''}" data-act="commit-goto" data-o="${r.o}"><i style="height:${Math.max(6, Math.round(r.total / max * 70))}px"></i><span>${esc(r.name)}</span><b>${money(r.total)}</b></button>`).join('');
+  let note = '';
+  if (s.salary > 0 && rows[1].total > 0) note = `<div class="small">${esc(rows[1].name)} · ${Math.round(rows[1].total / s.salary * 100)}% of your salary</div>`;
+  const drop = rows.slice(1).findIndex((r, k) => k + 1 < rows.length && rows[k].total - r.total >= 1);
+  if (drop >= 0 && rows[drop].total - rows[drop + 1].total >= 1) note += `<div class="small good-t">${esc(rows[drop + 1].name)} is lighter by ${money(rows[drop].total - rows[drop + 1].total)}</div>`;
+  return card(`${label('Coming months')}<div class="obars">${bars}</div>${note}`);
+}
+
 function commitOverview() {
-  const { out: all, cycle, today } = commitItems(ui.cOff || 0);
+  const off = ui.cOff || 0;
+  const { out: all, cycle, today } = commitItems(off);
   ui.cFilter = ui.cFilter || 'ALL';
+  ui.cSel = ui.cSel || {};
+  ui.cOpen = ui.cOpen || {};
   const filtered = all.filter((i) => C.commitMatches(ui.cFilter, i));
   const shown = ui.cDay != null ? filtered.filter((i) => i.date === ui.cDay) : filtered;
   const left = C.commitLeft(all), n = C.commitLeftCount(all);
+  const total = all.filter((i) => !i.incoming).reduce((a, i) => a + i.amount, 0);
   const sd = C.ymd(cycle.start);
   const monthName = sd.d === 1 ? `${C.fmtMonth(cycle.start)} ${sd.y}` : `${C.fmtDay(cycle.start)} – ${C.fmtDay(cycle.end)}`;
+  const sel = (i) => !!ui.cSel[selKey(i)];
   const line = (i) => {
-    const btn = i.payable && !i.paid && !i.incoming ? `<button class="btn text" data-act="commit-pay" data-k="${i.kind}" data-id="${i.refId}">Paid</button>` : '';
-    return `<div class="row ${i.kind === 'INCOME' ? '' : 'tap'}" ${i.kind === 'INCOME' ? '' : `data-act="commit-open" data-k="${i.kind}" data-id="${i.refId}"`}>
-      <button class="cbtn" data-act="commit-icon" data-k="${i.kind}" data-id="${i.refId}" data-name="${esc(i.name)}" aria-label="Change picture">${commitBadge(i)}</button>
-      <div class="row-main"><div class="row-title"><b>${esc(i.name)}</b></div><div class="row-sub">${esc(C.fmtWeekday(i.date))} · ${esc(i.sub)}</div></div>
-      <b class="${i.incoming ? 'good-t' : i.paid ? 'muted' : ''}">${i.incoming ? '+' : ''}${C.fmt(i.amount)}</b>${btn}</div>`;
+    const can = selectable(i, off), late = !i.paid && !i.incoming && i.date < today;
+    const box = can ? `<button class="cbox ${sel(i) ? 'on' : ''}" data-act="csel" data-key="${selKey(i)}" aria-label="Select">${sel(i) ? '✓' : ''}</button>` : i.paid && !i.incoming ? '<span class="cbox on dim">✓</span>' : '';
+    const open = i.kind === 'INCOME' ? '' : `data-act="commit-open" data-k="${i.kind}" data-id="${i.refId}"`;
+    return `<div class="row crow ${i.kind === 'INCOME' ? '' : 'tap'} ${i.paid ? 'paid' : ''}" ${can ? `data-swipe="${selKey(i)}"` : ''}>
+      ${box}
+      <button class="cbtn" data-act="commit-icon" data-k="${i.kind}" data-id="${i.refId}" data-name="${esc(i.name)}" aria-label="Change picture">${commitBadge(i, 38)}</button>
+      <div class="row-main" ${open}><div class="row-title"><b>${esc(i.name)}</b></div><div class="row-sub ${late ? 'bad-t' : ''}">${esc(C.fmtWeekday(i.date))} · ${late ? 'Late · ' : ''}${esc(i.sub)}</div></div>
+      <b class="${i.incoming ? 'good-t' : i.paid ? 'muted' : ''}">${i.incoming ? '+' : ''}${C.fmt(i.amount)}</b></div>`;
   };
+  // today / late card
+  const dueNow = off === 0 ? all.filter((i) => selectable(i, 0) && i.date <= today) : [];
+  let html = card(`${label(off === 0 ? 'Left to pay this month' : 'Commitments this month')}<div class="big hero-n">${money(off === 0 ? left : total)} ${base()}</div>
+    <div>${off !== 0 ? `${all.filter((i) => !i.incoming).length} payments` : n === 0 ? 'Nothing left to pay. Well done!' : `${n} ${n === 1 ? "payment" : "payments"} to go`}</div><div class="small">${esc(monthName)}</div>
+    ${off === 0 && total > 0 ? `<div class="hbar"><i style="width:${Math.round((total - left) / total * 100)}%"></i></div><div class="small">Paid ${money(total - left)} of ${money(total)}</div>` : ''}`, 'primary');
+  if (ui.bulkUndo) html += card(`<div class="row-flex"><div class="grow"><b class="good-t">✓ ${esc(ui.bulkUndo.text)}</b></div><button class="btn text" data-act="bulk-undo">Undo</button><button class="btn text" data-act="bulk-dismiss">OK</button></div>`, 'tonal');
+  if (dueNow.length) {
+    const sum = dueNow.reduce((a, i) => a + i.amount, 0), lateN = dueNow.filter((i) => i.date < today).length;
+    html += card(`<div><b>⚠ Due today or late</b></div><div class="small">${dueNow.length} ${dueNow.length === 1 ? 'payment' : 'payments'} · ${money(sum)} ${esc(base())}${lateN ? ` · ${lateN} late` : ''}</div>
+      <div class="row-flex gap8 pad-t"><button class="btn filled" data-act="due-pay">Pay them all</button><button class="btn text" data-act="due-review">Review first</button></div>`, 'warn-c');
+  }
+  html += commitOutlook(off);
+  if (off === 0 && n > 0) html += `<button class="btn outline wide" data-act="pay-all">Pay all of ${esc(C.fmtMonth(cycle.start))} (${money(left)})</button>`;
+  html += `<div class="fchips">${C.COMMIT_FILTERS.map(([v, l]) => `<button class="chip ${ui.cFilter === v ? 'on' : ''}" data-act="commit-filter" data-v="${v}">${l}</button>`).join('')}</div>`;
+  html += `<div class="month-nav"><button class="icon-btn" data-act="commit-prev" aria-label="Previous month">${icon('left')}</button>
+    <div class="center"><div class="mid">${esc(monthName)}</div>${off !== 0 ? '<button class="btn text" data-act="commit-goto" data-o="0">This month</button>' : ''}</div>
+    <button class="icon-btn" data-act="commit-next" aria-label="Next month">${icon('right')}</button></div>`;
   const byDay = {};
   filtered.forEach((i) => (byDay[i.date] = byDay[i.date] || []).push(i));
   const offset = (C.ymd(cycle.start).wd + 1) % 7;
@@ -1037,15 +1116,6 @@ function commitOverview() {
     cells += `<button class="cal-d ${d === today ? 'today' : ''} ${ui.cDay === d ? 'sel' : ''}" data-act="commit-day" data-d="${d}"><span>${C.ymd(d).d}${spentDay ? '<i class="cal-dot"></i>' : ''}</span>
       <span class="cal-i">${its.slice(0, 2).map((i) => commitBadge(i, 17)).join('')}</span>${its.length > 2 ? `<small>+${its.length - 2}</small>` : ''}</button>`;
   }
-  const late = C.commitLate(shown, today), later = C.commitLater(shown, today), done = C.commitDone(shown);
-  let html = card(`${label('Left to pay this month')}<div class="big hero-n">${money(left)} ${base()}</div>
-    <div>${n === 0 ? 'Nothing left to pay. Well done!' : `${n} payments to go`}</div><div class="small">${esc(monthName)}</div>`, 'primary');
-  if (ui.bulkUndo) html += card(`<div class="row-flex"><div class="grow"><b class="good-t">✓ ${esc(ui.bulkUndo.text)}</b></div><button class="btn text" data-act="bulk-undo">Undo</button><button class="btn text" data-act="bulk-dismiss">OK</button></div>`, 'tonal');
-  if (R.groupPayments(today).length) html += `<button class="btn outline wide" data-act="bulk-open">Mark a whole group as paid</button>`;
-  html += `<div class="fchips">${C.COMMIT_FILTERS.map(([v, l]) => `<button class="chip ${ui.cFilter === v ? 'on' : ''}" data-act="commit-filter" data-v="${v}">${l}</button>`).join('')}</div>`;
-  html += `<div class="month-nav"><button class="icon-btn" data-act="commit-prev" aria-label="Previous month">${icon('left')}</button>
-    <div class="center"><div class="mid">${esc(monthName)}</div></div>
-    <button class="icon-btn" data-act="commit-next" aria-label="Next month">${icon('right')}</button></div>`;
   html += card(`<div class="cal">${cells}</div>`);
   if (ui.cDay != null) {
     html += `<div class="row-flex pad-t"><div class="grow small">Showing ${esc(C.fmtDay(ui.cDay))}</div><button class="btn text" data-act="commit-day" data-d="${ui.cDay}">Show all</button></div>
@@ -1053,11 +1123,125 @@ function commitOverview() {
     const plain = plainTxnsOn(ui.cDay);
     if (plain.length) html += `<div class="day-h">Spent that day</div>` + plain.map(txnRow).join('');
   }
-  if (late.length) html += `<div class="day-h bad-t">Late</div>` + late.map(line).join('');
-  html += `<div class="day-h">Later this month</div>` + (later.length ? later.map(line).join('') : '<p class="empty">Nothing here.</p>');
-  if (done.length) html += `<div class="day-h">Paid</div>` + done.map(line).join('');
-  return html + '<div class="spacer"></div>' + fab('Add', 'commit-add');
+  // groups: by company / type, each can be opened and closed
+  const groups = new Map();
+  for (const i of shown) {
+    if (i.incoming && i.kind === 'INCOME') continue;
+    if (i.paid) continue;
+    const g = groups.get(i.gk) || { key: i.gk, title: i.gt, items: [] };
+    g.items.push(i); groups.set(i.gk, g);
+  }
+  const glist = [...groups.values()].sort((x, y) => y.items.reduce((a, i) => a + i.amount, 0) - x.items.reduce((a, i) => a + i.amount, 0));
+  const paidAll = shown.filter((i) => i.paid && i.kind !== 'INCOME');
+  const incomes = shown.filter((i) => i.kind === 'INCOME');
+  if (!glist.length && !paidAll.length) html += '<p class="empty">Nothing here.</p>';
+  for (const g of glist) {
+    g.items.sort((x, y) => x.date - y.date);
+    const gTotal = g.items.reduce((a, i) => a + i.amount, 0);
+    const paidIn = all.filter((i) => i.paid && i.gk === g.key && !i.incoming).reduce((a, i) => a + i.amount, 0);
+    const pick = g.items.filter((i) => selectable(i, off));
+    const nSel = pick.filter(sel).length;
+    const state = nSel === 0 ? '' : nSel === pick.length ? 'on' : 'part';
+    const hasLate = g.items.some((i) => !i.paid && !i.incoming && i.date < today);
+    const open = ui.cOpen[g.key] != null ? ui.cOpen[g.key] : hasLate;
+    const po = groupPayoff(g.key);
+    html += `<div class="cgrp"><div class="cg-h">
+      ${pick.length ? `<button class="cbox ${state}" data-act="cg-sel" data-g="${esc(g.key)}" aria-label="Select all">${state === 'on' ? '✓' : state === 'part' ? '−' : ''}</button>` : ''}
+      <div class="row-main tap" data-act="cg-toggle" data-g="${esc(g.key)}"><div class="row-title"><b>${esc(g.title)}</b>${hasLate ? ' <span class="bad-t small">Late</span>' : ''}</div>
+        <div class="row-sub">${g.items.length} ${g.items.length === 1 ? 'payment' : 'payments'} · ${money(gTotal)} left${paidIn > 0 ? ` · ${money(paidIn)} paid` : ''}</div>
+        ${po ? `<div class="row-sub">Done by ${esc(C.fmtMonthYear(po.end))} · ${money(po.left)} left in total</div>` : ''}</div>
+      <button class="icon-btn" data-act="cg-toggle" data-g="${esc(g.key)}" aria-label="Open or close">${open ? '⌃' : '⌄'}</button></div>
+      ${open ? g.items.map(line).join('') : ''}</div>`;
+  }
+  if (paidAll.length) {
+    const open = ui.cOpen.paid;
+    html += `<div class="cgrp paid-g"><div class="cg-h"><div class="row-main tap" data-act="cg-toggle" data-g="paid"><div class="row-title"><b>Paid</b></div><div class="row-sub">${paidAll.length} ${paidAll.length === 1 ? 'payment' : 'payments'} · ${money(paidAll.reduce((a, i) => a + i.amount, 0))}</div></div>
+      <button class="icon-btn" data-act="cg-toggle" data-g="paid" aria-label="Open or close">${open ? '⌃' : '⌄'}</button></div>
+      ${open ? C.commitDone(paidAll).map(line).join('') : ''}</div>`;
+  }
+  if (incomes.length) html += `<div class="day-h">Income</div>` + incomes.map(line).join('');
+  const picked = all.filter((i) => selectable(i, off) && sel(i));
+  if (picked.length) {
+    const sum = picked.reduce((a, i) => a + i.amount, 0);
+    html += `<div class="selbar"><div><b>${picked.length} selected</b><div class="small">${money(sum)} ${esc(base())}</div></div><button class="btn filled" data-act="sel-pay">Mark as paid</button></div>`;
+  }
+  return html + '<div class="spacer"></div>' + (picked.length ? '' : fab('Add', 'commit-add'));
 }
+
+/** Confirm sheet: amounts (bills can change), the total, and what is left after. */
+function confirmPaySheet(items) {
+  const lines = selectedLines(items);
+  if (!lines.length) return;
+  const bal = Object.values(R.balances()).reduce((a, v) => a + v, 0);
+  const rowOf = (l, k) => {
+    const b = l.kind === 'BILL' ? R.byId(R.data.bills, l.id) : null;
+    const input = b && b.variable ? `<input class="pamt" data-k="${k}" inputmode="decimal" value="${Math.round(l.amount / l.n)}">` : `<b>${money(l.amount)}</b>`;
+    return `<div class="pline"><span>${esc(l.name)}${l.n > 1 ? ` × ${l.n}` : ''}</span>${input}</div>`;
+  };
+  const total = (el) => lines.reduce((a, l, k) => {
+    const inp = el ? el.querySelector(`.pamt[data-k="${k}"]`) : null;
+    return a + (inp ? (parseFloat(inp.value) || 0) * l.n : l.amount);
+  }, 0);
+  const sum = (el) => { const t = total(el); return `<div class="pline"><span><b>Total</b></span><b>${money(t)} ${esc(base())}</b></div><div class="pline small"><span>Money left after paying</span><span>${money(bal - t)} ${esc(base())}</span></div>`; };
+  const { el, close } = sheet({
+    title: `Mark ${items.length} ${items.length === 1 ? 'payment' : 'payments'} as paid`,
+    body: lines.map(rowOf).join('') + '<div id="psum"></div><p class="small">You can undo it right after.</p>',
+    saveLabel: 'Mark as paid',
+    onSave: (root) => {
+      const ls = lines.map((l, k) => {
+        const inp = root.querySelector(`.pamt[data-k="${k}"]`);
+        const each = inp ? parseFloat(inp.value) : NaN;
+        return { ...l, each: inp && each > 0 ? each : null };
+      });
+      const undo = R.payGroup({ items: ls });
+      ui.cSel = {};
+      ui.bulkUndo = { undo, text: `${items.length} ${items.length === 1 ? 'payment' : 'payments'} paid · ${money(total(root))} ${base()}` };
+      render();
+    },
+  });
+  const upd = () => { el.querySelector('#psum').innerHTML = sum(el); };
+  el.addEventListener('input', upd); upd();
+}
+
+/** Swipe a row to pay it; hold a changing bill to type the real amount. */
+function paySingle(key) {
+  const { out } = commitItems(0);
+  const it = out.find((i) => selectable(i, 0) && selKey(i) === key);
+  if (!it) return;
+  const earlier = out.filter((i) => selectable(i, 0) && i.kind === it.kind && i.refId === it.refId && i.date <= it.date);
+  const lines = selectedLines(earlier);
+  const undo = R.payGroup({ items: lines });
+  ui.bulkUndo = { undo, text: `${it.name} paid · ${money(it.amount)} ${base()}` };
+  render();
+}
+(function swipeSetup() {
+  let sx = 0, sy = 0, key = null, timer = null, hold = false, moved = false;
+  const clear = () => { clearTimeout(timer); timer = null; };
+  document.addEventListener('touchstart', (e) => {
+    const r = e.target.closest('[data-swipe]');
+    if (!r || e.target.closest('button')) { key = null; return; }
+    key = r.dataset.swipe; sx = e.touches[0].clientX; sy = e.touches[0].clientY; hold = false; moved = false;
+    timer = setTimeout(() => {
+      hold = true;
+      const { out } = commitItems(0);
+      const it = out.find((i) => selKey(i) === key);
+      if (it) confirmPaySheet([it]);
+    }, 600);
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!key) return;
+    const dx = e.touches[0].clientX - sx, dy = e.touches[0].clientY - sy;
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) { moved = true; clear(); }
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    clear();
+    if (!key) return;
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+    const k = key; key = null;
+    if (hold) { ui.suppress = Date.now(); return; }
+    if (Math.abs(dx) > 90 && Math.abs(dy) < 40) { ui.suppress = Date.now(); paySingle(k); }
+  }, { passive: true });
+})();
 
 function commitAddSheet() {
   const types = [['bill', 'Bill', '🧾'], ['sub', 'Subscription', '🔁'], ['inst', 'Installment', '📆'], ['card', 'Credit card', '💳'], ['circle', "Gam'eya", '🤝'], ['loan', 'Loan', '💸']];
@@ -1990,11 +2174,46 @@ const actions = {
   'commit-tab': (el) => { ui.commitTab = +el.dataset.i; render(); },
   'commit-filter': (el) => { ui.cFilter = el.dataset.v; ui.cDay = null; render(); },
   'commit-day': (el) => { const d = +el.dataset.d; ui.cDay = ui.cDay === d ? null : d; render(); },
-  'commit-prev': () => { ui.cOff = (ui.cOff || 0) - 1; ui.cDay = null; render(); },
-  'commit-next': () => { ui.cOff = (ui.cOff || 0) + 1; ui.cDay = null; render(); },
+  'commit-prev': () => { ui.cOff = (ui.cOff || 0) - 1; ui.cDay = null; ui.cSel = {}; render(); },
+  'commit-next': () => { ui.cOff = (ui.cOff || 0) + 1; ui.cDay = null; ui.cSel = {}; render(); },
   'commit-add-day': (el) => go('add', { date: +el.dataset.d }),
   'commit-add': () => commitAddSheet(),
   'bulk-open': () => bulkSheet(),
+  'csel': (el) => {
+    const { out } = commitItems(0);
+    const it = out.find((i) => selKey(i) === el.dataset.key);
+    if (!it) return;
+    const same = out.filter((i) => selectable(i, 0) && i.kind === it.kind && i.refId === it.refId);
+    ui.cSel = ui.cSel || {};
+    const on = !ui.cSel[selKey(it)];
+    // a payment of the same item always goes in date order, so earlier ones are ticked together
+    same.forEach((i) => { if (on ? i.date <= it.date : i.date >= it.date) { if (on) ui.cSel[selKey(i)] = 1; else delete ui.cSel[selKey(i)]; } });
+    render();
+  },
+  'cg-sel': (el) => {
+    const { out } = commitItems(0);
+    const its = out.filter((i) => selectable(i, 0) && i.gk === el.dataset.g);
+    const all = its.every((i) => ui.cSel && ui.cSel[selKey(i)]);
+    ui.cSel = ui.cSel || {};
+    its.forEach((i) => { if (all) delete ui.cSel[selKey(i)]; else ui.cSel[selKey(i)] = 1; });
+    render();
+  },
+  'cg-toggle': (el) => {
+    ui.cOpen = ui.cOpen || {};
+    const g = el.dataset.g, { out, today } = commitItems(ui.cOff || 0);
+    const cur = ui.cOpen[g] != null ? ui.cOpen[g] : out.some((i) => i.gk === g && !i.paid && !i.incoming && i.date < today);
+    ui.cOpen[g] = !cur; render();
+  },
+  'sel-pay': () => { const { out } = commitItems(0); confirmPaySheet(out.filter((i) => selectable(i, 0) && ui.cSel && ui.cSel[selKey(i)])); },
+  'pay-all': () => { const { out } = commitItems(0); confirmPaySheet(out.filter((i) => selectable(i, 0))); },
+  'due-pay': () => { const { out, today } = commitItems(0); confirmPaySheet(out.filter((i) => selectable(i, 0) && i.date <= today)); },
+  'due-review': () => {
+    const { out, today } = commitItems(0);
+    ui.cSel = ui.cSel || {}; ui.cOpen = ui.cOpen || {};
+    out.filter((i) => selectable(i, 0) && i.date <= today).forEach((i) => { ui.cSel[selKey(i)] = 1; ui.cOpen[i.gk] = true; });
+    render();
+  },
+  'commit-goto': (el) => { ui.cOff = +el.dataset.o; ui.cDay = null; ui.cSel = {}; render(); },
   'bulk-undo': () => { if (ui.bulkUndo) { R.undoPayGroup(ui.bulkUndo.undo); ui.bulkUndo = null; toast('Undone'); render(); } },
   'bulk-dismiss': () => { ui.bulkUndo = null; render(); },
   'open-tag': (el) => go('tagDetail', { name: el.dataset.name }),
@@ -2152,6 +2371,7 @@ document.addEventListener('change', (e) => {
 });
 
 document.addEventListener('click', (e) => {
+  if (ui.suppress && Date.now() - ui.suppress < 500) { ui.suppress = 0; e.stopPropagation(); return; }
   const el = e.target.closest('[data-act]');
   if (!el || el.disabled) return;
   if (el.tagName === 'INPUT') return; // checkboxes handled on change
