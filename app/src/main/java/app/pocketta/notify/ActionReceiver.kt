@@ -43,6 +43,31 @@ class ActionReceiver : BroadcastReceiver() {
             }
             return
         }
+        if (intent.action == ACTION_PAID_GROUP) {
+            val items = intent.getStringExtra(EXTRA_ITEMS) ?: return
+            val notifId = intent.getIntExtra(EXTRA_NOTIF, 0)
+            val job = goAsync()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val repo = Repo.get(context)
+                    val dao = repo.dao
+                    // "KIND:id,KIND:id": one payment each, the same as the single "Mark paid" button.
+                    for (part in items.split(",")) {
+                        val k = part.substringBefore(":")
+                        val id = part.substringAfter(":").toLongOrNull() ?: continue
+                        when (k) {
+                            "BILL" -> dao.bill(id)?.let { repo.payBill(it) }
+                            "INSTALLMENT" -> dao.installment(id)?.let { repo.payInstallment(it) }
+                            "CIRCLE" -> dao.circle(id)?.let { repo.payCircle(it) }
+                        }
+                    }
+                    NotificationManagerCompat.from(context).cancel(notifId)
+                } finally {
+                    job.finish()
+                }
+            }
+            return
+        }
         val kind = intent.getStringExtra(EXTRA_KIND) ?: return
         val id = intent.getLongExtra(EXTRA_ID, 0)
         val notif = intent.getIntExtra(EXTRA_NOTIF, 0)
@@ -71,6 +96,8 @@ class ActionReceiver : BroadcastReceiver() {
         const val ACTION_SKIP = "app.pocketta.SKIP"
         const val ACTION_GOAL = "app.pocketta.GOAL"
         const val ACTION_PIGGY = "app.pocketta.PIGGY"
+        const val ACTION_PAID_GROUP = "app.pocketta.PAID_GROUP"
+        private const val EXTRA_ITEMS = "items"
         private const val EXTRA_AMOUNT = "amount"
         private const val EXTRA_KIND = "kind"
         private const val EXTRA_ID = "id"
@@ -86,6 +113,12 @@ class ActionReceiver : BroadcastReceiver() {
             val i = Intent(context, ActionReceiver::class.java).setAction(ACTION_PIGGY)
                 .putExtra(EXTRA_AMOUNT, amount).putExtra(EXTRA_NOTIF, notif)
             return PendingIntent.getBroadcast(context, 950 + notif, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        }
+
+        fun groupPending(context: Context, items: String, notif: Int): PendingIntent {
+            val i = Intent(context, ActionReceiver::class.java).setAction(ACTION_PAID_GROUP)
+                .putExtra(EXTRA_ITEMS, items).putExtra(EXTRA_NOTIF, notif)
+            return PendingIntent.getBroadcast(context, 970 + notif, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         }
 
         fun pending(context: Context, action: String, kind: String, id: Long, notif: Int): PendingIntent {

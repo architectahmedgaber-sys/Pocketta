@@ -119,7 +119,7 @@ data class Suggestion(val note: String, val amount: Double)
 data class WeekData(val spent: Double, val previous: Double, val topCategory: String?, val daysUnder: Int, val topAmount: Double = 0.0)
 
 /** One group of payments that can be marked paid together (a provider, credit cards, gam'eya, bills). */
-data class PayItem(val kind: String, val id: Long, val name: String, val n: Int, val amount: Double)
+data class PayItem(val kind: String, val id: Long, val name: String, val n: Int, val amount: Double, val each: Double? = null)
 data class PayGroup(val key: String, val title: String, val items: List<PayItem>) { val total: Double get() = items.sumOf { it.amount } }
 /** What is needed to undo a bulk payment. */
 data class PayUndo(val txnIds: List<Long>, val billDue: List<Pair<Long, Long>>)
@@ -707,7 +707,7 @@ class Repo private constructor(private val app: Context) {
         val billDue = ArrayList<Pair<Long, Long>>()
         for (item in g.items) repeat(item.n) {
             when (item.kind) {
-                "BILL" -> dao.bill(item.id)?.let { b -> billDue += b.id to b.nextDue; payBill(b) }
+                "BILL" -> dao.bill(item.id)?.let { b -> billDue += b.id to b.nextDue; payBill(b, item.each) }
                 "INSTALLMENT" -> dao.installment(item.id)?.let { x -> payInstallment(x) }
                 "CIRCLE" -> dao.circle(item.id)?.let { x -> payCircle(x) }
             }
