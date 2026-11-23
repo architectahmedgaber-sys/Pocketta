@@ -170,7 +170,14 @@ object CloudSync {
         return o
     }
 
-    private fun hash(o: JSONObject): String = MessageDigest.getInstance("SHA-256").digest(o.toString().toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    /** Things the app updates by itself on every open (net worth log) or when you add something (last wallet/category) are not "a change" for sync. */
+    private val NOISE = listOf("wealthHistory", "lastCategory", "lastWallet")
+
+    private fun hash(o: JSONObject): String {
+        val c = JSONObject(o.toString())
+        c.optJSONObject("settings")?.let { s -> NOISE.forEach { s.remove(it) } }
+        return MessageDigest.getInstance("SHA-256").digest(c.toString().toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    }
     private fun len(o: JSONObject, k: String) = o.optJSONArray(k)?.length() ?: 0
     private fun isEmpty(o: JSONObject) = o.optJSONObject("settings")?.optBoolean("onboarded", false) != true && len(o, "txns") == 0
     private fun side(o: JSONObject, at: Long, device: String = "") =
@@ -318,9 +325,9 @@ object CloudSync {
                         val localChanged = lh != lastHash
                         val cloudChanged = cloud.updatedAt != cloudAt
                         if (localChanged && cloudChanged) {
-                            val pick = ask(false, side(snap, localAt), side(cloud.data, parseTime(cloud.updatedAt), cloud.device))
-                            if (pick == null) paused = true
-                            else if (pick == "cloud") applyCloud(repo, cloud) else ok = up(cloud)
+                            // Already signed in and linked: the cloud copy wins, without asking. This phone's copy is kept once as a safety copy.
+                            runCatching { File(files, "pocketta-conflict-copy.json").writeText(fullJson(repo).toString()) }
+                            applyCloud(repo, cloud)
                         } else if (localChanged) ok = up(cloud)
                         else if (cloudChanged) applyCloud(repo, cloud)
                     }

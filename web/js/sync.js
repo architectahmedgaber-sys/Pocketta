@@ -34,8 +34,12 @@ function snapshot() {
   for (const k of DEVICE_KEYS) delete d.settings[k];
   return d;
 }
+// Things the app updates by itself on every open (net worth log) or when you add something (last wallet/category) are not "a change" for sync.
+const NOISE = ['wealthHistory', 'lastCategory', 'lastWallet'];
 function hash(obj) {
-  const s = JSON.stringify(obj);
+  const c = { ...obj, settings: { ...(obj.settings || {}) } };
+  for (const k of NOISE) delete c.settings[k];
+  const s = JSON.stringify(c);
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
   for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); }
   h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
@@ -215,9 +219,9 @@ export async function syncNow() {
       } else {
         const localChanged = lh !== st.lastHash, cloudChanged = cloud.updated_at !== st.cloudAt;
         if (localChanged && cloudChanged) {
-          const pick = await hooks.choose({ kind: 'conflict', local: summary(local, st.localAt || Date.now()), cloud: summary(cloud.data, Date.parse(cloud.updated_at), cloud.device_name) });
-          if (!pick) paused = true;
-          else if (pick === 'cloud') applyCloud(cloud.data, cloud.updated_at); else ok = await up(cloud);
+          // Already signed in and linked: the cloud copy wins, without asking. This device's copy is kept once as a safety copy.
+          try { localStorage.setItem('pocketta-conflict-copy', JSON.stringify({ at: Date.now(), data: R.exportJson() })); } catch { /* too big: skip */ }
+          applyCloud(cloud.data, cloud.updated_at);
         } else if (localChanged) ok = await up(cloud);
         else if (cloudChanged) applyCloud(cloud.data, cloud.updated_at);
       }
