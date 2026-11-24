@@ -170,6 +170,22 @@ class Repo private constructor(private val app: Context) {
         changed()
     }
 
+    /**
+     * "Start over": deletes everything the person entered. Only the look (theme) and the language stay.
+     * The AI key lives in its own private file and is not touched here.
+     */
+    suspend fun resetAll() = withContext(Dispatchers.IO) {
+        val keep = dao.settings().filter { it.key == "theme" || it.key == "lang" }
+        db.withTransaction {
+            val raw = db.openHelper.writableDatabase
+            for (t in listOf("txns", "bills", "installments", "circles", "loans", "categories", "wallets", "settings")) raw.execSQL("DELETE FROM $t")
+            keep.forEach { dao.put(it) }
+        }
+        Money.setCurrency("EGP")
+        ensureSeeded()
+        changed()
+    }
+
     // ---------- Seed ----------
 
     suspend fun ensureSeeded() {
