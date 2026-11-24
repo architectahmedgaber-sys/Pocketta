@@ -78,9 +78,20 @@ async function post(url, headers, body) {
 }
 
 // history items: {role:'user',text} | {role:'assistant',text,calls:[{id,name,args}]} | {role:'results',results:[{callId,name,content}]}
-async function chat(system, history) {
+const KEEP_TURNS = 8, OLD_RESULT_MAX = 300;
+/** Sends only the last few turns, and shortens old tool results, so a long chat does not cost more with every message. Always starts at a user message so tool calls and their results stay paired. */
+export function trimHistory(history) {
+  const users = history.map((m, i) => (m.role === 'user' ? i : -1)).filter((i) => i >= 0);
+  if (!users.length) return history;
+  const start = users.length > KEEP_TURNS ? users[users.length - KEEP_TURNS] : 0;
+  const last = users[users.length - 1];
+  return history.slice(start).map((m, i) => (m.role === 'results' && start + i < last
+    ? { ...m, results: m.results.map((r) => ({ ...r, content: r.content.length > OLD_RESULT_MAX ? `${r.content.slice(0, OLD_RESULT_MAX)}…` : r.content })) } : m));
+}
+async function chat(system, fullHistory, tools = TOOLS) {
+  const history = trimHistory(fullHistory);
   const p = cfg.provider(), key = cfg.key(p), model = cfg.model(p);
-  const call = (m) => (p === 'GEMINI' ? gemini(key, m, system, history) : p === 'CLAUDE' ? claude(key, m, system, history) : openai(key, m, system, history));
+  const call = (m) => (p === 'GEMINI' ? gemini(key, m, system, history, tools) : p === 'CLAUDE' ? claude(key, m, system, history, tools) : openai(key, m, system, history, tools));
   try { return await call(model); }
   catch (e) {
     // The saved model name may not exist for this key (names change). Find one that does and try once more.
@@ -124,7 +135,7 @@ export async function geminiPick(key) {
   return names[0] || null;
 }
 
-async function gemini(key, model, system, history) {
+async function gemini(key, model, system, history, tools) {
   const contents = [];
   for (const m of history) {
     if (m.role === 'user') contents.push({ role: 'user', parts: [{ text: m.text }] });
@@ -135,9 +146,9 @@ async function gemini(key, model, system, history) {
       if (parts.length) contents.push({ role: 'model', parts });
     } else contents.push({ role: 'user', parts: m.results.map((r) => ({ functionResponse: { name: r.name, response: { result: r.content } } })) });
   }
-  const decl = TOOLS.map((t) => ({ name: t.name, description: t.desc, ...(t.params.length ? { parameters: schema(t) } : {}) }));
+  const decl = tools.map((t) => ({ name: t.name, description: t.desc, ...(t.params.length ? { parameters: schema(t) } : {}) }));
   const res = await post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { 'x-goog-api-key': key },
-    { systemInstruction: { parts: [{ text: system }] }, contents, tools: [{ functionDeclarations: decl }] });
+    { systemInstruction: { parts: [{ text: system }] }, contents, ...(decl.length ? { tools: [{ functionDeclarations: decl }] } : {}) });
   const parts = res.candidates?.[0]?.content?.parts || [];
   return {
     text: parts.map((x) => x.text || '').join('').trim(),
@@ -145,7 +156,7 @@ async function gemini(key, model, system, history) {
   };
 }
 
-async function claude(key, model, system, history) {
+async function claude(key, model, system, history, tools) {
   const messages = [];
   for (const m of history) {
     if (m.role === 'user') messages.push({ role: 'user', content: m.text });
@@ -156,9 +167,16 @@ async function claude(key, model, system, history) {
       if (content.length) messages.push({ role: 'assistant', content });
     } else messages.push({ role: 'user', content: m.results.map((r) => ({ type: 'tool_result', tool_use_id: r.callId, content: r.content })) });
   }
+  // Prompt caching: the tools and instructions, and the chat so far, are billed at a fraction of the price when sent again.
+  const last = messages[messages.length - 1];
+  if (last) {
+    if (typeof last.content === 'string') last.content = [{ type: 'text', text: last.content }];
+    last.content[last.content.length - 1].cache_control = { type: 'ephemeral' };
+  }
   const res = await post('https://api.anthropic.com/v1/messages',
     { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-    { model, max_tokens: 1500, system, messages, tools: TOOLS.map((t) => ({ name: t.name, description: t.desc, input_schema: schema(t) })) });
+    { model, max_tokens: 1500, system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }], messages,
+      ...(tools.length ? { tools: tools.map((t) => ({ name: t.name, description: t.desc, input_schema: schema(t) })) } : {}) });
   const content = res.content || [];
   return {
     text: content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim(),
@@ -166,7 +184,7 @@ async function claude(key, model, system, history) {
   };
 }
 
-async function openai(key, model, system, history) {
+async function openai(key, model, system, history, tools) {
   const messages = [{ role: 'system', content: system }];
   for (const m of history) {
     if (m.role === 'user') messages.push({ role: 'user', content: m.text });
@@ -177,7 +195,7 @@ async function openai(key, model, system, history) {
     } else for (const r of m.results) messages.push({ role: 'tool', tool_call_id: r.callId, content: r.content });
   }
   const res = await post('https://api.openai.com/v1/chat/completions', { Authorization: `Bearer ${key}` },
-    { model, messages, tools: TOOLS.map((t) => ({ type: 'function', function: { name: t.name, description: t.desc, parameters: schema(t) } })) });
+    { model, messages, ...(tools.length ? { tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.desc, parameters: schema(t) } })) } : {}) });
   const msg = res.choices?.[0]?.message || {};
   const calls = (msg.tool_calls || []).map((c) => { let args = {}; try { args = JSON.parse(c.function.arguments || '{}'); } catch { /* keep empty */ } return { id: c.id, name: c.function.name, args }; });
   return { text: (msg.content || '').trim(), calls };
@@ -358,6 +376,6 @@ export const hasKey = () => !!cfg.key();
 export async function weeklySummary(stats, arabic) {
   const system = `You are Miqrish (مِقرِش), a friendly money advisor inside the Pocketta app. Write the Friday summary in ${arabic ? 'short, simple Egyptian Arabic' : 'plain English'}. Exactly three short lines: 1) how much was spent in the last 7 days (compare with the 7 days before if given), 2) the biggest category, 3) one practical tip. No greeting, no markdown, no lists.`;
   const text = `Currency ${stats.currency}. Last 7 days: spent ${Math.round(stats.spent)}${stats.previous > 0 ? `, the 7 days before: ${Math.round(stats.previous)}` : ''}. Biggest category: ${stats.topCategory || 'none'}${stats.topAmount ? ` (${Math.round(stats.topAmount)})` : ''}. Flexible money left this month: ${Math.round(stats.flexLeft)} of ${Math.round(stats.flexTotal)}.`;
-  const reply = await chat(system, [{ role: 'user', text }]);
+  const reply = await chat(system, [{ role: 'user', text }], []);
   return reply.text.trim();
 }

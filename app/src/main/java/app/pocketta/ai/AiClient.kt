@@ -31,7 +31,24 @@ object AiClient {
         }
     }
 
-    suspend fun chat(cfg: AiConfig, system: String, history: List<AiMsg>, tools: List<AiTool>): AiReply {
+    private const val KEEP_TURNS = 8
+    private const val OLD_RESULT_MAX = 300
+
+    /** Sends only the last few turns, and shortens old tool results, so a long chat does not cost more with every message. Starts at a user message so tool calls and their results stay paired. */
+    fun trim(history: List<AiMsg>): List<AiMsg> {
+        val users = history.indices.filter { history[it] is AiMsg.User }
+        if (users.isEmpty()) return history
+        val start = if (users.size > KEEP_TURNS) users[users.size - KEEP_TURNS] else 0
+        val last = users.last()
+        return history.subList(start, history.size).mapIndexed { i, m ->
+            if (m is AiMsg.Results && start + i < last)
+                AiMsg.Results(m.results.map { r -> if (r.content.length > OLD_RESULT_MAX) r.copy(content = r.content.take(OLD_RESULT_MAX) + "…") else r })
+            else m
+        }
+    }
+
+    suspend fun chat(cfg: AiConfig, system: String, fullHistory: List<AiMsg>, tools: List<AiTool>): AiReply {
+        val history = trim(fullHistory)
         val p = cfg.provider
         val key = cfg.key(p)
         val model = cfg.model(p)
@@ -140,7 +157,7 @@ object AiClient {
         val body = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
             .put("contents", contents)
-            .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", decl)))
+        if (decl.length() > 0) body.put("tools", JSONArray().put(JSONObject().put("functionDeclarations", decl)))
         val res = JSONObject(post("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", mapOf("x-goog-api-key" to key), body.toString()))
         val parts = res.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts") ?: JSONArray()
         val text = StringBuilder()
@@ -173,7 +190,17 @@ object AiClient {
         }
         val defs = JSONArray()
         for (t in tools) defs.put(JSONObject().put("name", t.name).put("description", t.desc).put("input_schema", t.schema()))
-        val body = JSONObject().put("model", model).put("max_tokens", 1500).put("system", system).put("messages", msgs).put("tools", defs)
+        // Prompt caching: the tools and instructions, and the chat so far, are billed at a fraction of the price when sent again.
+        if (msgs.length() > 0) {
+            val lastMsg = msgs.getJSONObject(msgs.length() - 1)
+            val c = lastMsg.get("content")
+            val blocks = if (c is JSONArray) c else JSONArray().put(JSONObject().put("type", "text").put("text", c.toString()))
+            blocks.getJSONObject(blocks.length() - 1).put("cache_control", JSONObject().put("type", "ephemeral"))
+            lastMsg.put("content", blocks)
+        }
+        val sys = JSONArray().put(JSONObject().put("type", "text").put("text", system).put("cache_control", JSONObject().put("type", "ephemeral")))
+        val body = JSONObject().put("model", model).put("max_tokens", 1500).put("system", sys).put("messages", msgs)
+        if (defs.length() > 0) body.put("tools", defs)
         val res = JSONObject(post("https://api.anthropic.com/v1/messages", mapOf("x-api-key" to key, "anthropic-version" to "2023-06-01"), body.toString()))
         val content = res.optJSONArray("content") ?: JSONArray()
         val text = StringBuilder()
@@ -213,7 +240,8 @@ object AiClient {
             JSONObject().put("type", "function")
                 .put("function", JSONObject().put("name", t.name).put("description", t.desc).put("parameters", t.schema()))
         )
-        val body = JSONObject().put("model", model).put("messages", msgs).put("tools", defs)
+        val body = JSONObject().put("model", model).put("messages", msgs)
+        if (defs.length() > 0) body.put("tools", defs)
         val res = JSONObject(post("https://api.openai.com/v1/chat/completions", mapOf("Authorization" to "Bearer $key"), body.toString()))
         val msg = res.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message") ?: JSONObject()
         val calls = ArrayList<ToolCall>()

@@ -62,7 +62,9 @@ fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs, bottomBar: @Composable (
     var provider by remember { mutableStateOf(cfg.provider) }
     val listState = rememberLazyListState()
 
-    val session = remember {
+    var chatId by remember { mutableStateOf(0) }
+    var confirmNew by remember { mutableStateOf(false) }
+    val session = remember(chatId) {
         AiSession(
             repo, cfg,
             confirm = { what ->
@@ -98,11 +100,12 @@ fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs, bottomBar: @Composable (
 
     Scaffold(bottomBar = bottomBar, topBar = {
         BackBar("Miqrish", { nav.back() }) {
+            if (!settings && bubbles.isNotEmpty()) TextButton(onClick = { confirmNew = true }, enabled = !busy) { Text("＋ New chat") }
             TextButton(onClick = { settings = !settings }) { Text(if (settings) "Chat" else "Settings") }
         }
     }) { pad ->
         if (settings) {
-            AssistantSettings(cfg, provider, { provider = it }, Modifier.padding(pad)) { settings = false }
+            AssistantSettings(cfg, repo, prefs.weeklyAiOn, provider, { provider = it }, Modifier.padding(pad)) { settings = false }
         } else {
             Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -126,6 +129,16 @@ fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs, bottomBar: @Composable (
                 }
             }
         }
+    }
+
+    if (confirmNew) {
+        AlertDialog(
+            onDismissRequest = { confirmNew = false },
+            title = { Text("Start a new chat?") },
+            text = { Text("This clears the current chat only. Your spending and what Miqrish learned about you stay saved.") },
+            confirmButton = { TextButton(onClick = { bubbles.clear(); pending = null; chatId++; confirmNew = false }) { Text("Yes, start new") } },
+            dismissButton = { TextButton(onClick = { confirmNew = false }) { Text("No") } },
+        )
     }
 
     pending?.let { (what, d) ->
@@ -162,10 +175,11 @@ private fun BubbleView(b: Bubble) {
 }
 
 @Composable
-private fun AssistantSettings(cfg: AiConfig, provider: AiProvider, onProvider: (AiProvider) -> Unit, modifier: Modifier, onDone: () -> Unit) {
+private fun AssistantSettings(cfg: AiConfig, repo: Repo, weeklyOn: Boolean, provider: AiProvider, onProvider: (AiProvider) -> Unit, modifier: Modifier, onDone: () -> Unit) {
     var key by remember(provider) { mutableStateOf(cfg.key(provider)) }
     var model by remember(provider) { mutableStateOf(cfg.model(provider)) }
     var notesVersion by remember { mutableStateOf(0) }
+    var weeklyState by remember { mutableStateOf(weeklyOn) }
     var status by remember { mutableStateOf("") }
     var checking by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -209,6 +223,14 @@ private fun AssistantSettings(cfg: AiConfig, provider: AiProvider, onProvider: (
             if (status.isNotEmpty()) { Gap(8); Text(status, color = MaterialTheme.colorScheme.error) }
             Gap(8)
             Text("The key stays on this phone only. It is not in your backups and it is sent only to the company you picked. Your chat is sent to that company, and any cost is on your own account there.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        SectionCard {
+            Label("Friday summary")
+            Gap(6)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Let Miqrish write my Friday summary (uses a little of your key's balance)", Modifier.weight(1f))
+                androidx.compose.material3.Switch(checked = weeklyState, onCheckedChange = { v -> weeklyState = v; scope.launch { repo.set("weeklyAiOn", v) } })
+            }
         }
         SectionCard {
             Label("What Miqrish learned about you")
