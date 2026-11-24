@@ -284,12 +284,15 @@ object AiWeekly {
         val text = "Currency $currency. Last 7 days: spent ${Math.round(spent)}" + (if (previous > 0) ", the 7 days before: ${Math.round(previous)}" else "") +
             ". Biggest category: ${top ?: "none"}" + (if (topAmount > 0) " (${Math.round(topAmount)})" else "") +
             ". Flexible money left this month: ${Math.round(flexLeft)} of ${Math.round(flexTotal)}."
-        return runCatching { AiClient.chat(cfg, system, listOf(AiMsg.User(text)), aiTools).text.trim() }.getOrNull()?.takeIf { it.isNotEmpty() }
+        return runCatching { AiClient.chat(cfg, system, listOf(AiMsg.User(text)), emptyList()).text.trim() }.getOrNull()?.takeIf { it.isNotEmpty() }
     }
 }
 
 /** Keeps the AI-written Friday summary: made once per week from the user's own key, saved in settings, shared by the card and the morning message. */
 object AiWeeklyStore {
+    /** The week that already failed in this run of the app, so the card and the morning message do not keep retrying (and paying) after an error. */
+    @Volatile private var failedWeek: Long = -1
+
     fun weekKey(today: LocalDate): Long = today.toEpochDay() - ((today.dayOfWeek.value - 5 + 7) % 7)
 
     /** The saved text for this week, or a fresh one when there is a key. Null when there is neither. */
@@ -297,9 +300,10 @@ object AiWeeklyStore {
         val p = s.prefs
         val key = weekKey(s.today)
         if (p.weeklyAiWeek == key && p.weeklyAiText.isNotBlank()) return p.weeklyAiText
-        if (!generate || !p.weeklyAiOn || w.spent <= 0) return null
+        if (!generate || !p.weeklyAiOn || w.spent <= 0 || failedWeek == key) return null
         val b = s.budget
-        val text = AiWeekly.summary(AiConfig(context), p.baseCurrency, w.spent, w.previous, w.topCategory, w.topAmount, b.flexLeft, b.flexTotal, p.lang == "AR") ?: return null
+        val text = AiWeekly.summary(AiConfig(context), p.baseCurrency, w.spent, w.previous, w.topCategory, w.topAmount, b.flexLeft, b.flexTotal, p.lang == "AR")
+        if (text == null) { failedWeek = key; return null }
         repo.set("weeklyAiWeek", key)
         repo.set("weeklyAiText", text)
         return text

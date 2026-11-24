@@ -1631,7 +1631,7 @@ function chatBubble([role, text]) {
 function assistantPage() {
   const ch = ui.chat, prov = AI.cfg.provider();
   const settings = ch.settings ?? !AI.cfg.key();
-  const bar = topbar('Miqrish', `<button class="btn text" data-act="ai-toggle">${settings ? 'Chat' : 'Settings'}</button>`);
+  const bar = topbar('Miqrish', `${!settings && ch.bubbles.length ? `<button class="btn text" data-act="ai-new" ${ch.busy ? 'disabled' : ''}>＋ New chat</button>` : ''}<button class="btn text" data-act="ai-toggle">${settings ? 'Chat' : 'Settings'}</button>`);
   if (settings) {
     const notes = AI.cfg.notes();
     return bar + `<main class="page" id="aiset">` + card(label('Choose the company') +
@@ -1640,6 +1640,7 @@ function assistantPage() {
       field('key', 'Your API key', AI.cfg.key(prov), { type: 'password' }) + field('model', 'Model', AI.cfg.model(prov)) +
       `<div class="btns"><button class="btn filled" data-act="ai-save">Save and chat</button>${AI.cfg.key(prov) ? `<button class="btn tonal" data-act="ai-remove">Remove key</button>` : ''}</div>` +
       `<div class="small">The key stays in this browser only. It is not in your backups and it is sent only to the company you picked. Your chat is sent to that company, and any cost is on your own account there.</div>`) +
+      card(label('Friday summary') + `<label class="switch-row"><span>Let Miqrish write my Friday summary (uses a little of your key's balance)</span><input type="checkbox" data-act="toggle-weekly" ${R.S().weeklyAiOn !== false ? 'checked' : ''}></label>`) +
       card(label('What Miqrish learned about you') + (notes.length ? notes.map((n) => `<div>• ${esc(n)}</div>`).join('') + `<div class="btns"><button class="btn text" data-act="ai-forget">Forget everything</button></div>`
         : `<div class="small">Nothing yet. When you correct it or tell it a habit, it remembers here.</div>`)) + `</main>`;
   }
@@ -2186,6 +2187,12 @@ const actions = {
     ui.chat.settings = false; ui.chat.session = null; render();
   },
   'ai-remove': () => { AI.cfg.setKey(AI.cfg.provider(), ''); render(); },
+  'ai-new': () => {
+    if (ui.chat.busy) return;
+    sheet({ title: 'Start a new chat?', body: `<p>This clears the current chat only. Your spending and what Miqrish learned about you stay saved.</p>`, saveLabel: 'Yes, start new',
+      onSave: () => { ui.chat.bubbles = []; ui.chat.session = null; ui.chat.draft = ''; render(); } });
+  },
+  'toggle-weekly': (el) => R.setSetting('weeklyAiOn', el.checked),
   'ai-forget': () => { AI.cfg.clearNotes(); render(); },
   'ai-send': () => aiSend(),
   tab: (el) => go(el.dataset.r),
@@ -2492,7 +2499,7 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('change', (e) => {
   const a = e.target.dataset?.act;
-  if (a === 'toggle-alert' || a === 'toggle-auto' || a === 'toggle-monthend' || a === 'toggle-addfield') actions[a](e.target);
+  if (a === 'toggle-alert' || a === 'toggle-weekly' || a === 'toggle-auto' || a === 'toggle-monthend' || a === 'toggle-addfield') actions[a](e.target);
   if (e.target.id === 'conv-from') { ui.conv.from = e.target.value; convRefresh(); }
   if (e.target.id === 'conv-to') { ui.conv.to = e.target.value; convRefresh(); }
 });
