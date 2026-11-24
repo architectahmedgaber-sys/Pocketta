@@ -71,6 +71,8 @@ fun MoreScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
         MoreCard("💱", "Currencies & gold", "Convert money and gold, today's prices, your own rates") { nav.open(Route.Currencies) }
         MoreCard("🔔", "Notifications", "Switch each notification on or off, and send a test") { nav.open(Route.Notifications) }
         MoreCard("⚙️", "Settings", "Month start, reminders, fingerprint lock, backup") { nav.open(Route.Settings) }
+        Gap(16)
+        ResetAllCard(repo, prefs)
     }
 }
 

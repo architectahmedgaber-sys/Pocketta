@@ -10,7 +10,7 @@ import * as Sync from './sync.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.18.1';
+const VERSION = '1.22.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -125,6 +125,41 @@ function sheet({ title, body, saveLabel = 'Save', onSave, onDelete, deleteLabel 
   });
   return { el, close };
 }
+/** Start over: two steps. Step one lists what goes (and offers a backup), step two asks to type a word. */
+function resetAll() {
+  const ar = R.S().lang === 'AR';
+  const word = ar ? 'امسح' : 'DELETE';
+  const synced = Sync.signedIn();
+  sheet({
+    title: 'Start over?',
+    body: `<p>This deletes everything on this phone:</p>
+      <ul class="small"><li>Spending, income and wallets</li><li>Bills, installments, gam'eya and loans</li><li>Goals, piggy bank and tags</li><li>Miqrish notes</li>${synced ? '<li>Your cloud copy</li>' : ''}</ul>
+      <p><b>This cannot be undone.</b> Your AI key and the look you chose stay.</p>
+      <button type="button" class="btn tonal" data-act="backup">💾 Save a backup first</button>`,
+    saveLabel: 'Continue',
+    onSave: () => {
+      setTimeout(() => sheet({
+        title: 'Last check',
+        body: `<p>Type <b>${esc(word)}</b> to confirm.</p><input id="reset-word" class="inp" autocomplete="off" autocapitalize="characters" placeholder="${esc(word)}">`,
+        saveLabel: 'Delete everything',
+        onSave: (el) => {
+          const v = el.querySelector('#reset-word').value.trim();
+          if (v.toUpperCase() !== 'DELETE' && v !== 'امسح') return 'Type the word exactly';
+          (async () => {
+            if (synced) { try { await Sync.deleteCloud(); } catch { /* offline: still sign out so the old data does not come back */ } Sync.signOut(); }
+            AI.cfg.clearNotes();
+            R.wipe();
+            try { for (const k of ['pocketta.icons', 'pocketta-safety-copy', 'pocketta-hide-install', 'pocketta-hide-guide']) localStorage.removeItem(k); } catch { /* fine */ }
+            ui.chat = { bubbles: [], busy: false, settings: null, draft: '', session: null };
+            ui.hideInstall = false; ui.hideGuide = false;
+            ui.stack = [{ r: 'home' }]; render(); toast('Everything was deleted');
+          })();
+        },
+      }), 250);
+    },
+  });
+}
+
 function confirmSheet(title, text, yes, onYes) {
   sheet({ title, body: `<p>${esc(text)}</p>`, saveLabel: yes, onSave: () => { onYes(); } });
 }
@@ -1826,7 +1861,9 @@ function more() {
     big('#️⃣', 'Tags', 'Weddings, trips, projects: see the total of each across categories', 'tagsPage') +
     big('🏷️', 'Categories', 'Categories, sub-categories and monthly limits', 'categories') +
     big('💱', 'Currencies & gold', "Convert money and gold, today's prices, your own rates", 'currencies') +
-    big('⚙️', 'Settings', 'Month start, look, savings goal, PIN lock, backup', 'settings') + `</main>`;
+    big('⚙️', 'Settings', 'Month start, look, savings goal, PIN lock, backup', 'settings') +
+    `<div class="card bigcard tap dangercard" data-act="reset-all"><span class="bigicon">🗑️</span>
+    <div class="grow"><div class="mid" style="color:var(--error)">Start over</div><div class="small">Delete all my data and begin from zero</div></div><span class="chev">›</span></div></main>`;
 }
 
 function income() {
@@ -1941,8 +1978,7 @@ function settings() {
       <input type="file" id="restore-file" accept=".json,application/json" hidden>`) +
     card(label('About') + `<div>Pocketta web ${VERSION}${standalone ? ' · on home screen' : ''}</div>
       <div class="small">Updates come by themselves the next time you open it with internet.</div>
-      <button class="btn text" data-act="privacy">Privacy policy</button>
-      <button class="btn text danger" data-act="wipe">Delete all data</button>`) + `</main>`;
+      <button class="btn text" data-act="privacy">Privacy policy</button>`) + `</main>`;
 }
 
 
@@ -2445,7 +2481,7 @@ const actions = {
   'sync-delete': () => confirmSheet('Delete your data from the cloud?', 'This removes the copy in the cloud and its safety copy. Your data on this device is not touched.', 'Delete from cloud', () => { Sync.deleteCloud().then(() => toast('Deleted from the cloud')).catch(() => toast('Could not delete. Check your internet.')); }),
   backup: () => backup(),
   restore: () => $('#restore-file').click(),
-  wipe: () => confirmSheet('Delete all data?', 'Everything in Pocketta on this phone will be deleted. Save a backup first if you may need it.', 'Delete all', () => { R.wipe(); ui.stack = [{ r: 'home' }]; render(); }),
+  'reset-all': () => resetAll(),
   start: () => {
     const root = $('#onb');
     const [cur, cc] = pickedCurrency($('#clist')?.dataset.sel || 'EG');

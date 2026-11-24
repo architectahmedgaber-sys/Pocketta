@@ -169,7 +169,7 @@ export function importJson(text) {
   changed();
   return true;
 }
-export function wipe() { data = empty(); C.setCurrencyFormat(data.settings.baseCurrency); changed(); }
+export function wipe() { const { theme, lang } = data.settings; data = empty(); data.settings.theme = theme; data.settings.lang = lang; C.setCurrencyFormat(data.settings.baseCurrency); changed(); }
 
 // ---------- Seed ----------
 
