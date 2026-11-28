@@ -228,6 +228,12 @@ class Repo private constructor(private val app: Context) {
         val id = if (t.id == 0L) dao.insertTxn(t) else {
             val old = dao.txn(t.id)
             dao.updateTxn(t)
+            if (old != null && old.source == Source.LOAN) dao.loan(old.sourceId)?.let { l ->
+                val isRepayment = (l.lent && old.type == TxType.INCOME) || (!l.lent && old.type == TxType.EXPENSE)
+                val repaid = if (isRepayment) (l.repaid + t.amount - old.amount).coerceAtLeast(0.0) else l.repaid
+                val amount = if (isRepayment) l.amount else t.amount
+                dao.updateLoan(l.copy(amount = amount, repaid = repaid, closed = repaid >= amount - 0.001))
+            }
             if (old != null && old.source == Source.PIGGY) piggyApply(old.sourceId, t.base - old.base)
             if (old != null && old.source == Source.PIGGYOUT) piggyApply(old.sourceId, old.base - t.base)
             t.id
@@ -298,8 +304,8 @@ class Repo private constructor(private val app: Context) {
     suspend fun week(today: LocalDate, dayReference: Double): WeekData {
         val from = today.minusDays(6).toEpochDay()
         val to = today.toEpochDay() + 1
-        val now = dao.txns(from, to).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY }
-        val before = dao.txns(from - 7, from).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY }
+        val now = dao.txns(from, to).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && t.source != Source.LOAN && it.source != Source.LOAN }
+        val before = dao.txns(from - 7, from).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && t.source != Source.LOAN && it.source != Source.LOAN }
         val cats = dao.categories().associateBy { it.id }
         fun topName(id: Long?): String? = id?.let { cats[it] }?.let { c -> (c.parentId?.let { cats[it] } ?: c).name }
         val top = now.groupBy { topName(it.categoryId) }.filterKeys { it != null }
@@ -432,9 +438,28 @@ class Repo private constructor(private val app: Context) {
     /** Deleting a loan also removes the money records it made, so wallets and the budget stay right. */
     suspend fun deleteLoan(l: Loan) { dao.deleteTxnsFor(Source.LOAN, l.id); dao.deleteLoan(l); changed() }
 
+    /** Was the loan's first money record made? (Unticking "Add it to my balance" makes none.) */
+    suspend fun loanRecorded(l: Loan): Boolean {
+        val first = if (l.lent) TxType.EXPENSE else TxType.INCOME
+        return dao.allTxns().any { it.source == Source.LOAN && it.sourceId == l.id && it.type == first }
+    }
+
+    /** Fixes a loan's person or amount. Its first money record follows, so the balance stays right. */
+    suspend fun editLoan(l: Loan, person: String, amount: Double) {
+        val first = if (l.lent) TxType.EXPENSE else TxType.INCOME
+        val newAmount = if (amount > 0) amount else l.amount
+        dao.allTxns().filter { it.source == Source.LOAN && it.sourceId == l.id }.forEach { t ->
+            if (t.type == first) dao.updateTxn(t.copy(amount = newAmount, note = if (l.lent) "Lent to $person" else "Borrowed from $person"))
+            else if (person != l.person) dao.updateTxn(t.copy(note = if (l.lent) "$person paid back" else "Paid back $person"))
+        }
+        dao.updateLoan(l.copy(person = person, amount = newAmount, closed = l.repaid >= newAmount - 0.001))
+        changed()
+    }
+
     suspend fun loanPayment(l: Loan, amount: Double, walletId: Long? = null, day: LocalDate = LocalDate.now()) {
         val p = prefs()
-        dao.insertTxn(
+        // If the loan never touched the balance, paying it back must not touch it either.
+        if (loanRecorded(l)) dao.insertTxn(
             Txn(
                 type = if (l.lent) TxType.INCOME else TxType.EXPENSE, amount = amount, walletId = walletId ?: defaultWallet(p),
                 categoryId = if (l.lent) categoryNamed("Loan repaid", TxType.INCOME) else categoryNamed("Loans", TxType.EXPENSE),
@@ -911,7 +936,7 @@ class Repo private constructor(private val app: Context) {
         val prev = cycle.previous(p.cycleStart)
         val cats = dao.categories().associateBy { it.id }
         fun topOf(id: Long?): Long? = id?.let { cats[it] }?.let { it.parentId ?: it.id }
-        fun mine(t: Txn) = t.type == TxType.EXPENSE && t.source != Source.PIGGY && (if (tag != null) t.tagList.contains(tag) else topOf(t.categoryId) == categoryId)
+        fun mine(t: Txn) = t.type == TxType.EXPENSE && t.source != Source.PIGGY && t.source != Source.LOAN && (if (tag != null) t.tagList.contains(tag) else topOf(t.categoryId) == categoryId)
         val now = dao.txns(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay()).filter { mine(it) }
             .sortedWith(compareByDescending<Txn> { it.epochDay }.thenByDescending { it.createdAt })
         val before = dao.txns(prev.start.toEpochDay(), prev.nextStart.toEpochDay()).filter { mine(it) }
@@ -927,7 +952,7 @@ class Repo private constructor(private val app: Context) {
         if (limited.isEmpty()) return emptyList()
         val byTop = HashMap<Long, Double>()
         for (t in dao.txns(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay())) {
-            if (t.type != TxType.EXPENSE || t.spread || t.source == Source.PIGGY || t.categoryId == null) continue
+            if (t.type != TxType.EXPENSE || t.spread || t.source == Source.PIGGY || t.source == Source.LOAN || t.categoryId == null) continue
             val c = cats[t.categoryId] ?: continue
             val top = c.parentId ?: c.id
             byTop[top] = (byTop[top] ?: 0.0) + t.base
@@ -940,7 +965,7 @@ class Repo private constructor(private val app: Context) {
         val p = prefs()
         var cycle = CycleMath.cycleFor(today, p.cycleStart)
         suspend fun total(c: Cycle) = dao.txns(c.start.toEpochDay(), c.nextStart.toEpochDay())
-            .filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY }.sumOf { it.base }
+            .filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && t.source != Source.LOAN && it.source != Source.LOAN }.sumOf { it.base }
         val past = ArrayList<Double>()
         repeat(3) {
             cycle = cycle.previous(p.cycleStart)

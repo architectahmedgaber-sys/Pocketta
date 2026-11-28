@@ -10,7 +10,7 @@ import * as Sync from './sync.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.22.0';
+const VERSION = '1.22.1';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -603,8 +603,8 @@ function spend() {
   const { cycle, txns } = spendData();
   const s = R.S();
   const prev = C.previousCycle(cycle, s.cycleStart);
-  const prevExp = R.data.txns.filter((t) => prev.contains(t.epochDay) && t.type === 'EXPENSE' && t.source !== 'PIGGY');
-  const exp = txns.filter((t) => t.type === 'EXPENSE' && t.source !== 'PIGGY');
+  const prevExp = R.data.txns.filter((t) => prev.contains(t.epochDay) && t.type === 'EXPENSE' && t.source !== 'PIGGY' && t.source !== 'LOAN');
+  const exp = txns.filter((t) => t.type === 'EXPENSE' && t.source !== 'PIGGY' && t.source !== 'LOAN');
   const saved = txns.filter((t) => t.source === 'PIGGY').reduce((a, t) => a + R.base(t), 0);
   const spent = exp.reduce((a, t) => a + R.base(t), 0);
   const income = txns.filter((t) => t.type === 'INCOME').reduce((a, t) => a + R.base(t), 0);
@@ -675,7 +675,7 @@ function trendCard(cycle, spent) {
   const s = R.S();
   const cycles = [cycle];
   for (let i = 0; i < 5; i++) cycles.unshift(C.previousCycle(cycles[0], s.cycleStart));
-  const totals = cycles.map((c) => R.data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && t.source !== 'PIGGY' && c.contains(t.epochDay)).reduce((a, t) => a + R.base(t), 0));
+  const totals = cycles.map((c) => R.data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && t.source !== 'PIGGY' && t.source !== 'LOAN' && c.contains(t.epochDay)).reduce((a, t) => a + R.base(t), 0));
   const prev = totals[totals.length - 2];
   if (totals.filter((v) => v > 0).length < 2) return '';
   const max = Math.max(...totals, 1);
@@ -737,7 +737,7 @@ function catMonth() {
   const tops = R.categories().filter((x) => x.kind === 'EXPENSE' && x.parentId == null && x.name !== 'Piggy bank').sort((a, b) => a.sort - b.sort);
   const tags = R.allTags().map((g) => g.name);
   const sel = ui.cmKey || (tops[0] ? `c:${tops[0].id}` : null);
-  const mine = (t) => t.type === 'EXPENSE' && t.source !== 'PIGGY' && (sel?.startsWith('t:') ? R.tagsOf(t).includes(sel.slice(2)) : topOf(t.categoryId) === +(sel || '').slice(2));
+  const mine = (t) => t.type === 'EXPENSE' && t.source !== 'PIGGY' && t.source !== 'LOAN' && (sel?.startsWith('t:') ? R.tagsOf(t).includes(sel.slice(2)) : topOf(t.categoryId) === +(sel || '').slice(2));
   const now = R.data.txns.filter((t) => cycle.contains(t.epochDay) && mine(t)).sort((a, b) => b.epochDay - a.epochDay || b.createdAt - a.createdAt);
   const before = R.data.txns.filter((t) => prev.contains(t.epochDay) && mine(t));
   const total = now.reduce((a, t) => a + R.base(t), 0), was = before.reduce((a, t) => a + R.base(t), 0);
@@ -1590,6 +1590,7 @@ function loanDialog(l) {
   const body = `<p>${esc(lent ? `${l.person} owes you ` : `You owe ${l.person} `)}<b>${C.fmt(rem)} ${base()}</b>${l.repaid > 0 ? esc(` (paid ${C.fmt(l.repaid)} of ${C.fmt(l.amount)})`) : ''}</p>` +
     (l.closed ? '' : numField('pay', lent ? 'Amount they paid back' : 'Amount you paid back', Math.round(rem * 100) / 100)) +
     dateField('due', 'Pay back by', l.dueDay) +
+    `<details><summary class="small">Fix name or amount</summary>${field('person', 'To / from whom', l.person)}${numField('amount', 'Loan amount', l.amount, { suffix: base() })}</details>` +
     (lent && !l.closed ? `<a class="btn outline" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">Send a WhatsApp reminder</a>` : '');
   sheet({
     title: l.person, body, saveLabel: l.closed ? 'Save' : lent ? 'Got it back' : 'I paid',
@@ -1598,6 +1599,9 @@ function loanDialog(l) {
       const due = C.fromIso(val(root, 'due'));
       const x = R.byId(R.data.loans, l.id);
       if (x && due !== x.dueDay) { x.dueDay = due; R.changed(); }
+      const person = val(root, 'person').trim(), amt = num(root, 'amount');
+      if (!person) return 'Who is it?';
+      if (person !== l.person || (amt > 0 && amt !== l.amount)) R.editLoan(l, { person, amount: amt > 0 ? amt : l.amount });
       if (!l.closed) { const a = num(root, 'pay'); if (a > 0) R.loanPayment(l, a); }
     },
   });

@@ -229,6 +229,7 @@ export function saveTxn(t) {
       data.txns[i] = { ...old, ...t };
       if (old.source === 'PIGGY') piggyApply(old.sourceId, base(data.txns[i]) - base(old));
       if (old.source === 'PIGGYOUT') piggyApply(old.sourceId, base(old) - base(data.txns[i]));
+      if (old.source === 'LOAN') loanFollowsTxn(old, data.txns[i]);
     }
   }
   if (t.type === 'EXPENSE' && t.categoryId && !t.source) S().lastCategory = t.categoryId;
@@ -307,7 +308,7 @@ export function suggestions(today = C.todayEpoch()) {
 /** The last 7 days against the 7 before, for the Friday/Saturday card. */
 export function week(today, dayReference) {
   const from = today - 6;
-  const ex = (a, b) => data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && t.source !== 'PIGGY' && t.epochDay >= a && t.epochDay < b);
+  const ex = (a, b) => data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && t.source !== 'PIGGY' && t.source !== 'LOAN' && t.epochDay >= a && t.epochDay < b);
   const now = ex(from, today + 1), before = ex(from - 7, from);
   const top = {};
   for (const t of now) { const c = byId(data.categories, t.categoryId); if (!c) continue; const p = c.parentId ? byId(data.categories, c.parentId) : c; top[p.name] = (top[p.name] || 0) + base(t); }
@@ -495,12 +496,45 @@ export function addLoan({ person, lent, amount, walletId, day, due, note, record
   }
   changed();
 }
+/** Was the loan's first money record made? (Unticking "Add it to my balance" makes none.) Derived, so old data keeps working. */
+export function loanRecorded(l) {
+  const first = l.direction === 'LENT' ? 'EXPENSE' : 'INCOME';
+  return data.txns.some((t) => t.source === 'LOAN' && t.sourceId === l.id && t.type === first);
+}
+/** Editing a loan's money record in the transactions list keeps the loan itself in step. */
+function loanFollowsTxn(old, now) {
+  const l = byId(data.loans, old.sourceId);
+  if (!l) return;
+  const lent = l.direction === 'LENT';
+  const isRepayment = (lent && old.type === 'INCOME') || (!lent && old.type === 'EXPENSE');
+  if (isRepayment) l.repaid = Math.max(l.repaid + now.amount - old.amount, 0);
+  else l.amount = now.amount;
+  l.closed = l.repaid >= l.amount - 0.001;
+}
+/** Changes a loan's person, amount or note. Its first money record follows, so the balance stays right. */
+export function editLoan(l, { person, amount, note }) {
+  const x = byId(data.loans, l.id);
+  if (!x) return;
+  const lent = x.direction === 'LENT';
+  const first = lent ? 'EXPENSE' : 'INCOME';
+  const oldPerson = x.person;
+  x.person = person; x.note = note ?? x.note;
+  if (amount > 0) x.amount = amount;
+  for (const t of data.txns) {
+    if (t.source !== 'LOAN' || t.sourceId !== x.id) continue;
+    if (t.type === first) { if (amount > 0) t.amount = amount; t.note = lent ? `Lent to ${person}` : `Borrowed from ${person}`; }
+    else if (person !== oldPerson) t.note = lent ? `${person} paid back` : `Paid back ${person}`;
+  }
+  x.closed = x.repaid >= x.amount - 0.001;
+  changed();
+}
 export const remaining = (l) => Math.max(l.amount - l.repaid, 0);
 export function loanPayment(l, amount, walletId = null, day = C.todayEpoch()) {
   const x = byId(data.loans, l.id);
   if (!x) return;
   const lent = x.direction === 'LENT';
-  data.txns.push(txn({
+  // If the loan never touched the balance, paying it back must not touch it either.
+  if (loanRecorded(x)) data.txns.push(txn({
     type: lent ? 'INCOME' : 'EXPENSE', amount, walletId: walletId || defaultWallet(),
     categoryId: lent ? categoryNamed('Loan repaid', 'INCOME') : categoryNamed('Loans', 'EXPENSE'),
     note: lent ? `${x.person} paid back` : `Paid back ${x.person}`, epochDay: day, source: 'LOAN', sourceId: x.id,
@@ -635,7 +669,7 @@ export function planData(today = C.todayEpoch()) {
   const totals = (from, toExcl, upTo = null) => {
     const m = {};
     for (const t of data.txns) {
-      if (t.type !== 'EXPENSE' || t.spread || t.source === 'PIGGY' || t.epochDay < from || t.epochDay >= toExcl || (upTo != null && t.epochDay > upTo)) continue;
+      if (t.type !== 'EXPENSE' || t.spread || t.source === 'PIGGY' || t.source === 'LOAN' || t.epochDay < from || t.epochDay >= toExcl || (upTo != null && t.epochDay > upTo)) continue;
       const n = topName(t.categoryId); m[n] = (m[n] || 0) + base(t);
     }
     return m;
@@ -718,7 +752,7 @@ export function categoriesOverLimit(today = C.todayEpoch()) {
   const cats = data.categories.filter((c) => c.kind === 'EXPENSE');
   const byTop = {};
   for (const t of data.txns) {
-    if (t.type !== 'EXPENSE' || t.spread || t.source === 'PIGGY' || !cycle.contains(t.epochDay)) continue;
+    if (t.type !== 'EXPENSE' || t.spread || t.source === 'PIGGY' || t.source === 'LOAN' || !cycle.contains(t.epochDay)) continue;
     const c = byId(cats, t.categoryId);
     if (!c) continue;
     const top = c.parentId || c.id;
@@ -731,7 +765,7 @@ export function categoriesOverLimit(today = C.todayEpoch()) {
 /** What you spend in a normal month: average of the last 3 finished cycles that had spending, else this cycle so far. */
 export function monthlySpend(today = C.todayEpoch()) {
   const s = S();
-  const total = (c) => data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && t.source !== 'PIGGY' && c.contains(t.epochDay)).reduce((a, t) => a + base(t), 0);
+  const total = (c) => data.txns.filter((t) => t.type === 'EXPENSE' && !t.spread && t.source !== 'PIGGY' && t.source !== 'LOAN' && c.contains(t.epochDay)).reduce((a, t) => a + base(t), 0);
   let c = C.cycleFor(today, s.cycleStart);
   const cur = total(c), past = [];
   for (let i = 0; i < 3; i++) { c = C.previousCycle(c, s.cycleStart); const v = total(c); if (v > 0) past.push(v); }
