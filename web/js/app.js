@@ -1577,7 +1577,7 @@ function loansTab() {
       <div class="bar"><i style="width:${Math.round(frac * 100)}%"></i></div>
       <div class="small muted">${esc(`Repaid ${C.fmt(l.repaid)} · ${C.fmt(R.remaining(l))} left`)}</div>${list}
       ${!l.closed && !rows.length ? `<p class="small">${esc('No repayment date yet. Set one so it counts in your budget.')}</p><button class="btn outline" data-act="set-repay" data-id="${l.id}">${esc('Set repayment date')}</button>` : ''}
-      ${!l.closed && next ? `<button class="btn" data-act="pay-inst" data-id="${l.id}">${esc(lent ? 'Got the instalment' : 'I paid the instalment')}</button>` : ''}</div>`;
+      ${!l.closed && next ? `<button class="btn filled" data-act="pay-inst" data-id="${l.id}">${esc(lent ? 'Got the instalment' : 'I paid the instalment')}</button>` : ''}</div>`;
   }).join('');
   return html + '<div class="spacer"></div>' + fab('Loan', 'new-loan');
 }
