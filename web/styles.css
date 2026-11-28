@@ -248,6 +248,8 @@ p { margin: 0; }
   font-size: 14.5px; opacity: 0; pointer-events: none; transition: all .2s; text-align: center;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+#toast.act { pointer-events: auto; }
+.toast-undo { background: none; border: 0; color: var(--gold-l); font: inherit; font-weight: 600; padding: 0 4px; cursor: pointer; }
 
 /* ---------- 1.3: Today, charts, converter ---------- */
 .icon-btn.emoji { font-size: 20px; }

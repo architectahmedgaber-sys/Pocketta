@@ -236,12 +236,14 @@ function txn(t) {
 export function saveTxn(t) {
   if (!t.walletId) t = { ...t, walletId: defaultWallet() };
   if (t.tags) t = { ...t, tags: normTags(t.tags) };
-  if (!t.id) data.txns.push(txn(t));
+  let saved = null;
+  if (!t.id) { saved = txn(t); data.txns.push(saved); }
   else {
     const i = data.txns.findIndex((x) => x.id === t.id);
     if (i >= 0) {
       const old = data.txns[i];
       data.txns[i] = { ...old, ...t };
+      saved = data.txns[i];
       if (old.source === 'PIGGY') piggyApply(old.sourceId, base(data.txns[i]) - base(old));
       if (old.source === 'PIGGYOUT') piggyApply(old.sourceId, base(old) - base(data.txns[i]));
       if (old.source === 'LOAN') loanFollowsTxn(old, data.txns[i]);
@@ -250,6 +252,7 @@ export function saveTxn(t) {
   if (t.type === 'EXPENSE' && t.categoryId && !t.source) S().lastCategory = t.categoryId;
   S().lastWallet = t.walletId;
   changed();
+  return saved;
 }
 
 export function deleteTxn(t) {
@@ -287,13 +290,21 @@ export function recentItems(limit = 6) {
   return [...seen.values()].sort((a, b) => b.n - a.n).slice(0, limit);
 }
 
-/** Guesses the category for a quick note like "koshary": same note as before, or a category with that name. */
+/** Guesses the category for a quick note like "koshary". It learns: the category used most often for the same word wins (a tie goes to the latest). */
 export function guessCategory(note, type) {
   if (!note.trim()) return null;
-  const n = note.trim().toLowerCase();
-  const prev = [...data.txns].reverse().find((t) => t.type === type && t.note.toLowerCase() === n && t.categoryId);
-  if (prev) return prev.categoryId;
-  const words = n.split(' ').filter((w) => w.length >= 3);
+  const key = C.normKey(note);
+  const count = new Map(), last = new Map();
+  for (const t of data.txns) {
+    if (t.type !== type || !t.categoryId || t.source || C.normKey(t.note) !== key) continue;
+    count.set(t.categoryId, (count.get(t.categoryId) || 0) + 1);
+    last.set(t.categoryId, Math.max(last.get(t.categoryId) || 0, t.epochDay));
+  }
+  let best = null;
+  for (const [id, n] of count) if (best == null || n > count.get(best) || (n === count.get(best) && last.get(id) > last.get(best))) best = id;
+  if (best != null) return best;
+  const ALIAS = { 'مرتب': 'salary', 'مرتبي': 'salary', 'راتب': 'salary', 'راتبي': 'salary', 'قبضت': 'salary' };
+  const words = key.split(' ').map((w) => ALIAS[w] || w).filter((w) => w.length >= 3);
   return categories().filter((c) => c.kind === type).find((c) => {
     const cn = c.name.toLowerCase();
     return words.some((w) => cn === w || cn.startsWith(w) || w.startsWith(cn));
@@ -309,16 +320,48 @@ export function quickExpense(note, amount, daysAgo = 0) {
   return t;
 }
 
-/** Expenses you type again and again, so they can be added with one tap. */
-export function suggestions(today = C.todayEpoch()) {
+/** The chips on the add sheet: what you add most often in the last 60 days (2 times or more), up to 6. Removed chips stay removed. */
+export function suggestions(today = C.todayEpoch(), limit = 6) {
+  const hidden = new Set(S().favHidden || []);
   const groups = new Map();
   for (const t of data.txns) {
-    if (t.type !== 'EXPENSE' || t.source || !t.note.trim() || t.currency !== S().baseCurrency || t.epochDay < today - 60 || t.epochDay > today) continue;
-    const k = `${t.note.trim().toLowerCase()}|${t.amount}`;
-    const g = groups.get(k) || { note: t.note.trim(), amount: t.amount, n: 0 };
-    g.n++; groups.set(k, g);
+    if (t.type !== 'EXPENSE' || t.source || !t.note.trim() || t.currency !== S().baseCurrency || t.epochDay <= today - 60 || t.epochDay > today) continue;
+    const k = `${C.normKey(t.note)}|${Math.round(t.amount * 100)}|${t.categoryId || 0}`;
+    const g = groups.get(k) || { note: t.note.trim(), amount: t.amount, categoryId: t.categoryId, n: 0, last: 0, key: `${C.normKey(t.note)}|${Math.round(t.amount * 100)}` };
+    g.n++; g.last = Math.max(g.last, t.epochDay); groups.set(k, g);
   }
-  return [...groups.values()].filter((g) => g.n >= 2).sort((a, b) => b.n - a.n).slice(0, 4);
+  return [...groups.values()].filter((g) => g.n >= 2 && !hidden.has(g.key)).sort((a, b) => b.n - a.n || b.last - a.last).slice(0, limit);
+}
+export function hideFavourite(g) { S().favHidden = [...(S().favHidden || []), g.key].slice(-100); changed(); }
+
+/** Puts back a transaction that was just deleted and redoes what deleting it reversed. For Undo. */
+export function restoreTxn(t) {
+  if (byId(data.txns, t.id)) return;
+  data.txns.push(t);
+  if (t.source === 'PIGGY') piggyApply(t.sourceId, base(t));
+  if (t.source === 'PIGGYOUT') piggyApply(t.sourceId, -base(t));
+  if (t.source === 'INSTALLMENT') { const i = byId(data.installments, t.sourceId); if (i) i.paid += 1; }
+  if (t.source === 'CIRCLE') { const c = byId(data.circles, t.sourceId); if (c) { if (t.type === 'INCOME') c.payoutReceived = true; else c.paid += 1; } }
+  if (t.source === 'LOAN') {
+    const l = byId(data.loans, t.sourceId);
+    if (l) {
+      const lent = l.direction === 'LENT';
+      if ((lent && t.type === 'INCOME') || (!lent && t.type === 'EXPENSE')) {
+        l.repaid += t.amount;
+        applyToInstalments(l.id, t.amount, t.epochDay, t.walletId);
+        l.closed = l.repaid >= l.amount - 0.001;
+      }
+    }
+  }
+  changed();
+}
+
+/** Runs a payment and returns what Undo needs: the new money records and the bills' old due dates. */
+export function trackPay(fn) {
+  const before = new Set(data.txns.map((t) => t.id));
+  const dues = data.bills.map((b) => [b.id, b.nextDue]);
+  fn();
+  return { txnIds: data.txns.filter((t) => !before.has(t.id)).map((t) => t.id), bills: dues.filter(([id, d]) => byId(data.bills, id)?.nextDue !== d) };
 }
 
 /** The last 7 days against the 7 before, for the Friday/Saturday card. */

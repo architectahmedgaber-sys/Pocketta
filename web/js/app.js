@@ -87,10 +87,26 @@ const checked = (root, name) => !!$(`[name="${name}"]`, root)?.checked;
 
 function toast(msg, ms = 3200) {
   const t = $('#toast');
+  t.classList.remove('act'); ui.undoFn = null;
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toast.t);
   toast.t = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+/** "Saved · Undo" for 5 seconds, instead of asking "are you sure?". fn must put everything back. */
+function toastUndo(msg, fn, ms = 5000) {
+  const t = $('#toast');
+  ui.undoFn = fn;
+  t.innerHTML = `<span>${esc(msg)}</span> · <button class="toast-undo" data-act="toast-undo">Undo</button>`;
+  t.classList.add('show', 'act');
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { t.classList.remove('show', 'act'); ui.undoFn = null; }, ms);
+}
+/** Runs a payment and offers Undo for it. */
+function payWithUndo(msg, fn) {
+  const undo = R.trackPay(fn);
+  if (undo.txnIds.length || undo.bills.length) toastUndo(msg, () => R.undoPayGroup(undo)); else toast(msg);
 }
 
 // ---------- Sheets (dialogs) ----------
@@ -298,7 +314,7 @@ function quickCard() {
       <button class="btn filled" data-act="qa-add">Add</button></div>
     ${ui.quickHint ? `<div class="small bad-t">Type what you spent, with the amount</div>` : ''}
     ${saved ? `<div class="row-flex"><b class="grow good-t">✓ Saved ${esc(saved.text)}</b><button class="btn text" data-act="qa-undo">Undo</button></div>` : ''}
-    ${sug.length && !saved ? `<div class="small">One tap to add again</div><div class="chips">${sug.map((g, i) => `<button class="chip" data-act="qa-chip" data-i="${i}">${esc(g.note)} ${C.fmt(g.amount)}</button>`).join('')}</div>` : ''}`);
+    ${sug.length && !saved ? `<div class="small">Your usual: tap to add, hold to remove</div><div class="chips">${sug.map((g, i) => `<button class="chip" data-act="qa-chip" data-i="${i}">${esc(g.note)} ${C.fmt(g.amount)}</button>`).join('')}</div>` : ''}`);
 }
 function quickAdd(note, amount, daysAgo) {
   const t = R.quickExpense(note, amount, daysAgo);
@@ -311,9 +327,18 @@ function quickAdd(note, amount, daysAgo) {
   checkOverBudget();
 }
 function quickSubmit() {
-  const q = C.parseQuickDay(ui.quickText);
+  const q = C.parseIntent(ui.quickText);
   if (!(q.amount > 0)) { ui.quickHint = true; render(); return; }
   ui.quickText = '';
+  // A loan is never saved from a sentence: the form opens with the repayment schedule first.
+  if (q.kind === 'BORROWED' || q.kind === 'LENT') { render(); return newLoan({ dir: q.kind, person: q.person, amount: q.amount }); }
+  if (q.kind === 'INCOME') {
+    const cat = R.guessCategory(q.note, 'INCOME');
+    if (!cat) { ui.quickText = ''; return go('add', { type: 'INCOME' }); }
+    const t = R.saveTxn({ type: 'INCOME', amount: q.amount, categoryId: cat, note: q.note, epochDay: C.todayEpoch() - q.daysAgo });
+    render();
+    return toastUndo(`Saved ${C.fmt(q.amount)} income`, () => { const x = R.byId(R.data.txns, t.id); if (x) R.deleteTxn(x); });
+  }
   quickAdd(q.note, q.amount, q.daysAgo);
 }
 
@@ -886,15 +911,20 @@ function add(c) {
   const today = C.todayEpoch();
   const otherDay = st.showDate || (st.date !== today && st.date !== today - 1);
   const recent = !editing && st.type === 'EXPENSE' ? R.recentItems() : [];
+  const favs = !editing && st.type === 'EXPENSE' ? R.suggestions() : [];
+  const showPad = editing || st.pad || piggy || st.type === 'TRANSFER';
   const goals = [[-1, 'General piggy bank']].concat(s.goalAmount > 0 ? [[0, s.goalName || 'My goal']] : [], (s.goals || []).map((g) => [g.id, g.name]));
   return `${topbar(title, editing ? `<button class="icon-btn" data-act="del-txn" aria-label="Delete">${icon('del')}</button>` : '')}
   <main class="page form" id="add">
     ${editing?.source ? `<p class="small">This was recorded from a bill, installment, gam'eya, loan or your piggy bank.</p>` : ''}
+    ${favs.length ? `<div class="small">Your usual: tap to add, hold to remove</div><div class="chips favs">${favs.map((g, i) => `<button type="button" class="chip" data-act="fav-add" data-i="${i}">${esc(g.note)} ${C.fmt(g.amount)}</button>`).join('')}</div>` : ''}
+    ${piggy ? '' : field('note', editing ? (income ? 'What is it?' : 'What did you buy?') : 'Type it', st.noteField, { ph: editing ? '' : 'koshary 60 · salary 9000 · lent Sam 500' })}
+    <div class="small" id="intent"></div>
     ${chips('type', types, st.type, 'seg')}
     <div class="amount" id="amt"></div><div class="small" id="qnote"></div>
-    <label class="field"><span>Amount</span>
-      <div class="input-wrap"><input id="quick" name="quick" value="${esc(st.input)}" placeholder="0" autocomplete="off" enterkeyhint="next" inputmode="decimal"></div></label>
-    ${piggy ? '' : field('note', income ? 'What is it?' : 'What did you buy?', st.noteField, { ph: income ? 'salary, side work…' : 'koshary, coffee…' })}
+    ${showPad ? `<label class="field"><span>Amount</span>
+      <div class="input-wrap"><input id="quick" name="quick" value="${esc(st.input)}" placeholder="0" autocomplete="off" enterkeyhint="next" inputmode="decimal"></div></label>`
+      : `<input id="quick" name="quick" type="hidden" value="${esc(st.input)}"><button type="button" class="btn outline wide" data-act="show-pad">Amount keypad</button>`}
     ${recent.length ? `<div class="small">Bought before: tap one</div><div class="chips recent">${recent.map((r, i) => `<button type="button" class="chip" data-act="recent-pick" data-i="${i}">${esc(r.note)} · ${C.fmt(r.amount)}</button>`).join('')}</div>` : ''}
     <div id="cats"></div>
     <div id="borrow"></div>
@@ -938,11 +968,20 @@ function addRefresh() {
   const st = c.st;
   const root = $('#add');
   if (!root) return;
-  const q = C.parseQuick(st.input);
+  const q0 = C.parseQuick(st.input);
+  // Typing a sentence in the first field works too: "koshary 60", "salary 9000", "borrowed 3000 from Sam".
+  const si = st.type === 'PIGGY' ? null : C.parseIntent(st.noteField);
+  const q = q0.amount != null ? q0 : { amount: si?.amount ?? null, note: q0.note };
   $('#amt').textContent = `${q.amount != null ? C.fmt(q.amount) : '0'} ${st.currency}`;
   $('#amt').classList.toggle('muted', q.amount == null);
-  $('#qnote').textContent = q.note && !st.noteField ? `Note: ${q.note}` : '';
-  const itemName = st.noteField.trim() || q.note;
+  $('#qnote').textContent = q0.note && !st.noteField ? `Note: ${q0.note}` : '';
+  const hint = $('#intent');
+  if (hint) {
+    const loan = !c.id && !st.typeHand && si && (si.kind === 'BORROWED' || si.kind === 'LENT');
+    hint.textContent = !st.noteField.trim() || c.id ? '' : loan ? (si.kind === 'BORROWED' ? 'A loan: you borrowed. You will see the repayment schedule before anything is saved.' : 'A loan: you lent. You will see the repayment schedule before anything is saved.')
+      : si && !si.confident && q.amount == null ? 'Add an amount, for example: coffee 30' : si && !si.confident ? 'Not sure what this is: pick the type and category below.' : '';
+  }
+  const itemName = (si && q0.amount == null ? si.note : st.noteField.trim()) || q0.note;
   if (!st.byHand && itemName && st.type !== 'TRANSFER' && st.type !== 'PIGGY') {
     const g = R.guessCategory(itemName, st.type);
     if (g) { st.categoryId = g; const cat = R.byId(R.data.categories, g); st.parentId = cat.parentId ?? cat.id; }
@@ -972,6 +1011,14 @@ function saveTxn() {
   const st = c.st;
   const root = $('#add');
   st.noteField = val(root, 'note');
+  // A sentence can mean income or a loan. A loan always opens its form with the schedule first.
+  if (!c.id && !st.typeHand && st.type === 'EXPENSE' && st.noteField.trim()) {
+    const si = C.parseIntent(st.noteField);
+    const pq = C.parseQuick(st.input);
+    const amt = pq.amount ?? si.amount;
+    if ((si.kind === 'BORROWED' || si.kind === 'LENT') && amt > 0) { back(); return newLoan({ dir: si.kind, person: si.person, amount: amt }); }
+    if (si.kind === 'INCOME' && si.confident) { st.type = 'INCOME'; st.categoryId = R.guessCategory(si.note, 'INCOME'); st.byHand = false; if (!st.categoryId) { st.parentId = null; toast('Pick a category'); return render(); } }
+  }
   if (st.type === 'PIGGY') {
     const pq = C.parseQuick(st.input);
     if (!(pq.amount > 0)) return toast('Type an amount first');
@@ -980,21 +1027,27 @@ function saveTxn() {
     return back();
   }
   if (st.isBorrowed) { st.person = val(root, 'person'); st.due = C.fromIso(val(root, 'due')); }
-  const q = C.parseQuick(st.input);
-  const amount = q.amount;
-  const note = st.noteField.trim() || q.note;
+  const q0 = C.parseQuick(st.input);
+  const sq = q0.amount == null && st.noteField.trim() ? C.parseIntent(st.noteField) : null;
+  const amount = q0.amount ?? sq?.amount ?? null;
+  const note = (sq ? sq.note : st.noteField.trim()) || q0.note;
   if (!(amount > 0)) return toast('Type an amount first');
   if (st.type !== 'TRANSFER' && !st.categoryId) return toast('Pick a category');
   if (st.isBorrowed && !st.person.trim()) return toast('Who did you borrow from?');
   if (st.isBorrowed) {
     R.addLoan({ person: st.person.trim(), lent: false, amount: amount * R.rateOf(st.currency), walletId: 0, day: st.date, due: st.due, note });
   } else {
-    R.saveTxn({
+    const oldCopy = c.id ? { ...R.byId(R.data.txns, c.id) } : null;
+    const saved = R.saveTxn({
       ...(c.id ? { id: c.id } : {}), type: st.type, amount, currency: st.currency, rate: R.rateOf(st.currency), walletId: st.walletId || 0,
       toWalletId: st.type === 'TRANSFER' ? st.toWalletId : null, tags: parseTags(val(root, 'tags')),
       ...($('[data-group="need"]', root) ? { need: chipVal(root, 'need') || '' } : {}), ...($('[data-group="how"]', root) ? { how: chipVal(root, 'how') || '' } : {}), ...($('[name="where"]', root) ? { where: val(root, 'where').trim() } : {}), categoryId: st.type === 'TRANSFER' ? null : st.categoryId, note, epochDay: st.date,
     });
     if (st.type === 'EXPENSE' && !c.id) checkOverBudget();
+    back();
+    // Undo puts it back the way it was: a new entry is removed, an edited one gets its old values.
+    if (saved) toastUndo('Saved', () => { if (oldCopy) R.saveTxn(oldCopy); else { const x = R.byId(R.data.txns, saved.id); if (x) R.deleteTxn(x); } });
+    return;
   }
   back();
 }
@@ -1607,7 +1660,7 @@ function loansTab() {
       <div class="bar"><i style="width:${Math.round(frac * 100)}%"></i></div>
       <div class="small muted">${esc(`Repaid ${C.fmt(l.repaid)} · ${C.fmt(R.remaining(l))} left`)}</div>${list}
       ${!l.closed && !rows.length ? `<p class="small">${esc('No repayment date yet. Set one so it counts in your budget.')}</p><button class="btn outline" data-act="set-repay" data-id="${l.id}">${esc('Set repayment date')}</button>` : ''}
-      ${!l.closed && next ? `<button class="btn filled" data-act="pay-inst" data-id="${l.id}">${esc(lent ? 'Got the instalment' : 'I paid the instalment')}</button>` : ''}</div>`;
+      ${!l.closed && next ? `<button class="btn filled" data-act="pay-loan-inst" data-id="${l.id}">${esc(lent ? 'Got the instalment' : 'I paid the instalment')}</button>` : ''}</div>`;
   }).join('');
   return html + '<div class="spacer"></div>' + fab('Loan', 'new-loan');
 }
@@ -1626,9 +1679,9 @@ function loanPreviewHtml(lent, total, day, schedule, recorded) {
   return h + '</div>';
 }
 
-function newLoan() {
-  const body = chips('dir', [['BORROWED', 'I borrowed'], ['LENT', 'I lent']], '', 'seg') +
-    field('person', 'Who', '') + numField('amount', 'Amount', null, { suffix: base() }) +
+function newLoan(pre = {}) {
+  const body = chips('dir', [['BORROWED', 'I borrowed'], ['LENT', 'I lent']], pre.dir || '', 'seg') +
+    field('person', 'Who', pre.person || '') + numField('amount', 'Amount', pre.amount ?? null, { suffix: base() }) +
     label('Repay') + chips('mode', [['LUMP', 'One payment'], ['INST', 'Instalments']], 'LUMP', 'seg') +
     `<div data-w="lump">${dateField('due', 'Pay back on (optional)', null)}</div>` +
     `<div data-w="inst" hidden>${numField('count', 'Number of instalments', 3, { int: true })}${dateField('first', 'First instalment', C.addMonths(C.todayEpoch(), 1))}</div>` +
@@ -2229,16 +2282,12 @@ function countrySheet() {
 function onboarding() {
   return `<main class="page onboard" id="onb"><h1 class="brand">Pocketta</h1>
     ${chips('lang', [['EN', 'English'], ['AR', 'العربية']], R.S().lang || 'EN', 'seg')}
-    <p>Your money for the month: what you can spend today, your bills, installments, gam'eya and loans. Everything stays on your phone.</p>
-    <div class="field"><span>${isAr() ? 'بلدك' : 'Your country'}</span><div class="small">${isAr() ? 'منها هنظبط العملة. تقدر تغيّرها بعدين من الإعدادات.' : 'We set your currency from it. You can change it later in Settings.'}</div></div>
+    <p>Four answers and you are in. Everything else is offered later, when it is useful. Your data stays on your phone.</p>
+    <div class="field"><span>${isAr() ? 'بلدك وعملتك' : 'Your country and currency'}</span></div>
     ${countrySearch()}<div class="clist" id="clist" data-sel="EG">${countryRows('EG')}</div>
     ${numField('salary', 'Monthly salary (optional)', null, { suffix: 'EGP' })}
     ${numField('salaryDay', 'Salary day of the month', 1, { int: true })}
-    ${numField('start', 'My month starts on day', 1, { int: true })}
-    <div class="small">Most people pick the day the salary arrives.</div>
-    ${numField('savings', 'Save every month (optional)', null, { suffix: 'EGP' })}
-    ${numField('balance', 'How much money do I have now? (optional)', null, { suffix: 'EGP' })}
-    <div class="small">Cash, bank and mobile wallet together.</div>
+    <div class="small">Your month starts on the salary day.</div>
     <button class="btn filled wide" data-act="start">Start</button>
     <div class="small">You can change all of this later in More.</div></main>`;
 }
@@ -2270,17 +2319,32 @@ function pinSheet() {
 
 // ---------- After render hooks ----------
 
+/** Long press on a chip removes it from "your usual" (it stays removed). */
+function holdToRemove() {
+  document.querySelectorAll('[data-act="fav-add"],[data-act="qa-chip"]').forEach((el) => {
+    let timer = null;
+    const start = () => { timer = setTimeout(() => { el.dataset.held = '1'; const g = R.suggestions()[+el.dataset.i]; if (g) { R.hideFavourite(g); toast('Removed'); } }, 600); };
+    const stop = () => clearTimeout(timer);
+    el.addEventListener('pointerdown', start); el.addEventListener('pointerup', stop); el.addEventListener('pointerleave', stop); el.addEventListener('pointercancel', stop);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  });
+}
+
 function afterRender(c) {
   if (c.r === 'add') {
     addRefresh();
     const q = $('#quick');
-    if (!c.id && !c.focused) { c.focused = true; setTimeout(() => q.focus(), 60); }
+    const nf = $('[name="note"]');
+    if (!c.id && !c.focused) { c.focused = true; setTimeout(() => (nf || q).focus(), 60); }
     q.addEventListener('input', () => { c.st.input = q.value; addRefresh(); });
     q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveTxn(); } });
+    nf?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveTxn(); } });
+    holdToRemove();
     $('[name="date"]')?.addEventListener('change', (e) => { const d = C.fromIso(e.target.value); if (d != null) { c.st.date = d; } });
     $('[name="note"]')?.addEventListener('input', (e) => { c.st.noteField = e.target.value; addRefresh(); });
   }
   if (c.r === 'home') {
+    holdToRemove();
     const el = $('#hero-amt');
     if (el) {
       const to = +el.dataset.v, from = ui.heroShown;
@@ -2350,7 +2414,18 @@ const actions = {
   'hide-guide': () => { ui.hideGuide = true; try { localStorage.setItem('pocketta-hide-guide', '1'); } catch { /* fine */ } render(); },
   'qa-add': () => quickSubmit(),
   'qa-undo': () => { const t = R.byId(R.data.txns, ui.quickSaved?.id); ui.quickSaved = null; if (t) R.deleteTxn(t); else render(); },
-  'qa-chip': (el) => { const g = R.suggestions()[+el.dataset.i]; if (g) quickAdd(g.note, g.amount, 0); },
+  'qa-chip': (el) => { if (el.dataset.held) { el.dataset.held = ''; return; } const g = R.suggestions()[+el.dataset.i]; if (g) quickAdd(g.note, g.amount, 0); },
+  'fav-add': (el) => {
+    if (el.dataset.held) { el.dataset.held = ''; return; }
+    const g = R.suggestions()[+el.dataset.i];
+    if (!g) return;
+    const t = R.saveTxn({ type: 'EXPENSE', amount: g.amount, categoryId: g.categoryId, note: g.note, epochDay: C.todayEpoch() });
+    back();
+    toastUndo(`Saved ${g.note}`, () => { const x = R.byId(R.data.txns, t.id); if (x) R.deleteTxn(x); });
+    checkOverBudget();
+  },
+  'toast-undo': () => { const f = ui.undoFn; ui.undoFn = null; const t = $('#toast'); t.classList.remove('show', 'act'); if (f) { f(); toast('Undone'); render(); } },
+  'show-pad': () => { cur().st.pad = true; render(); },
   'gameya-pay': (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) R.payCircle(c); },
   'gameya-payout': (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) R.receivePayout(c); },
   'plan-cat': (el) => { ui.plan.cat = el.dataset.val; $('#sim-out').innerHTML = simOut(); },
@@ -2388,7 +2463,7 @@ const actions = {
     R.S().goalName = val(root, 'goalName').trim(); R.S().goalAmount = num(root, 'goalAmount') || 0; R.S().goalSaved = num(root, 'goalSaved') || 0;
     R.changed(); toast('Saved');
   },
-  'pay-up': (el) => { const u = ui.homeUpcoming?.[+el.dataset.i]; if (u) { R.payUpcoming(u); toast(u.incoming ? 'Recorded' : 'Paid'); } },
+  'pay-up': (el) => { const u = ui.homeUpcoming?.[+el.dataset.i]; if (u) payWithUndo(u.incoming ? 'Marked received' : 'Marked paid', () => R.payUpcoming(u)); },
   chip: (el) => {
     const g = el.closest('[data-group]');
     const group = g.dataset.group;
@@ -2397,7 +2472,7 @@ const actions = {
     const c = cur();
     if (c.r === 'add' && !el.closest('.sheet')) {
       const st = c.st, v = el.dataset.val;
-      if (group === 'type' && v !== st.type) { st.type = v; st.categoryId = null; st.parentId = null; st.byHand = false; render(); return; }
+      if (group === 'type' && v !== st.type) { st.type = v; st.typeHand = true; st.categoryId = null; st.parentId = null; st.byHand = false; render(); return; }
       if (group === 'parent') { st.parentId = +v; st.categoryId = +v; st.byHand = true; addRefresh(); }
       if (group === 'sub') { st.categoryId = st.categoryId === +v ? st.parentId : +v; st.byHand = true; addRefresh(); }
       if (group === 'currency') { st.currency = v; addRefresh(); }
@@ -2424,7 +2499,7 @@ const actions = {
   'edit-txn': (el) => go('add', { id: +el.dataset.id }),
   'del-txn': () => {
     const t = R.byId(R.data.txns, cur().id);
-    if (t) confirmSheet('Delete this?', `${t.note || 'This record'} · ${C.fmt(t.amount)} ${t.currency}`, 'Delete', () => { R.deleteTxn(t); back(); });
+    if (t) { const copy = { ...t }; R.deleteTxn(t); back(); toastUndo('Deleted', () => R.restoreTxn(copy)); }
   },
   'cm-prev': () => { ui.cmOffset = (ui.cmOffset || 0) + 1; render(); },
   'cm-next': () => { ui.cmOffset = Math.max(0, (ui.cmOffset || 0) - 1); render(); },
@@ -2433,7 +2508,7 @@ const actions = {
   'spend-next': () => { if (ui.spendOffset > -3) { ui.spendOffset--; ui.spendFilter = null; render(); } },
   'spend-filter': (el) => { ui.spendFilter = String(ui.spendFilter) === el.dataset.k ? null : el.dataset.k; render(); },
   'edit-bill': (el) => billEditor(R.byId(R.data.bills, +el.dataset.id)),
-  'pay-bill': (el) => { const b = R.byId(R.data.bills, +el.dataset.id); if (!b) return; if (b.variable) payVariableBill(b); else { R.payBill(b); toast(`${b.name} paid`); } },
+  'pay-bill': (el) => { const b = R.byId(R.data.bills, +el.dataset.id); if (!b) return; if (b.variable) payVariableBill(b); else payWithUndo(`${b.name} paid`, () => R.payBill(b)); },
   'skip-bill': (el) => { const b = R.byId(R.data.bills, +el.dataset.id); if (b) { R.skipBill(b); document.querySelector('.scrim [data-s="cancel"]')?.click(); toast('Skipped to the next date'); } },
   'commit-tab': (el) => { ui.commitTab = +el.dataset.i; render(); },
   'commit-filter': (el) => { ui.cFilter = el.dataset.v; ui.cDay = null; render(); },
@@ -2508,13 +2583,13 @@ const actions = {
     onSave: (root) => { const v = num(root, 'bal'); if (v == null || isNaN(v)) return 'Type a number'; R.setBalance(v); },
   }),
   'edit-inst': (el) => instEditor(R.byId(R.data.installments, +el.dataset.id)),
-  'pay-inst': (el) => { const i = R.byId(R.data.installments, +el.dataset.id); if (i) { R.payInstallment(i); toast('Paid'); } },
+  'pay-inst': (el) => { const i = R.byId(R.data.installments, +el.dataset.id); if (i) payWithUndo('Marked paid', () => R.payInstallment(i)); },
   'edit-circle': (el) => circleEditor(R.byId(R.data.circles, +el.dataset.id)),
   'pay-circle': (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) { R.payCircle(c); toast('Share paid'); } },
   payout: (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) { R.receivePayout(c); toast('Payout recorded'); } },
   'new-loan': () => newLoan(),
   'loan-tab': (el) => { ui.loanTab = el.dataset.v; render(); },
-  'pay-inst': (el) => { const l = R.byId(R.data.loans, +el.dataset.id); if (l) R.payNextInstalment(l); },
+  'pay-loan-inst': (el) => { const l = R.byId(R.data.loans, +el.dataset.id); if (l) payWithUndo(l.direction === 'LENT' ? 'Marked received' : 'Marked paid', () => R.payNextInstalment(l)); },
   'set-repay': (el) => { const l = R.byId(R.data.loans, +el.dataset.id); if (l) setRepayment(l); },
   'open-loan': (el) => { const l = R.byId(R.data.loans, +el.dataset.id); if (l) loanDialog(l); },
   'save-income': () => {
@@ -2600,12 +2675,9 @@ const actions = {
     R.setCurrency(cur, cc);
     R.ensureSeeded();
     const s = R.S();
-    s.cycleStart = Math.min(Math.max(parseInt(val(root, 'start')) || 1, 1), 31);
     s.salary = num(root, 'salary') || 0;
     s.salaryDay = Math.min(Math.max(parseInt(val(root, 'salaryDay')) || 1, 1), 31);
-    s.savingsPerMonth = num(root, 'savings') || 0;
-    const bal = num(root, 'balance');
-    if (bal > 0) R.setBalance(bal);
+    s.cycleStart = s.salaryDay;
     s.onboarded = true;
     R.changed();
     R.ensureSalary();

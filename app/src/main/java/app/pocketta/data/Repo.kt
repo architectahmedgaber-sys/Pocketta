@@ -290,7 +290,8 @@ class Repo private constructor(private val app: Context) {
             .map { it.categoryId!! to it.epochDay }
         SmartDefaults.mostFrequent(history)?.let { return it }
         dao.lastWithNote(type, note.trim())?.categoryId?.let { return it }
-        val words = note.lowercase().split(' ').filter { it.length >= 3 }
+        val alias = mapOf("مرتب" to "salary", "مرتبي" to "salary", "راتب" to "salary", "راتبي" to "salary", "قبضت" to "salary")
+        val words = key.split(' ').map { alias[it] ?: it }.filter { it.length >= 3 }
         return dao.categories().filter { it.kind == type && !it.archived }.firstOrNull { c ->
             val n = c.name.lowercase()
             words.any { w -> n == w || n.startsWith(w) || w.startsWith(n) }

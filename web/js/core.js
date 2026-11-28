@@ -229,6 +229,36 @@ export function parseQuickDay(input) {
   if (TODAYW.test(input)) return { ...parseQuick(input.replace(TODAYW, ' ')), daysAgo: 0 };
   return { ...parseQuick(input), daysAgo: 0 };
 }
+/** Same word, same key: no diacritics, one spelling of alef / teh marbuta / yeh, lower case. */
+export function normKey(s) {
+  return String(s).trim().toLowerCase().replace(/[\u064B-\u0652\u0670\u0640]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ');
+}
+const BORROW = new Set(['استلفت', 'استلف', 'اقترضت', 'اقترض', 'borrowed', 'borrow', 'استدنت']);
+const LEND = new Set(['سلفت', 'اسلفت', 'سلف', 'اقرضت', 'اقرض', 'lent', 'lend', 'loaned', 'اديت']);
+const INCOMEW = new Set(['مرتب', 'مرتبي', 'راتب', 'راتبي', 'قبضت', 'قبض', 'استلمت', 'salary', 'income', 'paycheck', 'payday', 'received']);
+const FROMW = new Set(['من', 'from']);
+const TOW = new Set(['ل', 'الى', 'to', 'لـ']);
+/** What a typed sentence means: { kind: EXPENSE | INCOME | BORROWED | LENT, amount, note, person, daysAgo, confident }.
+ *  A loan is never saved from here: the app shows the loan form with its schedule first. */
+export function parseIntent(input) {
+  const q = parseQuickDay(input);
+  const raw = q.note.split(/\s+/).filter(Boolean);
+  const words = raw.map(normKey);
+  const li = words.findIndex((w) => BORROW.has(w) || LEND.has(w));
+  const hasIncome = words.some((w) => INCOMEW.has(w)) || /got paid|paid me/i.test(q.note);
+  const base = { amount: q.amount, note: q.note, person: '', daysAgo: q.daysAgo };
+  if (li >= 0) {
+    const borrowed = BORROW.has(words[li]);
+    if (hasIncome) return { ...base, kind: 'EXPENSE', confident: false };
+    const after = raw.slice(li + 1), keys = words.slice(li + 1);
+    let person;
+    if (borrowed) { const i = keys.findIndex((k) => FROMW.has(k)); person = (i >= 0 ? after.slice(i + 1) : after).join(' '); }
+    else person = after.filter((_, i) => !TOW.has(keys[i])).join(' ');
+    return { ...base, kind: borrowed ? 'BORROWED' : 'LENT', person: person.trim(), confident: q.amount != null };
+  }
+  if (hasIncome) return { ...base, kind: 'INCOME', confident: q.amount != null };
+  return { ...base, kind: 'EXPENSE', confident: q.amount != null && !!q.note };
+}
 export function parseNumber(s) {
   if (s == null) return null;
   const t = normalizeDigits(String(s)).replace(/\s/g, '');

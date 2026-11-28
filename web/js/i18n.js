@@ -3,6 +3,22 @@
 import { DICT, MONTHS, DAYS, RULES } from './ar-dict.js';
 
 const EXTRA = {
+  "Four answers and you are in. Everything else is offered later, when it is useful. Your data stays on your phone.": "أربع إجابات وتدخل. باقي الحاجات هتتعرض عليك بعدين وقت ما تفيد. بياناتك بتفضل على تليفونك.",
+  "Your month starts on the salary day.": "شهرك بيبدأ يوم المرتب.",
+  "Undo": "تراجع",
+  "Saved": "اتحفظ",
+  "Deleted": "اتمسح",
+  "Removed": "اتشال",
+  "Marked paid": "اتعلّم إنه اتدفع",
+  "Marked received": "اتعلّم إنه اتقبض",
+  "Your usual: tap to add, hold to remove": "اللي بتعمله كتير: دوس يتضاف، اضغط مطوّلًا يتشال",
+  "Type it": "اكتبها",
+  "koshary 60 · salary 9000 · lent Sam 500": "كشري ٦٠ · مرتب ٩٠٠٠ · سلفت محمد ٥٠٠",
+  "Amount keypad": "لوحة الأرقام",
+  "A loan: you borrowed. You will see the repayment schedule before anything is saved.": "سلفة: انت استلفت. هتشوف جدول السداد قبل ما أي حاجة تتحفظ.",
+  "A loan: you lent. You will see the repayment schedule before anything is saved.": "سلفة: انت سلّفت. هتشوف جدول السداد قبل ما أي حاجة تتحفظ.",
+  "Add an amount, for example: coffee 30": "اكتب مبلغ، مثلًا: قهوة ٣٠",
+  "Not sure what this is: pick the type and category below.": "مش متأكد ده إيه: اختار النوع والفئة تحت.",
   "Spend today": "تصرف النهارده",
   "Over today's amount": "عدّيت مبلغ النهارده",
   "# days left · commitments already deducted": "باقي # يوم · الالتزامات متخصومة بالفعل",
