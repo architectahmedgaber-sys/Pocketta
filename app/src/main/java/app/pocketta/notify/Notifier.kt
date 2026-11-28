@@ -37,6 +37,7 @@ object Notifier {
     private const val ID_PRICE_RISE = 10
     private const val ID_TEST = 11
     private const val ID_LIMIT_BASE = 1000
+    private const val ID_AUTOPOST = 3000
     private const val ID_SMS_BASE = 100000
 
     fun createChannels(context: Context) {
@@ -202,14 +203,21 @@ object Notifier {
         NotificationManagerCompat.from(context).notify(ID_MONTH_END, b.build())
     }
 
-    /** A category went over its monthly limit. */
+    /** A category got close to (level 80) or went over (level 100) its monthly limit. */
     @SuppressLint("MissingPermission")
-    fun categoryLimit(context: Context, id: Long, name: String, spent: Double, limit: Double, currency: String, lang: String = Tr.EN) {
+    fun categoryLimit(context: Context, id: Long, name: String, spent: Double, limit: Double, currency: String, lang: String = Tr.EN, level: Int = 100) {
         if (!canPost(context)) return
         val ar = lang == Tr.AR
+        val near = level == 80
+        val title = when {
+            near && ar -> "وصلت 80% من ميزانية ${Tr.t(name, lang)}"
+            near -> "You're at 80% of your $name limit"
+            ar -> "عديت ميزانية ${Tr.t(name, lang)} الشهرية"
+            else -> "You're over your $name limit"
+        }
         val n = NotificationCompat.Builder(context, CH_BUDGET)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle(if (ar) "عديت ميزانية ${Tr.t(name, lang)} الشهرية" else "You're over your $name limit")
+            .setContentTitle(title)
             .setContentText(
                 if (ar) "صرفت ${Money.short(spent)} من ${Money.short(limit)} $currency"
                 else "Spent ${Money.short(spent)} of ${Money.short(limit)} $currency this month"
@@ -217,7 +225,38 @@ object Notifier {
             .setContentIntent(openApp(context))
             .setAutoCancel(true)
             .build()
-        NotificationManagerCompat.from(context).notify(ID_LIMIT_BASE + id.toInt(), n)
+        NotificationManagerCompat.from(context).notify(ID_LIMIT_BASE + id.toInt() + (if (near) 500000 else 0), n)
+    }
+
+    /** Fixed bills that recorded themselves on their due date. One notification for all of them. */
+    @SuppressLint("MissingPermission")
+    fun autoPosted(context: Context, items: List<app.pocketta.data.Repo.AutoPosted>, currency: String, lang: String = Tr.EN) {
+        if (items.isEmpty() || !canPost(context)) return
+        val ar = lang == Tr.AR
+        val one = items.size == 1
+        val first = items.first()
+        val title = when {
+            one && ar -> "اتسجّل: ${first.name} ${Money.fmt(first.amount)} ${first.currency}"
+            one -> "Recorded: ${first.name} ${Money.fmt(first.amount)} ${first.currency}"
+            ar -> "اتسجّل ${items.size} مدفوعات"
+            else -> "Recorded ${items.size} payments"
+        }
+        val body = if (one) {
+            val d = first.day.format(DateTimeFormatter.ofPattern("MMM d", Locale.US))
+            if (ar) "يوم ${Tr.t(d, lang)}" else "Due $d"
+        } else {
+            val sep = if (ar) "، " else ", "
+            val names = items.map { it.name }.distinct()
+            names.take(5).joinToString(sep) + (if (names.size > 5) " + ${names.size - 5}" else "")
+        }
+        val n = NotificationCompat.Builder(context, CH_DUE)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setContentIntent(openApp(context))
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(ID_AUTOPOST, n)
     }
 
     /** A bank text message that looks like spending: tap to open Add with the amount filled in. Nothing is saved until you do. */

@@ -14,6 +14,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
+import app.pocketta.core.LimitLevels
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Icon
@@ -76,6 +78,9 @@ fun MonthScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     val prevTxns by prevFlow.collectAsState(initial = emptyList())
     val prevPerParent = prevTxns.filter { it.type == TxType.EXPENSE && it.source != Source.PIGGY }.groupBy { topOf(it.categoryId) }.mapValues { e -> e.value.sumOf { it.base } }
     var trend by remember { mutableStateOf<List<Pair<String, Double>>>(emptyList()) }
+    // Categories that have a monthly limit, with what they spent in the cycle shown (for the Budgets card).
+    var limited by remember { mutableStateOf<List<LimitLevels.Item>>(emptyList()) }
+    LaunchedEffect(offset, txns, categories) { limited = if (offset >= 0) repo.limitedCategorySpend(today, offset) else emptyList() }
     LaunchedEffect(cycle.start, txns) {
         val cs = ArrayList<app.pocketta.core.Cycle>()
         var c = cycle
@@ -121,6 +126,7 @@ fun MonthScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                     IconButton(onClick = { if (offset > -3) offset-- }, enabled = offset > -3) {
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next month")
                     }
+                    IconButton(onClick = { nav.open(Route.Search) }) { Icon(Icons.Filled.Search, contentDescription = "Search") }
                     if (spent > 0) {
                         TextButton(onClick = {
                             SummaryImage.share(
@@ -187,6 +193,7 @@ fun MonthScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
             }
             item {
                 Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { nav.open(Route.Report(offset)) }) { Text("Report ›") }
                     TextButton(onClick = { nav.open(Route.MonthPlan) }) { Text("Month plan ›") }
                     TextButton(onClick = { nav.open(Route.Goals) }) { Text("Goals ›") }
                     TextButton(onClick = { nav.open(Route.Piggy) }) { Text("Piggy bank ›") }
@@ -228,6 +235,20 @@ fun MonthScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
             }
             if (perParent.isNotEmpty()) {
                 item { Column {
+                    val sum = LimitLevels.summary(limited)
+                    if (sum.total > 0) {
+                        SectionCard(Modifier.padding(horizontal = 16.dp)) {
+                            Label("Budgets")
+                            Gap(6)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("${sum.total} categories", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                                if (sum.ok > 0) Pill("${sum.ok} on track", Good)
+                                if (sum.near > 0) Pill("${sum.near} close", Warn)
+                                if (sum.over > 0) Pill("${sum.over} over", MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        Gap()
+                    }
                     SectionCard(Modifier.padding(horizontal = 16.dp)) {
                         Label("By category · tap to filter")
                         Gap(8)

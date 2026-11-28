@@ -32,6 +32,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.pocketta.BuildConfig
+import app.pocketta.core.CycleMath
+import app.pocketta.core.LockGrace
 import app.pocketta.data.Online
 import app.pocketta.i18n.Tr
 import app.pocketta.data.Prefs
@@ -139,8 +141,19 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
                 Toggle("Lock with fingerprint", prefs.lock) { v ->
                     authenticate(if (v) "Turn on the lock" else "Turn off the lock") { scope.launch { repo.set("lock", v) } }
                 }
+                if (prefs.lock) {
+                    Gap(4)
+                    Text("Lock after I leave", style = MaterialTheme.typography.labelLarge)
+                    Choices(
+                        LockGrace.OPTIONS, prefs.lockGrace,
+                        { when (it) { 0 -> "Right away"; 30 -> "30 seconds"; 60 -> "1 minute"; else -> "5 minutes" } },
+                        { v -> scope.launch { repo.set("lockGrace", v) } },
+                    )
+                    Toggle("Hide the app in recent apps", prefs.secureScreen) { v -> scope.launch { repo.set("secureScreen", v) } }
+                }
             }
             SyncCard(repo)
+            CsvCard(repo, prefs)
             SectionCard {
                 Label("Backup")
                 Text(
@@ -258,10 +271,10 @@ fun UpdateBox(repo: Repo) {
 }
 
 @Composable
-private fun Toggle(text: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun Toggle(text: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(text, Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Text(text, Modifier.weight(1f), color = if (enabled) androidx.compose.ui.graphics.Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant)
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
 }
 
@@ -293,5 +306,49 @@ private fun PrivacyCard(lang: String) {
             },
             confirmButton = { TextButton(onClick = { open = false }) { Text("Close") } },
         )
+    }
+}
+
+/** Settings card: save the transactions of a date range as a CSV file (opens in Excel and Google Sheets). */
+@Composable
+private fun CsvCard(repo: Repo, prefs: Prefs) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val cycle = CycleMath.cycleFor(LocalDate.now(), prefs.cycleStart)
+    var from by remember { mutableStateOf<LocalDate?>(cycle.start) }
+    var to by remember { mutableStateOf<LocalDate?>(cycle.end) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) scope.launch {
+            val f = from ?: LocalDate.now()
+            val t = to ?: LocalDate.now()
+            val ok = runCatching { repo.exportCsvTo(uri, minOf(f, t).toEpochDay(), maxOf(f, t).toEpochDay()) }.isSuccess
+            Toast.makeText(context, Tr.t(if (ok) "Saved" else "Could not save the file", prefs.lang), Toast.LENGTH_SHORT).show()
+        }
+    }
+    SectionCard {
+        Label("Export to Excel (CSV)")
+        Text("A CSV file with all your transactions. Opens in Excel and Google Sheets.", style = MaterialTheme.typography.bodySmall)
+        Gap(8)
+        DateField("From", from, { from = it })
+        Gap(8)
+        DateField("To", to, { to = it })
+        Gap(8)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.FilterChip(selected = false, onClick = { from = cycle.start; to = cycle.end }, label = { Text("This month") })
+            androidx.compose.material3.FilterChip(selected = false, onClick = {
+                val p = cycle.previous(prefs.cycleStart)
+                from = p.start; to = p.end
+            }, label = { Text("Last month") })
+            androidx.compose.material3.FilterChip(selected = false, onClick = {
+                scope.launch {
+                    val all = repo.dao.allTxns()
+                    val today = LocalDate.now()
+                    from = LocalDate.ofEpochDay(all.minOfOrNull { it.epochDay } ?: today.toEpochDay())
+                    to = LocalDate.ofEpochDay(maxOf(all.maxOfOrNull { it.epochDay } ?: 0L, today.toEpochDay()))
+                }
+            }, label = { Text("Everything") })
+        }
+        Gap(8)
+        Button(onClick = { launcher.launch("pocketta-${LocalDate.now()}.csv") }) { Text("Save file") }
     }
 }

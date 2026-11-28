@@ -11,7 +11,7 @@ const URL_BASE = 'https://gnbtetbbxekofmjzbzga.supabase.co';
 const KEY = 'sb_publishable_rjOgzmPudvrnCbc5nkBevg_xq_jPPFt';
 const LS = 'pocketta-sync';
 // Things that belong to one device (or change by themselves), so they are not synced and not compared.
-const DEVICE_KEYS = ['pinHash', 'pinSalt', 'theme', 'lang', 'onlineRates', 'prevOnlineRates', 'gold', 'prevGold', 'ratesUpdated', 'ratesFetchedAt', 'overAlert', 'limitDismissed', 'monthEndDismissed'];
+const DEVICE_KEYS = ['lockGrace', 'pinHash', 'pinSalt', 'theme', 'lang', 'onlineRates', 'prevOnlineRates', 'gold', 'prevGold', 'ratesUpdated', 'ratesFetchedAt', 'overAlert', 'limitDismissed', 'monthEndDismissed'];
 
 let st = load();
 let hooks = { choose: async () => null, setup: async () => null, unlock: async () => null, done: () => {} };

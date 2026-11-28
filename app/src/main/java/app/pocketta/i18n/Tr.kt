@@ -15,6 +15,8 @@ object Tr {
     private val number = Regex("""\d[\d,]*(?:\.\d+)?[kKM]?""")
     private val currencyTail = Regex("""^(.*\S) ([A-Z]{3})$""")
     private val hash = Regex("#")
+    /** A number that may be followed by a currency code ("1,240 EGP"): for texts with the currency in the middle. */
+    private val numberCur = Regex("""\d[\d,]*(?:\.\d+)?[kKM]?(?: [A-Z]{3}\b)?""")
     private val hasLetters = Regex("[A-Za-z]")
     private val months = Regex("""\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b""")
     private val monthDay = Regex("""\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b""")
@@ -37,6 +39,15 @@ object Tr {
             if (ar != null) {
                 var i = 0
                 return hash.replace(ar) { nums.getOrElse(i++) { "#" } }
+            }
+        }
+        if (nums.isNotEmpty()) {
+            // "You need 1,875 EGP a month": the code travels with its number, so the lookup text has no currency in it.
+            val toks = numberCur.findAll(s).map { it.value }.toList()
+            val ar = ArabicWords.dict[numberCur.replace(s, "#")]
+            if (ar != null) {
+                var i = 0
+                return hash.replace(ar) { toks.getOrElse(i++) { "#" } }
             }
         }
         for ((re, to) in ArabicWords.rules) {

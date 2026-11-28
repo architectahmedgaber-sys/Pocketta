@@ -137,6 +137,7 @@ internal fun BillEditor(repo: Repo, prefs: Prefs, bill: Bill, onClose: () -> Uni
     var walletId by remember { mutableStateOf(bill.walletId) }
     var remind by remember { mutableStateOf(bill.remindDays.toString()) }
     var variable by remember { mutableStateOf(bill.variable) }
+    var autoPost by remember { mutableStateOf(bill.autoPost && !bill.variable) }
     var currency by remember { mutableStateOf(bill.currency) }
     val a = parseNumber(amount)
     val n = everyN.toIntOrNull()?.coerceAtLeast(1) ?: 30
@@ -153,6 +154,7 @@ internal fun BillEditor(repo: Repo, prefs: Prefs, bill: Bill, onClose: () -> Uni
                         name = name.trim(), amount = a ?: 0.0, kind = kind, frequency = freq.name, everyN = n,
                         nextDue = due.toEpochDay(), anchorDay = due.dayOfMonth, walletId = walletId,
                         remindDays = remind.toIntOrNull()?.coerceIn(0, 30) ?: 1, variable = variable, currency = currency, categoryId = cat,
+                        autoPost = autoPost && !variable,
                     )
                 )
             }
@@ -163,9 +165,15 @@ internal fun BillEditor(repo: Repo, prefs: Prefs, bill: Bill, onClose: () -> Uni
         TextInput("Name", name, { name = it })
         NumberField(if (variable) "Usual amount" else "Amount", amount, { amount = it }, suffix = currency)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = variable, onCheckedChange = { variable = it })
+            Checkbox(checked = variable, onCheckedChange = { variable = it; if (it) autoPost = false })
             Text("Amount changes (use the average of the last 3)", style = MaterialTheme.typography.bodySmall)
         }
+        Toggle("Record it by itself", autoPost && !variable, enabled = !variable) { autoPost = it }
+        Text(
+            if (variable) "Not available when the amount changes every time (like electricity), because the app does not know the amount."
+            else "On the due day the app records it as an expense by itself. You will get a notice when it does.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         if (prefs.currencies.size > 1) Choices(prefs.currencies, currency, { it }, { currency = it })
         Label("Repeats")
         Choices(Frequency.entries.toList(), freq, { it.label }, { freq = it })

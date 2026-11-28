@@ -20,7 +20,10 @@ class PockettaApp : Application() {
             val p = repo.prefs()
             DailyWorker.schedule(this@PockettaApp, p.remindHour)
             UpdateWorker.schedule(this@PockettaApp)
-            if (p.onboarded) repo.ensureSalary()
+            if (p.onboarded) {
+                repo.ensureSalary()
+                runCatching { repo.autoPostBills() }
+            }
             runCatching { app.pocketta.data.Online.refreshRates(repo) }
             runCatching { app.pocketta.data.Online.checkUpdate(repo) }
             if (p.onboarded) runCatching { repo.autoBackupIfDue() }

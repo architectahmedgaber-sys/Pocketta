@@ -36,6 +36,9 @@ sealed interface Route {
     data object Assistant : Route
     /** One month of one category (categoryId) or one tag: its total, every day and all its spending. */
     data class CategoryMonth(val categoryId: Long = 0, val tag: String = "") : Route
+    /** The monthly report of the month shown on the Month screen ([offset] cycles back). */
+    data class Report(val offset: Int = 0) : Route
+    data object Search : Route
 }
 
 /** Four tabs; the add button sits in the middle of the bar. Miqrish (Assistant) is a screen opened from Today. */

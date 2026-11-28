@@ -27,3 +27,11 @@ The release key is stored encrypted (`signing/release.jks.enc`). CI unlocks it w
 
 ## Releasing
 Open a pull request, merge it to `main`. If `version.txt` holds a version without a release yet, the build publishes it as a GitHub release (the in-app updater reads that). Raise `version.txt` in the PR to ship a new version; otherwise main only builds a test APK.
+
+## 1.24.0 (v3)
+- Category budgets alert at 80% and at 100% (once per level per month), "Budgets" card on Month.
+- Month-end forecast card on Today (over / close / on track, and the day the money runs out).
+- Fixed bills can record themselves on their due date.
+- Savings goals can have a target date ("you need X a month").
+- Monthly report screen, CSV export (Excel/Google Sheets), search with filters.
+- Lock: choose how long the app stays open after you leave; optional "hide in recent apps".

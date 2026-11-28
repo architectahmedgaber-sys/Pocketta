@@ -1,6 +1,7 @@
 // All data lives in one object, saved to IndexedDB on this phone. Ported from the Android Repo.
 import * as C from './core.js';
 import * as P from './plan.js';
+import * as X from './extras.js';
 import { countryFor } from './countries.js';
 
 const DB_NAME = 'pocketta', STORE = 'kv', KEY = 'data';
@@ -101,6 +102,8 @@ function normalize(raw) {
     d.loanInstallments = d.loans.filter((l) => !l.closed && l.dueDay != null && l.amount - l.repaid > 0.004)
       .map((l) => ({ id: nextId(), loanId: l.id, dueDay: l.dueDay, amount: l.amount - l.repaid, paidAmount: 0, paidDay: null, walletId: null }));
   }
+  // 1.24: a bill can record itself on its due date. Older data has no flag.
+  for (const b of d.bills) if (b.autoPost === undefined) b.autoPost = false;
   d.v = 2;
   return d;
 }
@@ -479,6 +482,40 @@ export function payBill(b, amount = null, day = C.todayEpoch()) {
     note: b.name, epochDay: day, source: 'BILL', sourceId: b.id, spread: C.isSpread(b.frequency, b.everyN),
   }));
   skipBill(b);
+}
+let autoPosting = false;
+/** Records every fixed bill with autoPost that is due, each on its own due date (at most 12 per bill). Returns [{name, amount, currency, day}]. */
+export function autoPostBills(today = C.todayEpoch()) {
+  if (autoPosting) return [];
+  // Web bills have no `active` flag unless they were paused: a missing flag means active.
+  if (!X.autoPostPlan(data.bills.map((b) => ({ ...b, active: b.active !== false })), today, C.nextDue).length) return [];
+  autoPosting = true;
+  const posted = [];
+  try {
+    for (const start of data.bills.slice()) {
+      if (!start.autoPost || start.variable || start.active === false) continue;
+      let b = start, n = 0;
+      while (b && n < 12 && b.nextDue <= today) {
+        const day = b.nextDue;
+        const amount = estimate(b);
+        payBill(b, null, day);
+        posted.push({ name: b.name, amount, currency: b.currency, day });
+        b = byId(data.bills, start.id);
+        n++;
+      }
+    }
+  } finally { autoPosting = false; }
+  return posted;
+}
+/** Rows for the CSV file: the transactions from fromDay to toDay (both included), oldest first. */
+export function csvRows(fromDay, toDay) {
+  return data.txns.filter((t) => t.epochDay >= fromDay && t.epochDay <= toDay)
+    .sort((a, b) => a.epochDay - b.epochDay || a.id - b.id)
+    .map((t) => ({
+      epochDay: t.epochDay, type: t.type, amount: t.amount, currency: t.currency || S().baseCurrency, rate: t.rate || 1,
+      categoryLabel: t.categoryId == null ? '' : categoryLabel(t.categoryId),
+      walletName: byId(data.wallets, t.walletId)?.name || '', note: t.note || '', tags: tagsOf(t),
+    }));
 }
 export function skipBill(b) {
   const x = byId(data.bills, b.id);
@@ -882,6 +919,22 @@ export function categoriesOverLimit(today = C.todayEpoch()) {
   }
   return cats.filter((c) => !c.parentId && c.monthlyLimit > 0 && !c.archived && C.limitOver(byTop[c.id] || 0, c.monthlyLimit))
     .map((c) => ({ id: c.id, name: c.name, spent: byTop[c.id], limit: c.monthlyLimit }));
+}
+
+/** Every top-level expense category with a monthly limit and what it spent this cycle: [{id, name, spent, limit}]. */
+export function limitedCategorySpend(today = C.todayEpoch()) {
+  const cycle = C.cycleFor(today, S().cycleStart);
+  const cats = data.categories.filter((c) => c.kind === 'EXPENSE');
+  const byTop = {};
+  for (const t of data.txns) {
+    if (t.type !== 'EXPENSE' || t.spread || t.source === 'PIGGY' || t.source === 'LOAN' || !cycle.contains(t.epochDay)) continue;
+    const c = byId(cats, t.categoryId);
+    if (!c) continue;
+    const top = c.parentId || c.id;
+    byTop[top] = (byTop[top] || 0) + base(t);
+  }
+  return cats.filter((c) => !c.parentId && c.monthlyLimit > 0 && !c.archived)
+    .map((c) => ({ id: c.id, name: c.name, spent: byTop[c.id] || 0, limit: c.monthlyLimit }));
 }
 
 /** What you spend in a normal month: average of the last 3 finished cycles that had spending, else this cycle so far. */

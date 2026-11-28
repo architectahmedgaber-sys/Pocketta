@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.pocketta.core.GoalList
+import app.pocketta.core.GoalNeed
 import app.pocketta.core.Money
 import app.pocketta.core.Piggy
 import app.pocketta.core.Planning
@@ -103,6 +104,7 @@ fun GoalsScreen(repo: Repo, nav: Nav, prefs: Prefs) {
         var target by remember(e.id) { mutableStateOf(numText(e.target)) }
         var saved by remember(e.id) { mutableStateOf(numText(e.saved)) }
         var monthly by remember(e.id) { mutableStateOf(numText(e.monthly)) }
+        var deadline by remember(e.id) { mutableStateOf(e.deadline?.let { LocalDate.ofEpochDay(it) }) }
         AlertDialog(
             onDismissRequest = { editing = null },
             title = { Text(if (e.id == -1L) "New goal" else "Edit goal") },
@@ -112,6 +114,8 @@ fun GoalsScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                     NumberField("Goal amount", target, { target = it }, suffix = cur)
                     NumberField("Saved so far", saved, { saved = it }, suffix = cur)
                     NumberField("Put towards it each month", monthly, { monthly = it }, suffix = cur)
+                    // Only goals in the list have a target date (the main goal from Settings does not).
+                    if (e.id != MAIN) DateField("Target date (optional)", deadline, { deadline = it }, allowClear = true)
                 }
             },
             confirmButton = {
@@ -124,8 +128,8 @@ fun GoalsScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                             MAIN -> {
                                 repo.set("goalName", name.trim()); repo.set("goalAmount", t); repo.set("goalSaved", sv); repo.set("savingsPerMonth", m)
                             }
-                            -1L -> repo.saveGoals(prefs.goals + SavingsGoal(GoalList.nextId(prefs.goals), name.trim().ifBlank { "Savings goal" }, t, sv, m))
-                            else -> repo.saveGoals(prefs.goals.map { if (it.id == e.id) it.copy(name = name.trim().ifBlank { "Savings goal" }, target = t, saved = sv, monthly = m) else it })
+                            -1L -> repo.saveGoals(prefs.goals + SavingsGoal(GoalList.nextId(prefs.goals), name.trim().ifBlank { "Savings goal" }, t, sv, m, deadline?.toEpochDay()))
+                            else -> repo.saveGoals(prefs.goals.map { if (it.id == e.id) it.copy(name = name.trim().ifBlank { "Savings goal" }, target = t, saved = sv, monthly = m, deadline = deadline?.toEpochDay()) else it })
                         }
                     }
                     editing = null
@@ -189,6 +193,10 @@ private fun GoalRow(g: SavingsGoal, first: Boolean, cur: String, today: LocalDat
                 if (first) Text(tr("Finishes first").uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
                 Text(g.name, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 Text(Money.short(g.saved) + " of " + Money.short(g.target) + " " + cur, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val dl = g.deadline
+                if (dl != null) {
+                    Text("Target: ${Money.short(g.target)} $cur · by ${LocalDate.ofEpochDay(dl).format(dayYearFmt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 if (g.reached) {
                     Text("Goal reached!", color = Good, fontWeight = FontWeight.Medium)
                 } else {
@@ -202,6 +210,19 @@ private fun GoalRow(g: SavingsGoal, first: Boolean, cur: String, today: LocalDat
                     }
                     TextButton(onClick = onAdd) { Text("Add to goal") }
                 }
+            }
+        }
+        val need = GoalNeed.need(g.target, g.saved, g.monthly, g.deadline?.let { LocalDate.ofEpochDay(it) }, today)
+        if (need.status == GoalNeed.Status.ONTRACK || need.status == GoalNeed.Status.BEHIND) {
+            Gap(8)
+            val ok = need.status == GoalNeed.Status.ONTRACK
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    if (ok) "You need ${Money.short(need.needed!!.toDouble())} $cur a month and you save ${Money.short(g.monthly)} $cur"
+                    else "You need ${Money.short(need.needed!!.toDouble())} $cur a month to finish by then (${need.months} months). You save ${Money.short(g.monthly)} $cur now.",
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                )
+                if (ok) Pill("On track", Good) else Pill("Behind", Warn)
             }
         }
     }

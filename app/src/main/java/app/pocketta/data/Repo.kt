@@ -19,6 +19,10 @@ import app.pocketta.core.Cycle
 import app.pocketta.core.CycleMath
 import app.pocketta.core.Frequency
 import app.pocketta.core.LimitAlerts
+import app.pocketta.core.LimitLevels
+import app.pocketta.core.MonthReport
+import app.pocketta.core.CsvExport
+import app.pocketta.ui.categoryLabel as csvCategoryLabel
 import app.pocketta.core.InstallmentPlan
 import app.pocketta.core.Gold
 import app.pocketta.core.GoalList
@@ -1131,6 +1135,81 @@ class Repo private constructor(private val app: Context) {
             byTop[top] = (byTop[top] ?: 0.0) + t.base
         }
         return limited.mapNotNull { c -> byTop[c.id]?.takeIf { LimitAlerts.isOver(it, c.monthlyLimit) }?.let { c to it } }
+    }
+
+    /** Every top-level expense category with a monthly limit, with what it spent in the cycle ([offset] 0 = this one, 1 = the one before). Same spend rule as [categoriesOverLimit]. */
+    suspend fun limitedCategorySpend(today: LocalDate = LocalDate.now(), offset: Int = 0): List<LimitLevels.Item> {
+        val p = prefs()
+        var cycle = CycleMath.cycleFor(today, p.cycleStart)
+        repeat(offset) { cycle = cycle.previous(p.cycleStart) }
+        val cats = dao.categories().filter { it.kind == TxType.EXPENSE }.associateBy { it.id }
+        val limited = cats.values.filter { it.parentId == null && it.monthlyLimit > 0 && !it.archived }
+        if (limited.isEmpty()) return emptyList()
+        val byTop = HashMap<Long, Double>()
+        for (t in dao.txns(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay())) {
+            if (t.type != TxType.EXPENSE || t.spread || t.source == Source.PIGGY || t.source == Source.LOAN || t.categoryId == null) continue
+            val c = cats[t.categoryId] ?: continue
+            val top = c.parentId ?: c.id
+            byTop[top] = (byTop[top] ?: 0.0) + t.base
+        }
+        return limited.map { c -> LimitLevels.Item(c.id, byTop[c.id] ?: 0.0, c.monthlyLimit) }
+    }
+
+    /** A bill that was recorded by itself. */
+    data class AutoPosted(val name: String, val amount: Double, val currency: String, val day: LocalDate)
+
+    /** Records every fixed bill with autoPost that is due, each on its own due date (at most 12 per bill). Safe to call often: payBill moves nextDue on. */
+    suspend fun autoPostBills(today: LocalDate = LocalDate.now()): List<AutoPosted> {
+        val posted = ArrayList<AutoPosted>()
+        for (start in dao.bills()) {
+            if (!start.autoPost || start.variable || !start.active) continue
+            var b = start
+            var n = 0
+            while (n < 12 && !LocalDate.ofEpochDay(b.nextDue).isAfter(today)) {
+                val day = LocalDate.ofEpochDay(b.nextDue)
+                payBill(b, null, day)
+                posted += AutoPosted(b.name, estimate(b), b.currency, day)
+                b = dao.bill(b.id) ?: break
+                n++
+            }
+        }
+        return posted
+    }
+
+    /** The monthly report for the cycle [offset] cycles back, compared with the one before it. */
+    data class ReportData(val cycle: Cycle, val previous: Cycle, val report: MonthReport.Report, val categories: List<Pair<String, Double>>)
+
+    suspend fun monthReport(offset: Int, today: LocalDate = LocalDate.now()): ReportData {
+        val p = prefs()
+        var cycle = CycleMath.cycleFor(today, p.cycleStart)
+        repeat(offset) { cycle = cycle.previous(p.cycleStart) }
+        val prev = cycle.previous(p.cycleStart)
+        val cats = dao.categories().associateBy { it.id }
+        fun topName(id: Long?): String = id?.let { cats[it] }?.let { c -> (c.parentId?.let { pid -> cats[pid] } ?: c).name }.orEmpty()
+        fun conv(l: List<Txn>) = l.map { MonthReport.Tx(it.type, it.base, topName(it.categoryId), it.note.ifBlank { topName(it.categoryId) }, it.epochDay, it.source) }
+        val now = dao.txns(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay())
+        val before = dao.txns(prev.start.toEpochDay(), prev.nextStart.toEpochDay())
+        val nowTx = conv(now)
+        val all = nowTx.filter { it.type == TxType.EXPENSE && it.source != Source.PIGGY && it.source != Source.LOAN }
+            .groupBy { it.cat }.map { (n, l) -> n to l.sumOf { it.base } }.sortedByDescending { it.second }
+        return ReportData(cycle, prev, MonthReport.build(nowTx, conv(before), cycle.lengthDays), all)
+    }
+
+    /** Saves the transactions from [fromDay] to [toDay] (both included) as a CSV file that Excel and Google Sheets open. */
+    suspend fun exportCsvTo(uri: Uri, fromDay: Long, toDay: Long) = withContext(Dispatchers.IO) {
+        val p = prefs()
+        val cats = dao.categories()
+        val wallets = dao.wallets().associateBy { it.id }
+        val rows = dao.txns(fromDay, toDay + 1).sortedWith(compareBy<Txn> { it.epochDay }.thenBy { it.id }).map {
+            CsvExport.Row(
+                it.epochDay, it.type, it.amount, it.currency, it.rate,
+                if (it.categoryId == null) "" else csvCategoryLabel(cats, it.categoryId),
+                wallets[it.walletId]?.name.orEmpty(), it.note, it.tagList,
+            )
+        }
+        val text = CsvExport.build(rows, p.baseCurrency)
+        val out = app.contentResolver.openOutputStream(uri, "wt") ?: error("Can't write to that file")
+        out.use { it.write(text.toByteArray(Charsets.UTF_8)) }
     }
 
     /** What you spend in a normal month: the average of the last 3 finished cycles that had spending, else this cycle so far. */

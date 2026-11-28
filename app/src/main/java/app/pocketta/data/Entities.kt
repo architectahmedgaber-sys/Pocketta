@@ -99,6 +99,8 @@ data class Bill(
     /** BILL or SUB */
     val kind: String = "BILL",
     val active: Boolean = true,
+    /** 1.24: records itself on its due date (fixed-amount bills only). */
+    val autoPost: Boolean = false,
 )
 
 @Entity(tableName = "installments")

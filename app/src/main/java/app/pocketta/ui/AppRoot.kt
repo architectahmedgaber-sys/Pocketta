@@ -72,6 +72,8 @@ fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Uni
                 Route.Piggy -> PiggyScreen(repo, nav, prefs)
                 Route.Goals -> GoalsScreen(repo, nav, prefs)
                 Route.MonthPlan -> MonthPlanScreen(repo, nav, prefs)
+                is Route.Report -> ReportScreen(repo, nav, prefs, current.offset)
+                Route.Search -> SearchScreen(repo, nav, prefs)
                 else -> {}
             }
         }
