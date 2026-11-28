@@ -29,9 +29,10 @@ const ICON = {
 };
 const icon = (n, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path d="${ICON[n]}" fill="currentColor"/></svg>`;
 
-const TABS = [['home', 'Today'], ['spend', 'Spending'], ['assistant', 'Miqrish'], ['commit', 'Commitments'], ['more', 'More']];
+// Four tabs; the gold add button sits in the middle of the bar. Miqrish (the assistant) is opened from Today.
+const TABS = [['home', 'Today'], ['spend', 'Month'], ['commit', 'Commitments'], ['more', 'More']];
 // Pages that draw their own top bar (so they are not wrapped in the usual page container).
-const SELF_WRAPPED = new Set(['more', 'assistant']);
+const SELF_WRAPPED = new Set(['more']);
 
 // ---------- UI state ----------
 
@@ -39,7 +40,7 @@ const ui = {
   stack: [{ r: 'home' }],
   spendOffset: 0, spendFilter: null, spendSearch: '',
   commitTab: 0, catKind: 'EXPENSE',
-  details: false, quickText: '', quickHint: false, quickSaved: null, heroShown: 0, hideGuide: false,
+  details: false, more: false, quickText: '', quickHint: false, quickSaved: null, heroShown: 0, hideGuide: false,
   conv: { amount: '1', from: 'USD', to: '' },
   plan: { price: '', cat: null, pct: 20 },
   locked: false, hiddenAt: 0,
@@ -175,9 +176,10 @@ function render() {
   const pages = { home, spend, commit, more, add, income, tagsPage, tagDetail, catMonth, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage, monthPlanPage, assistant: assistantPage };
   const page = pages[c.r === 'currencies' ? 'currencyPage' : c.r] || home;
   if (isTab(c.r)) {
-    const tabIcon = (r) => (r === 'assistant' ? '<span class="coin">🪙</span>' : icon(r));
+    const tabBtn = ([r, l]) => `<button class="tab ${c.r === r ? 'on' : ''}" data-act="tab" data-r="${r}"><span class="ti">${icon(r)}</span><span>${esc(l)}</span></button>`;
+    const addBtn = `<button class="tab add" data-act="open" data-r="add" aria-label="Add"><span class="ti">${icon('add')}</span><span>Add</span></button>`;
     app.innerHTML = (SELF_WRAPPED.has(c.r) ? page(c) : `<main class="page wide">${page(c)}</main>`) +
-      `<nav class="tabs">${TABS.map(([r, l]) => `<button class="tab ${r === 'assistant' ? 'center' : ''} ${c.r === r ? 'on' : ''}" data-act="tab" data-r="${r}"><span class="ti">${tabIcon(r)}</span><span>${esc(l)}</span></button>`).join('')}</nav>`;
+      `<nav class="tabs">${tabBtn(TABS[0])}${tabBtn(TABS[1])}${addBtn}${tabBtn(TABS[2])}${tabBtn(TABS[3])}</nav>`;
   } else {
     app.innerHTML = page(c);
   }
@@ -192,14 +194,14 @@ function topbar(title, actions = '') {
 
 // ---------- Today ----------
 
-const CHART_COLORS = ['#1F6B4F', '#C2571A', '#2B5FB0', '#8E3B8C', '#E8A33D', '#00687A', '#B3261E', '#6D7B74'];
+const CHART_COLORS = ['#17493A', '#C2571A', '#2B5FB0', '#8E3B8C', '#E8A33D', '#00687A', '#B3261E', '#6D7B74'];
 const isDark = () => document.documentElement.dataset.theme === 'dark' || (document.documentElement.dataset.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
 function applyTheme() {
   const t = R.S().theme;
   const el = document.documentElement;
   if (t === 'DARK') el.dataset.theme = 'dark'; else if (t === 'LIGHT') el.dataset.theme = 'light'; else delete el.dataset.theme;
   const dark = isDark();
-  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', dark ? '#0f1512' : '#1F6B4F'));
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', dark ? '#0b100e' : '#17493a'));
 }
 
 function home() {
@@ -208,10 +210,9 @@ function home() {
   const b = s.budget;
   const cur = base();
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !navigator.standalone;
-  const over = b.flexLeft < 0;
-  const spentPct = Math.round(b.flexSpentFraction * 100), monthPct = Math.round(b.elapsedFraction * 100);
-  // Green while you spend slower than the month passes, amber when you are ahead of it, red when the flexible money is gone.
-  const tone = over ? 'red' : b.flexSpentFraction > b.elapsedFraction + 0.1 ? 'amber' : 'green';
+  const over = b.leftToday < 0;
+  const spentToday = (s.days.find((d) => d[0] === s.today) || [0, 0])[1];
+  const usedPct = b.dailyAllowance > 0 ? Math.min(100, Math.round(spentToday / b.dailyAllowance * 100)) : 0;
   let html = `<div class="head"><div class="grow"><h1 class="title">${C.fmtMonth(s.cycle.end)}</h1><div class="small">${b.daysLeft} days left in this month</div></div>
     <button class="icon-btn emoji" data-act="toggle-theme" aria-label="Night mode">${isDark() ? '☀️' : '🌙'}</button>
     <button class="icon-btn" data-act="open" data-r="more" aria-label="Settings and more">${icon('settings')}</button></div>`;
@@ -226,32 +227,17 @@ function home() {
   if (b.budget <= 0 && s.salaryExpected <= 0) {
     html += card(`<b>Add your salary to see how much you can spend</b><div class="small">Tap here to set it</div>`, 'tap', 'data-act="open" data-r="income"');
   }
-  // The one question: how much is left for everyday spending after the commitments?
-  html += card(`<div class="hero-t">${over ? 'Over the flexible amount' : 'Left for flexible spending'}</div>
-    <div class="hero-n"><span id="hero-amt" data-v="${Math.abs(b.flexLeft)}">${money(Math.abs(b.flexLeft))}</span><span class="hero-c"> ${esc(cur)}</span></div>
-    <div class="hero-s">of ${money(Math.max(b.flexTotal, 0))} left after commitments${b.household > 0 ? ' and household shopping' : ''}</div>
-    <div class="hero-row"><span>Month passed</span><b>${monthPct}%</b></div><div class="bar hero-bar"><i style="width:${monthPct}%"></i></div>
-    <div class="hero-row"><span>Flexible money spent</span><b>${spentPct}%</b></div><div class="bar hero-bar"><i style="width:${spentPct}%"></i></div>`, `hero ${tone}`);
-  html += streakCard(s);
-  html += quickCard();
-  html += converterCard();
-  html += planEntryCard();
-  html += wealthEntry();
-  html += gameyaCards(s);
-  html += weekCard(s);
-  html += limitCard(s);
-  html += piggyAutoCard();
-  html += monthEndCard(s);
-  html += goalCard();
-  const sp = b.spentFraction, cm = b.committedFraction, rest = Math.max(1 - sp - cm, 0);
-  html += card(`<div class="row-flex"><b class="grow">This month</b><span class="small">${money(b.left)} left of ${money(b.budget)} ${esc(cur)}</span></div>
-    <div class="seg3"><i style="flex:${sp};background:${b.left < 0 ? 'var(--error)' : 'var(--primary)'}"></i><i style="flex:${cm};background:var(--warn)"></i><i style="flex:${rest};background:var(--variant)"></i></div>
-    <div class="legend"><span><i style="background:var(--primary)"></i>Spent</span><span><i style="background:var(--warn)"></i>Still to pay</span><span><i style="background:var(--outline)"></i>Free</span></div>`);
+  // The one big thing: how much can I spend today?
+  html += card(`<div class="hero-t">${over ? "Over today's amount" : 'Spend today'}</div>
+    <div class="hero-n"><span id="hero-amt" data-v="${Math.abs(b.leftToday)}">${money(Math.abs(b.leftToday))}</span><span class="hero-c"> ${esc(cur)}</span></div>
+    <div class="bar hero-bar"><i style="width:${usedPct}%"></i></div>
+    <div class="hero-s">${b.daysLeft} days left · commitments already deducted</div>`, `hero ${over ? 'red' : 'green'}`);
+  html += `<div class="mini3">${card(`<span class="small">Income</span><b>${money(s.income + s.salaryExpected)}</b>`)}${card(`<span class="small">Commitments</span><b>${money(b.committed)}</b>`)}${card(`<span class="small">Remaining</span><b class="${b.left < 0 ? 'bad-t' : ''}">${money(b.left)}</b>`)}</div>`;
   html += startGuide(s);
   if (s.upcoming.length) {
     const list = s.upcoming.slice(0, 3);
     ui.homeUpcoming = list;
-    html += card(label('Coming up') + list.map((u, i) => {
+    html += card(label('Coming soon') + list.map((u, i) => {
       const late = u.due < s.today;
       const can = u.due <= s.today + 3;
       return `<div class="row-flex line"><div class="grow"><div class="ellipsis">${esc(u.title)}</div><div class="small ${late ? 'bad-t' : ''}">${late ? 'Late · ' : ''}${C.fmtDay(u.due)}</div></div>
@@ -259,8 +245,25 @@ function home() {
         ${can ? `<button class="btn text" data-act="pay-up" data-i="${i}">${u.incoming ? 'Got it' : 'Paid'}</button>` : ''}</div>`;
     }).join('') + `<div class="small">Amounts in ${esc(cur)}</div>`);
   }
-  html += `<button class="btn text" data-act="toggle-details">${ui.details ? 'Hide details' : 'Show details (forecast, days, how it is calculated)'}</button>`;
-  if (ui.details) {
+  const recent = R.data.txns.filter((t) => s.cycle.contains(t.epochDay)).sort((a, b2) => b2.epochDay - a.epochDay || b2.createdAt - a.createdAt).slice(0, 5);
+  if (recent.length) html += card(`<div class="row-flex"><div class="grow">${label('Last transactions')}</div><button class="btn text" data-act="tab" data-r="spend">All ›</button></div>` + recent.map(txnRow).join(''));
+  // Everything else lives below the fold.
+  html += `<button class="btn text" data-act="toggle-more">${ui.more ? 'Hide extras' : 'More: insights, converter, goals, details'}</button>`;
+  if (ui.more) {
+    html += streakCard(s);
+    html += quickCard();
+    html += converterCard();
+    html += planEntryCard();
+    html += wealthEntry();
+    html += gameyaCards(s);
+    html += weekCard(s);
+    html += limitCard(s);
+    html += piggyAutoCard();
+    html += monthEndCard(s);
+    html += goalCard();
+    html += `<button class="btn text" data-act="toggle-details">${ui.details ? 'Hide details' : 'Show details (forecast, days, how it is calculated)'}</button>`;
+  }
+  if (ui.more && ui.details) {
     html += card(`<div class="row-flex"><div class="grow">${label('Month-end forecast')}<div class="mid">${money(b.forecastSpend)} ${esc(cur)}</div></div>
       ${b.forecastDiff >= 0 ? pill(`${money(b.forecastDiff)} under`, 'good') : pill(`${money(-b.forecastDiff)} over`, 'bad')}</div>`);
     if (s.days.length) html += card(label('This month, day by day') + dayBars(s));
@@ -273,7 +276,7 @@ function home() {
       line('Still to pay this month', '−' + money(b.committed)) +
       line('Left', money(b.left), true));
   }
-  return html + '<div class="spacer"></div>' + fab('Add expense', 'open', 'data-r="add"');
+  return html + '<div class="spacer"></div>' + `<button class="fab-ai" data-act="open" data-r="assistant" aria-label="Miqrish">🪙</button>`;
 }
 
 function dayBars(s) {
@@ -595,6 +598,7 @@ function spendData() {
   const s = R.S();
   let cycle = C.cycleFor(C.todayEpoch(), s.cycleStart);
   for (let i = 0; i < ui.spendOffset; i++) cycle = C.previousCycle(cycle, s.cycleStart);
+  for (let i = 0; i > ui.spendOffset; i--) cycle = C.cycleFor(cycle.nextStart, s.cycleStart);
   const txns = R.data.txns.filter((t) => cycle.contains(t.epochDay));
   return { cycle, txns };
 }
@@ -618,8 +622,9 @@ function spend() {
   ui.shareData = { month: `${C.fmtMonth(cycle.end)} ${C.ymd(cycle.end).y}`, currency: base(), spent, income, previousSpent: prevExp.reduce((a, t) => a + R.base(t), 0), categories: perList.map(([k, v]) => [nameOf(k), v]) };
   let html = `<div class="month-nav"><button class="icon-btn" data-act="spend-prev" aria-label="Previous month">${icon('left')}</button>
     <div class="center"><div class="mid">${C.fmtMonth(cycle.end)} ${C.ymd(cycle.end).y}</div><div class="small">${C.fmtDay(cycle.start)} → ${C.fmtDay(cycle.end)}</div></div>
-    <button class="icon-btn" data-act="spend-next" ${ui.spendOffset === 0 ? 'disabled' : ''} aria-label="Next month">${icon('right')}</button>
+    <button class="icon-btn" data-act="spend-next" ${ui.spendOffset <= -3 ? 'disabled' : ''} aria-label="Next month">${icon('right')}</button>
     ${spent > 0 ? `<button class="btn text" data-act="share-month">Share</button>` : ''}</div>
+    ${monthSummary(cycle)}
     <div class="two">${card(label('Spent') + `<div class="big">${money(spent)}</div>`)}${card(label('Income') + `<div class="big good-t">${money(income)}</div>`)}</div>
     ${saved > 0 ? card(label('Put in piggy bank') + `<div class="big piggy-t">🐷 ${money(saved)}</div><div class="small">Counted against what is left, but not as everyday spending.</div>`) : ''}`;
   if (perList.length) {
@@ -640,7 +645,32 @@ function spend() {
     }).join(''));
   }
   html += `<div class="pad"><input class="search" id="spend-search" type="search" placeholder="Search notes and categories" value="${esc(ui.spendSearch)}"></div>
-    <div id="spend-list">${spendList(txns)}</div><div class="spacer"></div>` + fab('Add expense', 'open', 'data-r="add"');
+    <div id="spend-list">${spendList(txns)}</div><div class="spacer"></div>`;
+  return html;
+}
+
+/** Income against commitments for a month, then every income and commitment of that month by date. */
+function monthSummary(cycle) {
+  const { out } = commitItems(-ui.spendOffset);
+  const items = out.slice();
+  for (const t of R.data.txns) if (t.type === 'INCOME' && t.source === 'LOAN' && cycle.contains(t.epochDay)) {
+    items.push({ kind: 'LOAN', refId: t.sourceId, name: t.note || 'Loan', sub: 'Borrowed', amount: R.base(t), date: t.epochDay, paid: true, incoming: true });
+  }
+  items.sort((a, b) => a.date - b.date || (a.paid ? 1 : 0) - (b.paid ? 1 : 0));
+  const income = items.filter((i) => i.incoming).reduce((a, i) => a + i.amount, 0);
+  const commits = items.filter((i) => !i.incoming).reduce((a, i) => a + i.amount, 0);
+  const left = items.filter((i) => !i.incoming && !i.paid).reduce((a, i) => a + i.amount, 0);
+  const today = C.todayEpoch();
+  let html = card(label(ui.spendOffset < 0 ? 'Planned for this month' : 'Income and commitments') +
+    `<div class="mini3" style="gap:8px"><div><div class="small">Income</div><b class="good-t">${money(income)}</b></div><div><div class="small">Commitments</div><b>${money(commits)}</b></div><div><div class="small">Still to pay</div><b>${money(left)}</b></div></div>`);
+  if (items.length) {
+    html += card(label('Timeline') + items.map((i) => {
+      const late = !i.paid && !i.incoming && i.date < today;
+      return `<div class="tl-row"><span class="tl-d">${C.fmtDay(i.date)}</span><div class="grow"><div class="ellipsis">${esc(i.name)}</div><div class="small ${late ? 'bad-t' : ''}">${late ? 'Late · ' : ''}${esc(i.sub)}</div></div>
+        <b class="${i.incoming ? 'good-t' : ''}">${i.incoming ? '+' : ''}${money(i.amount)}</b><span class="${i.paid ? 'good-t' : 'muted'}">${i.paid ? '✓' : '○'}</span></div>`;
+    }).join(''));
+  }
+  html += `<div class="link-row"><button class="btn text" data-act="open" data-r="monthPlanPage">Month plan ›</button><button class="btn text" data-act="open" data-r="goalsPage">Goals ›</button><button class="btn text" data-act="open" data-r="piggyPage">Piggy bank ›</button></div>`;
   return html;
 }
 
@@ -2316,6 +2346,7 @@ const actions = {
   'toggle-theme': () => R.setSetting('theme', isDark() ? 'LIGHT' : 'DARK'),
   'apply-update': () => location.reload(),
   'toggle-details': () => { ui.details = !ui.details; render(); },
+  'toggle-more': () => { ui.more = !ui.more; render(); },
   'hide-guide': () => { ui.hideGuide = true; try { localStorage.setItem('pocketta-hide-guide', '1'); } catch { /* fine */ } render(); },
   'qa-add': () => quickSubmit(),
   'qa-undo': () => { const t = R.byId(R.data.txns, ui.quickSaved?.id); ui.quickSaved = null; if (t) R.deleteTxn(t); else render(); },
@@ -2397,9 +2428,9 @@ const actions = {
   },
   'cm-prev': () => { ui.cmOffset = (ui.cmOffset || 0) + 1; render(); },
   'cm-next': () => { ui.cmOffset = Math.max(0, (ui.cmOffset || 0) - 1); render(); },
-  'open-catmonth': (el) => { ui.cmKey = el.dataset.key; ui.cmOffset = ui.spendOffset || 0; go('catMonth'); },
+  'open-catmonth': (el) => { ui.cmKey = el.dataset.key; ui.cmOffset = Math.max(0, ui.spendOffset || 0); go('catMonth'); },
   'spend-prev': () => { ui.spendOffset++; ui.spendFilter = null; render(); },
-  'spend-next': () => { if (ui.spendOffset > 0) { ui.spendOffset--; ui.spendFilter = null; render(); } },
+  'spend-next': () => { if (ui.spendOffset > -3) { ui.spendOffset--; ui.spendFilter = null; render(); } },
   'spend-filter': (el) => { ui.spendFilter = String(ui.spendFilter) === el.dataset.k ? null : el.dataset.k; render(); },
   'edit-bill': (el) => billEditor(R.byId(R.data.bills, +el.dataset.id)),
   'pay-bill': (el) => { const b = R.byId(R.data.bills, +el.dataset.id); if (!b) return; if (b.variable) payVariableBill(b); else { R.payBill(b); toast(`${b.name} paid`); } },

@@ -3,6 +3,22 @@
 import { DICT, MONTHS, DAYS, RULES } from './ar-dict.js';
 
 const EXTRA = {
+  "Spend today": "تصرف النهارده",
+  "Over today's amount": "عدّيت مبلغ النهارده",
+  "# days left · commitments already deducted": "باقي # يوم · الالتزامات متخصومة بالفعل",
+  "Remaining": "المتبقي",
+  "Last transactions": "آخر المعاملات",
+  "All ›": "الكل ›",
+  "Coming soon": "جاي قريب",
+  "More: insights, converter, goals, details": "المزيد: تحليلات ومحوّل وأهداف وتفاصيل",
+  "Hide extras": "إخفاء الزيادات",
+  "Planned for this month": "المخطط لهذا الشهر",
+  "Income and commitments": "الدخل والالتزامات",
+  "Timeline": "الجدول الزمني",
+  "Month plan ›": "خطة الشهر ›",
+  "Goals ›": "الأهداف ›",
+  "Piggy bank ›": "الحصالة ›",
+  "Add": "إضافة",
   "I borrowed": "استلفت",
   "I lent": "سلّفت",
   "Repay": "السداد",
