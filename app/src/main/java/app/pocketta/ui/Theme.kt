@@ -35,6 +35,8 @@ private val DarkFallback = darkColorScheme(
 val LocalDark = staticCompositionLocalOf { false }
 
 val Warn @Composable get() = if (LocalDark.current) Color(0xFFFFB871) else Color(0xFF9A5B00)
+/** The gold accent of the new look: hero number, progress bars, the add button. */
+val GoldAccent = Color(0xFFB8914A)
 val Good @Composable get() = if (LocalDark.current) Color(0xFF8FD8A4) else Color(0xFF1F7A3F)
 
 /** The big Today card keeps its own strong colours in both themes, with white text on top. */

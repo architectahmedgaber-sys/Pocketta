@@ -82,7 +82,7 @@ class ActionReceiver : BroadcastReceiver() {
                     "INSTALLMENT" -> dao.installment(id)?.let { repo.payInstallment(it) }
                     "CIRCLE" -> dao.circle(id)?.let { repo.payCircle(it) }
                     "PAYOUT" -> dao.circle(id)?.let { repo.receivePayout(it) }
-                    "LOAN" -> dao.loan(id)?.let { repo.loanPayment(it, it.remaining) }
+                    "LOAN" -> dao.loan(id)?.let { repo.payNextInstalment(it) }
                 }
                 NotificationManagerCompat.from(context).cancel(notif)
             } finally {

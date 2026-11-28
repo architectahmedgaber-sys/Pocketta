@@ -70,6 +70,11 @@ class LoansTest {
         assertEquals(500.0, over, 0.0)
     }
 
+    @Test fun undoTakesFromTheLatestPaid() {
+        val i = listOf(Instalment(1, d(2026, 12, 5), 1000.0, paid = 1000.0), Instalment(2, d(2027, 1, 5), 1000.0, paid = 500.0))
+        assertEquals(listOf(2L to 500.0, 1L to 200.0), LoanSchedule.unallocate(i, 700.0))
+    }
+
     @Test fun nextSkipsPaid() {
         val i = listOf(Instalment(1, d(2026, 12, 5), 1000.0, paid = 1000.0), Instalment(2, d(2027, 1, 5), 1000.0, paid = 200.0))
         assertEquals(2L, LoanSchedule.next(i)?.id)

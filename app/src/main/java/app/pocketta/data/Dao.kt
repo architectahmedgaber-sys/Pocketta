@@ -73,6 +73,13 @@ interface MoneyDao {
     @Insert suspend fun insertLoan(l: Loan): Long
     @Update suspend fun updateLoan(l: Loan)
     @Delete suspend fun deleteLoan(l: Loan)
+    @Query("SELECT * FROM loan_installments ORDER BY dueDay") fun loanInstallmentsFlow(): Flow<List<LoanInstallment>>
+    @Query("SELECT * FROM loan_installments ORDER BY dueDay") suspend fun loanInstallments(): List<LoanInstallment>
+    @Query("SELECT * FROM loan_installments WHERE loanId = :loanId ORDER BY dueDay") suspend fun installmentsOfLoan(loanId: Long): List<LoanInstallment>
+    @Insert suspend fun insertLoanInstallment(i: LoanInstallment): Long
+    @Update suspend fun updateLoanInstallment(i: LoanInstallment)
+    @Query("DELETE FROM loan_installments WHERE id = :id") suspend fun deleteLoanInstallment(id: Long)
+    @Query("DELETE FROM loan_installments WHERE loanId = :loanId") suspend fun deleteInstallmentsOfLoan(loanId: Long)
 
     // Settings
     @Query("SELECT * FROM settings") fun settingsFlow(): Flow<List<SettingRow>>

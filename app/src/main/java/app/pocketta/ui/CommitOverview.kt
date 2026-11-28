@@ -220,7 +220,7 @@ private fun groupPayoff(key: String, insts: List<Installment>, circles: List<Cir
 
 /** Everything due or paid inside one budget cycle, as one list. */
 private fun buildItems(
-    bills: List<Bill>, insts: List<Installment>, circles: List<CircleEntity>, loans: List<Loan>,
+    bills: List<Bill>, insts: List<Installment>, circles: List<CircleEntity>, loans: List<Loan>, loanInst: List<app.pocketta.data.LoanInstallment>,
     txns: List<app.pocketta.data.Txn>, prefs: Prefs, repo: Repo, today: LocalDate, cycle: Cycle, off: Int,
 ): List<CItem> {
     val out = ArrayList<CItem>()
@@ -252,14 +252,23 @@ private fun buildItems(
         }
     }
     for (l in if (off < 0) emptyList() else loans) {
-        val due = l.dueDay ?: continue
         if (l.closed) continue
-        val d = LocalDate.ofEpochDay(due)
-        if (!d.isBefore(cycle.nextStart) || d.isBefore(epoch)) continue
-        out += CItem(
-            CKind.LOAN, l.id, l.person, if (l.lent) "They owe you" else "You owe", l.remaining, d,
-            paid = false, incoming = l.lent,
-        )
+        if (!l.lent && !l.recordedIncome && !l.countInBudget) continue
+        // One line per unpaid instalment. Late ones stay in the current month (epoch = the start of time there).
+        val rows = loanInst.filter { it.loanId == l.id }.sortedBy { it.dueDay }
+        val done = rows.count { it.remaining < 0.005 }
+        var idx = 0
+        for (r in rows) {
+            if (r.remaining < 0.005) continue
+            val d = LocalDate.ofEpochDay(r.dueDay)
+            val k = idx++
+            if (!d.isBefore(cycle.nextStart) || d.isBefore(epoch)) continue
+            out += CItem(
+                CKind.LOAN, l.id, l.person,
+                if (rows.size > 1) "${done + k + 1} of ${rows.size}" else if (l.lent) "They owe you" else "You owe",
+                r.remaining, d, paid = false, incoming = l.lent, payable = k == 0 && off == 0,
+            )
+        }
     }
 
     // Money already paid this cycle.
@@ -302,11 +311,13 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
     val instFlow = remember { repo.dao.installmentsFlow() }
     val circFlow = remember { repo.dao.circlesFlow() }
     val loanFlow = remember { repo.dao.loansFlow() }
+    val loanInstFlow = remember { repo.dao.loanInstallmentsFlow() }
     val txnFlow = remember(cycle.start) { repo.dao.txnsFlow(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay()) }
     val bills by billsFlow.collectAsState(initial = emptyList())
     val insts by instFlow.collectAsState(initial = emptyList())
     val circles by circFlow.collectAsState(initial = emptyList())
     val loans by loanFlow.collectAsState(initial = emptyList())
+    val loanInst by loanInstFlow.collectAsState(initial = emptyList())
     val txns by txnFlow.collectAsState(initial = emptyList())
     val categories by remember { repo.dao.categoriesFlow() }.collectAsState(initial = emptyList())
 
@@ -343,7 +354,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
         iconFor = null
     }
 
-    val all = remember(bills, insts, circles, loans, txns, prefs, today, cycle) { buildItems(bills, insts, circles, loans, txns, prefs, repo, today, cycle, off) }
+    val all = remember(bills, insts, circles, loans, loanInst, txns, prefs, today, cycle) { buildItems(bills, insts, circles, loans, loanInst, txns, prefs, repo, today, cycle, off) }
     val filtered = all.filter { Commitments.matches(filter, it) }
     val left = Commitments.leftToPay(all)
     val leftCount = Commitments.leftCount(all)
@@ -449,7 +460,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
         (0..3).map { o ->
             var c = CycleMath.cycleFor(today, prefs.cycleStart)
             repeat(o) { c = CycleMath.cycleFor(c.nextStart, prefs.cycleStart) }
-            c.start to buildItems(bills, insts, circles, loans, if (o == 0) txns else emptyList(), prefs, repo, today, c, o).filter { !it.incoming }.sumOf { it.amount }
+            c.start to buildItems(bills, insts, circles, loans, loanInst, if (o == 0) txns else emptyList(), prefs, repo, today, c, o).filter { !it.incoming }.sumOf { it.amount }
         }
     }
 

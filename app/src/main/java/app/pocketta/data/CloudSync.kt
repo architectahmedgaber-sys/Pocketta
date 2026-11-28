@@ -161,7 +161,7 @@ object CloudSync {
     private class Opened(val kind: Int, val row: CloudRow?) // 0 ok, 1 retry (cloud was wiped), 2 cancelled
 
     private suspend fun fullJson(repo: Repo): JSONObject = JSONObject(PortableBackup.write(PortableBackup.Data(
-        repo.dao.wallets(), repo.dao.categories(), repo.dao.allTxns(), repo.dao.bills(), repo.dao.installments(), repo.dao.circles(), repo.dao.loans(), repo.dao.settings(),
+        repo.dao.wallets(), repo.dao.categories(), repo.dao.allTxns(), repo.dao.bills(), repo.dao.installments(), repo.dao.circles(), repo.dao.loans(), repo.dao.settings(), repo.dao.loanInstallments(),
     )))
 
     private fun strip(o: JSONObject): JSONObject {

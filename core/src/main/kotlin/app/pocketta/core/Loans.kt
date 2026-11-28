@@ -59,6 +59,19 @@ object LoanSchedule {
         return out to (if (left < 0.005) 0.0 else left)
     }
 
+    /** Takes [amount] back off the instalments, the most recently paid first (undo / deleting a repayment). Returns (id, amount removed). */
+    fun unallocate(instalments: List<Instalment>, amount: Double): List<Pair<Long, Double>> {
+        var left = amount
+        val out = ArrayList<Pair<Long, Double>>()
+        for (i in instalments.filter { it.paid > 0.004 }.sortedByDescending { it.due }) {
+            if (left < 0.005) break
+            val take = minOf(left, i.paid)
+            out += i.id to take
+            left -= take
+        }
+        return out
+    }
+
     /**
      * What is still to be paid, as items for the commitments list. Unpaid instalments only; the ones due before
      * [today] are late and are kept in the current cycle (they are not repeated in their old month).

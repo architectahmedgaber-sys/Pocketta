@@ -277,7 +277,7 @@ suspend fun payUpcoming(repo: Repo, u: Upcoming) {
         "BILL" -> dao.bill(u.id)?.let { repo.payBill(it) }
         "INSTALLMENT" -> dao.installment(u.id)?.let { repo.payInstallment(it) }
         "CIRCLE" -> dao.circle(u.id)?.let { repo.payCircle(it) }
-        "LOAN" -> dao.loan(u.id)?.let { repo.loanPayment(it, it.remaining) }
+        "LOAN" -> dao.loan(u.id)?.let { repo.payNextInstalment(it) }
     }
 }
 
