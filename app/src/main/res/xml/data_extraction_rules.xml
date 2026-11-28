@@ -2,10 +2,12 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="pocketta_ai.xml" />
+        <exclude domain="sharedpref" path="pocketta_quickai.xml" />
         <exclude domain="sharedpref" path="pocketta_sync.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="pocketta_ai.xml" />
+        <exclude domain="sharedpref" path="pocketta_quickai.xml" />
         <exclude domain="sharedpref" path="pocketta_sync.xml" />
     </device-transfer>
 </data-extraction-rules>

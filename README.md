@@ -28,6 +28,13 @@ The release key is stored encrypted (`signing/release.jks.enc`). CI unlocks it w
 ## Releasing
 Open a pull request, merge it to `main`. If `version.txt` holds a version without a release yet, the build publishes it as a GitHub release (the in-app updater reads that). Raise `version.txt` in the PR to ship a new version; otherwise main only builds a test APK.
 
+## 1.25.0 (Quick AI entry)
+- More > Quick AI entry: type a sentence in Egyptian Arabic ("كشري ٦٠ وسلفت باسم ٥٠٠"), check what was understood, tap Save. Nothing is saved before that tap.
+- Always the model `claude-haiku-5-5` (one constant: `QuickAi.MODEL` in `core/.../QuickAi.kt`, `MODEL` in `web/js/quickai.js`). Every answer's `model` field is checked; any other model is thrown away and logged.
+- Token use is logged per request; Settings shows the month's estimated cost. Prices are two constants (`INPUT_USD_PER_MILLION`, `OUTPUT_USD_PER_MILLION`), source https://www.anthropic.com/claude-haiku-5-5.
+- The user's own Anthropic key: Android keeps it AES-GCM encrypted with an Android Keystore key (file `pocketta_quickai.xml`, excluded from backups and device transfer); web keeps it in its own localStorage entry. Neither is in the database, exports, web backups or cloud sync.
+- Tests: `./gradlew :core:test` (`QuickAiTest`) and `node tests/web/quickai.test.mjs`.
+
 ## 1.24.0 (v3)
 - Category budgets alert at 80% and at 100% (once per level per month), "Budgets" card on Month.
 - Month-end forecast card on Today (over / close / on track, and the day the money runs out).
