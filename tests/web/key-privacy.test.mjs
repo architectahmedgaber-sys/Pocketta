@@ -13,4 +13,9 @@ assert.ok(backup.length > 10 && JSON.parse(backup).settings, 'export works');
 assert.ok(!backup.includes(SECRET), 'the key string must not be in the backup/export JSON');
 assert.ok(!backup.includes('sk-ant'), 'no key-looking text in the backup/export JSON');
 assert.ok(!/pocketta-ai|pocketta-quickai/.test(backup), 'no key storage name in the backup/export JSON');
-console.log('KEY PRIVACY (web export) PASS');
+// The cloud-sync payload (before encryption) is built from the same export.
+const Sync = await import('../../web/js/sync.js');
+const payload = JSON.stringify(Sync.snapshot());
+assert.ok(payload.length > 10 && JSON.parse(payload).settings, 'sync snapshot works');
+assert.ok(!payload.includes(SECRET) && !payload.includes('sk-ant') && !/pocketta-ai|pocketta-quickai/.test(payload), 'the key must not be in the sync payload');
+console.log('KEY PRIVACY (web export + sync payload) PASS');
