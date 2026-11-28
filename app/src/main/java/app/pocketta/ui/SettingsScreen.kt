@@ -360,11 +360,11 @@ private fun QuickAiCard(nav: Nav) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val store = androidx.compose.runtime.remember { app.pocketta.ai.QuickAiStore(ctx) }
     SectionCard {
-        Label("Quick AI entry")
+        Label("إدخال بالذكاء الاصطناعي")
         Gap(6)
         Text(quickAiCostLine(store))
         Gap(4)
-        Text("Model " + app.pocketta.core.QuickAi.MODEL + ", fixed. Prices: " + app.pocketta.core.QuickAi.PRICE_SOURCE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        TextButton(onClick = { nav.open(Route.QuickAi) }) { Text("Open Quick AI entry") }
+        Text("الموديل: " + app.pocketta.core.QuickAi.MODEL + " (ثابت). مصدر الأسعار: " + app.pocketta.core.QuickAi.PRICE_SOURCE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onClick = { nav.open(Route.QuickAi) }) { Text("افتح الإدخال بالذكاء الاصطناعي") }
     }
 }
