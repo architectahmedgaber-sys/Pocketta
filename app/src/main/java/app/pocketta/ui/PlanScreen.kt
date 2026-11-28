@@ -54,7 +54,7 @@ fun PlanScreen(repo: Repo, nav: Nav, prefs: Prefs) {
 private fun PlanLine(label: String, value: String, color: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified, bold: Boolean = false) {
     Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Text(value, color = color, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium)
+        Text(value, color = color, fontWeight = if (bold) FontWeight.Medium else FontWeight.Medium)
     }
 }
 
@@ -85,7 +85,7 @@ fun AffordCard(d: PlanData, p: Prefs) {
                     Planning.Verdict.TIGHT -> "You can, but it will be tight"
                     Planning.Verdict.NO -> "Not this month"
                 },
-                color = tone, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium,
+                color = tone, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium,
             )
             Gap(6)
             PlanLine("Daily number now", Money.short(r.dailyBefore) + " " + cur)
@@ -140,14 +140,14 @@ fun SimulateCard(d: PlanData, p: Prefs) {
             Text("Set a savings goal in Settings to see the date", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else if (p.goalSaved >= p.goalAmount) {
             Gap(4)
-            Text("Goal reached!", color = Good, fontWeight = FontWeight.SemiBold)
+            Text("Goal reached!", color = Good, fontWeight = FontWeight.Medium)
         } else if (sim.monthsAfter != null) {
             val before = sim.monthsBefore
             val after = sim.monthsAfter!!
             Gap(4)
             if (before != null) PlanLine("Goal date now", Planning.goalDate(d.home.today, before).format(monthYearFmt))
             PlanLine("Goal date with this cut", Planning.goalDate(d.home.today, after).format(monthYearFmt), color = Good, bold = true)
-            if (sim.monthsSooner > 0) Text("Sooner by " + monthsText(sim.monthsSooner), color = Good, fontWeight = FontWeight.SemiBold)
+            if (sim.monthsSooner > 0) Text("Sooner by " + monthsText(sim.monthsSooner), color = Good, fontWeight = FontWeight.Medium)
             else if (before == null) Text("Without a monthly saving the goal has no date. This cut gives it one.", style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -162,7 +162,7 @@ fun EmergencyCard(d: PlanData, cur: String, always: Boolean = false, onClick: ((
             SectionCard {
                 Label("Emergency mode")
                 Gap(4)
-                Text("Your money should last until the end of the month", color = Good, fontWeight = FontWeight.SemiBold)
+                Text("Your money should last until the end of the month", color = Good, fontWeight = FontWeight.Medium)
             }
         }
         return
@@ -170,7 +170,7 @@ fun EmergencyCard(d: PlanData, cur: String, always: Boolean = false, onClick: ((
     SectionCard(container = MaterialTheme.colorScheme.errorContainer, onClick = onClick) {
         Label("Emergency mode")
         Gap(4)
-        Text("Your money may run out", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        Text("Your money may run out", fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium)
         Gap(4)
         PlanLine("Money runs out around", e.runOutDate.format(dayFmt), bold = true)
         PlanLine("Days before the month ends", e.daysShort.toString())
@@ -193,7 +193,7 @@ fun EmergencyCard(d: PlanData, cur: String, always: Boolean = false, onClick: ((
                 Text("Think about extra income or moving money from savings", style = MaterialTheme.typography.bodySmall)
             } else {
                 Gap(8)
-                Text("Do both and you reach the end of the month.", color = Good, fontWeight = FontWeight.SemiBold)
+                Text("Do both and you reach the end of the month.", color = Good, fontWeight = FontWeight.Medium)
             }
         } else {
             Gap(4)
@@ -215,7 +215,7 @@ fun PlanEntryCard(repo: Repo, nav: Nav, prefs: Prefs) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("🧮")
             Column(Modifier.weight(1f)) {
-                Text("Plan ahead", fontWeight = FontWeight.Bold)
+                Text("Plan ahead", fontWeight = FontWeight.Medium)
                 Text("Can I afford this? What if I save?", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Box { Text("›", color = MaterialTheme.colorScheme.outline) }

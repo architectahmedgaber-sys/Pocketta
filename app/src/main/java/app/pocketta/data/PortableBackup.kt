@@ -24,12 +24,13 @@ object PortableBackup {
         val wallets: List<Wallet>, val categories: List<Category>, val txns: List<Txn>, val bills: List<Bill>,
         val installments: List<Installment>, val circles: List<CircleEntity>, val loans: List<Loan>,
         val settings: List<SettingRow>,
+        val loanInstallments: List<LoanInstallment> = emptyList(),
     )
 
     fun write(d: Data): String {
         val p = Prefs.from(d.settings)
         val o = JSONObject()
-        o.put("app", "pocketta"); o.put("v", 1)
+        o.put("app", "pocketta"); o.put("v", 2)
         o.put("exportedAt", java.time.Instant.now().toString())
         val s = JSONObject()
         s.put("onboarded", p.onboarded); s.put("cycleStart", p.cycleStart); s.put("baseCurrency", p.baseCurrency); s.put("country", p.country)
@@ -62,7 +63,8 @@ object PortableBackup {
         o.put("bills", arr(d.bills) { JSONObject().put("id", it.id).put("name", it.name).put("amount", it.amount).put("currency", it.currency).put("frequency", it.frequency).put("everyN", it.everyN).put("anchorDay", it.anchorDay).put("nextDue", it.nextDue).put("categoryId", it.categoryId ?: JSONObject.NULL).put("walletId", it.walletId ?: JSONObject.NULL).put("remindDays", it.remindDays).put("variable", it.variable).put("kind", it.kind).put("active", it.active) })
         o.put("installments", arr(d.installments) { JSONObject().put("id", it.id).put("name", it.name).put("type", it.type).put("provider", it.provider).put("amount", it.amount).put("total", it.total).put("paid", it.paid).put("firstDue", it.firstDue).put("walletId", it.walletId ?: JSONObject.NULL).put("remindDays", it.remindDays) })
         o.put("circles", arr(d.circles) { JSONObject().put("id", it.id).put("name", it.name).put("share", it.share).put("months", it.months).put("myTurn", it.myTurn).put("paid", it.paid).put("firstDue", it.firstDue).put("payoutReceived", it.payoutReceived).put("walletId", it.walletId ?: JSONObject.NULL).put("remindDays", it.remindDays) })
-        o.put("loans", arr(d.loans) { JSONObject().put("id", it.id).put("person", it.person).put("direction", it.direction).put("amount", it.amount).put("repaid", it.repaid).put("epochDay", it.epochDay).put("dueDay", it.dueDay ?: JSONObject.NULL).put("note", it.note).put("closed", it.closed) })
+        o.put("loans", arr(d.loans) { JSONObject().put("id", it.id).put("person", it.person).put("direction", it.direction).put("amount", it.amount).put("repaid", it.repaid).put("epochDay", it.epochDay).put("dueDay", it.dueDay ?: JSONObject.NULL).put("note", it.note).put("closed", it.closed).put("recordedIncome", it.recordedIncome).put("scheduleType", it.scheduleType).put("countInBudget", it.countInBudget) })
+        o.put("loanInstallments", arr(d.loanInstallments) { JSONObject().put("id", it.id).put("loanId", it.loanId).put("dueDay", it.dueDay).put("amount", it.amount).put("paidAmount", it.paidAmount).put("paidDay", it.paidDay ?: JSONObject.NULL).put("walletId", it.walletId ?: JSONObject.NULL) })
         return o.toString()
     }
 
@@ -72,15 +74,29 @@ object PortableBackup {
         if (o.optString("app") != "pocketta" || !o.has("txns")) return null
         val wallets = list(o, "wallets") { Wallet(it.getLong("id"), it.getString("name"), it.optString("type", "CASH"), it.optString("currency", "EGP"), it.optDouble("opening", 0.0), it.optInt("sort", 0), it.optBoolean("archived", false)) }
         if (wallets.isEmpty()) return null
+        val txns = list(o, "txns") { Txn(it.getLong("id"), it.getString("type"), it.getDouble("amount"), it.optString("currency", "EGP"), it.optDouble("rate", 1.0).let { r -> if (r > 0) r else 1.0 }, it.getLong("walletId"), lng(it, "toWalletId"), lng(it, "categoryId"), it.optString("note", ""), it.getLong("epochDay"), it.optLong("createdAt", 0L), it.optString("source", ""), it.optLong("sourceId", 0L), it.optBoolean("spread", false), Tags.join(it.optJSONArray("tags")?.let { a -> (0 until a.length()).map { i -> a.optString(i) } } ?: emptyList()), it.optString("need", ""), it.optString("how", ""), it.optString("where", "")) }
+        // Older files have no schedule: a loan was "recorded" when its first money record is there.
+        val loans = list(o, "loans") {
+            val id = it.getLong("id")
+            val lent = it.getString("direction") == "LENT"
+            val first = if (lent) TxType.EXPENSE else TxType.INCOME
+            val recorded = if (it.has("recordedIncome")) it.optBoolean("recordedIncome", true) else txns.any { t -> t.source == Source.LOAN && t.sourceId == id && t.type == first }
+            Loan(id, it.getString("person"), it.getString("direction"), it.getDouble("amount"), it.optDouble("repaid", 0.0), it.getLong("epochDay"), lng(it, "dueDay"), it.optString("note", ""), it.optBoolean("closed", false),
+                recorded, it.optString("scheduleType", "LUMP"), it.optBoolean("countInBudget", true))
+        }
+        // Old files (and old cloud copies) have no instalments: derive them the same way the database migration does.
+        val instalments = if (o.has("loanInstallments")) list(o, "loanInstallments") { LoanInstallment(it.getLong("id"), it.getLong("loanId"), it.getLong("dueDay"), it.getDouble("amount"), it.optDouble("paidAmount", 0.0), lng(it, "paidDay"), lng(it, "walletId")) }
+        else loans.filter { !it.closed && it.dueDay != null && it.remaining > 0.004 }.map { LoanInstallment(0, it.id, it.dueDay!!, it.remaining) }
         Data(
             wallets,
             list(o, "categories") { Category(it.getLong("id"), it.getString("name"), lng(it, "parentId"), it.optString("kind", "EXPENSE"), it.optDouble("monthlyLimit", 0.0), it.optInt("sort", 0), it.optBoolean("archived", false)) },
-            list(o, "txns") { Txn(it.getLong("id"), it.getString("type"), it.getDouble("amount"), it.optString("currency", "EGP"), it.optDouble("rate", 1.0).let { r -> if (r > 0) r else 1.0 }, it.getLong("walletId"), lng(it, "toWalletId"), lng(it, "categoryId"), it.optString("note", ""), it.getLong("epochDay"), it.optLong("createdAt", 0L), it.optString("source", ""), it.optLong("sourceId", 0L), it.optBoolean("spread", false), Tags.join(it.optJSONArray("tags")?.let { a -> (0 until a.length()).map { i -> a.optString(i) } } ?: emptyList()), it.optString("need", ""), it.optString("how", ""), it.optString("where", "")) },
+            txns,
             list(o, "bills") { Bill(it.getLong("id"), it.getString("name"), it.getDouble("amount"), it.optString("currency", "EGP"), it.optString("frequency", "MONTHLY"), it.optInt("everyN", 30), it.optInt("anchorDay", 1), it.getLong("nextDue"), lng(it, "categoryId"), lng(it, "walletId"), it.optInt("remindDays", 1), it.optBoolean("variable", false), it.optString("kind", "BILL"), it.optBoolean("active", true)) },
             list(o, "installments") { Installment(it.getLong("id"), it.getString("name"), it.optString("type", ""), it.optString("provider", ""), it.getDouble("amount"), it.getInt("total"), it.optInt("paid", 0), it.getLong("firstDue"), lng(it, "walletId"), it.optInt("remindDays", 1)) },
             list(o, "circles") { CircleEntity(it.getLong("id"), it.getString("name"), it.getDouble("share"), it.getInt("months"), it.getInt("myTurn"), it.optInt("paid", 0), it.getLong("firstDue"), it.optBoolean("payoutReceived", false), lng(it, "walletId"), it.optInt("remindDays", 1)) },
-            list(o, "loans") { Loan(it.getLong("id"), it.getString("person"), it.getString("direction"), it.getDouble("amount"), it.optDouble("repaid", 0.0), it.getLong("epochDay"), lng(it, "dueDay"), it.optString("note", ""), it.optBoolean("closed", false)) },
+            loans,
             settings(o.optJSONObject("settings") ?: JSONObject()),
+            instalments,
         )
     }.getOrNull()
 

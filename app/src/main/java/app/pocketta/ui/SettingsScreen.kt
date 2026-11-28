@@ -151,7 +151,7 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
                 Text(
                     if (prefs.lastBackup > 0) "Last backup: " + java.time.Instant.ofEpochMilli(prefs.lastBackup).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().format(backupFmt)
                     else "No backup yet",
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                     color = if (prefs.lastBackup == 0L || System.currentTimeMillis() - prefs.lastBackup > 7 * 86_400_000L) MaterialTheme.colorScheme.error else Good,
                 )
                 Gap(8)
@@ -226,7 +226,7 @@ fun UpdateBox(repo: Repo) {
     LaunchedEffect(Unit) { release = Online.checkUpdate(repo) }
     val r = release
     if (r != null) {
-        Text("Version ${r.version} is ready", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+        Text("Version ${r.version} is ready", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
         val p = progress
         if (p != null) {
             Progress(p)
@@ -284,7 +284,7 @@ private fun PrivacyCard(lang: String) {
                     items(doc.blocks.size) { i ->
                         val (kind, t) = doc.blocks[i]
                         when (kind) {
-                            "h" -> Text(t, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp))
+                            "h" -> Text(t, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 12.dp))
                             "l" -> Text("• " + t, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
                             else -> Text(t, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
                         }

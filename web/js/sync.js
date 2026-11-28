@@ -5,6 +5,7 @@
 // what keeps data private is row level security (each row can only be read by its owner).
 import * as R from './store.js';
 import * as K from './crypto.js';
+import { syncDecision } from './core.js';
 
 const URL_BASE = 'https://gnbtetbbxekofmjzbzga.supabase.co';
 const KEY = 'sb_publishable_rjOgzmPudvrnCbc5nkBevg_xq_jPPFt';
@@ -23,7 +24,10 @@ function load() { try { return JSON.parse(localStorage.getItem(LS) || '{}'); } c
 function save() { try { localStorage.setItem(LS, JSON.stringify(st)); } catch { /* private mode */ } }
 
 export const signedIn = () => !!st.session;
-export const info = () => ({ email: st.email || '', lastSyncAt: st.lastSyncAt || 0, status: st.status || '', error: st.error || '', busy, encrypted: !!st.dek });
+/** "Use cloud always" (default on): sync silently, ask only when two different copies meet. */
+export const cloudAlways = () => st.cloudAlways !== false;
+export function setCloudAlways(v) { st.cloudAlways = !!v; save(); emit(); }
+export const info = () => ({ email: st.email || '', lastSyncAt: st.lastSyncAt || 0, status: st.status || '', error: st.error || '', busy, encrypted: !!st.dek, cloudAlways: st.cloudAlways !== false });
 
 // ---------- What is synced ----------
 
@@ -198,28 +202,34 @@ export async function syncNow() {
         if (r) uploaded = true;
         return r;
       };
+      const always = cloudAlways();
       if (!cloud) {
+        // First upload is silent (it is the only thing that can happen). With "Use cloud always" off, the old question comes back.
         if (!isEmpty(local)) {
-          const pick = st.lastHash ? 'local' : await hooks.choose({ kind: 'first-upload', local: summary(local, st.localAt || Date.now()) });
+          const pick = always || st.lastHash ? 'local' : await hooks.choose({ kind: 'first-upload', local: summary(local, st.localAt || Date.now()) });
           if (!pick) paused = true; else ok = await up(null);
         }
-      } else if (!st.cloudAt) {
-        // This device never synced with this account.
-        if (isEmpty(local)) applyCloud(cloud.data, cloud.updated_at);
-        else if (hash(stripDevice(cloud.data)) === lh) { st.lastHash = lh; st.cloudAt = cloud.updated_at; }
-        else {
-          const pick = await hooks.choose({ kind: 'conflict', local: summary(local, st.localAt || Date.now()), cloud: summary(cloud.data, Date.parse(cloud.updated_at), cloud.device_name) });
-          if (!pick) paused = true;
-          else if (pick === 'cloud') applyCloud(cloud.data, cloud.updated_at); else ok = await up(cloud);
-        }
       } else {
-        const localChanged = lh !== st.lastHash, cloudChanged = cloud.updated_at !== st.cloudAt;
-        if (localChanged && cloudChanged) {
-          const pick = await hooks.choose({ kind: 'conflict', local: summary(local, st.localAt || Date.now()), cloud: summary(cloud.data, Date.parse(cloud.updated_at), cloud.device_name) });
+        const ch = hash(stripDevice(cloud.data));
+        const key = lh + '|' + ch;
+        const remembered = always && st.answer && st.answer.slice(0, key.length + 1) === key + '=' ? st.answer.slice(key.length + 1) : null;
+        const dec = syncDecision({
+          cloudExists: true, localEmpty: isEmpty(local), syncedBefore: !!st.cloudAt, sameContent: ch === lh,
+          localChanged: lh !== st.lastHash, cloudChanged: cloud.updated_at !== st.cloudAt,
+          localAt: st.localAt || Date.now(), cloudAt: Date.parse(cloud.updated_at) || 0, remembered,
+        });
+        if (dec.action === 'UPLOAD') ok = await up(cloud);
+        else if (dec.action === 'APPLY_CLOUD') applyCloud(cloud.data, cloud.updated_at);
+        else if (dec.action === 'MARK_SYNCED') { st.lastHash = lh; st.cloudAt = cloud.updated_at; }
+        else if (dec.action === 'ASK_CONFLICT') {
+          // The only question left: both sides differ and nothing is merged, so a wrong silent choice would lose data.
+          const pick = await hooks.choose({ kind: 'conflict', newest: dec.newest, local: summary(local, st.localAt || Date.now()), cloud: summary(cloud.data, Date.parse(cloud.updated_at), cloud.device_name) });
           if (!pick) paused = true;
-          else if (pick === 'cloud') applyCloud(cloud.data, cloud.updated_at); else ok = await up(cloud);
-        } else if (localChanged) ok = await up(cloud);
-        else if (cloudChanged) applyCloud(cloud.data, cloud.updated_at);
+          else {
+            st.answer = key + '=' + pick;
+            if (pick === 'cloud') applyCloud(cloud.data, cloud.updated_at); else ok = await up(cloud);
+          }
+        }
       }
       // An old copy in the cloud that is not sealed yet (or a new password after using the recovery key): seal and upload it now.
       if (ok && !paused && !uploaded && cloud && (!cloud.wasEnc || st.forceUpload)) ok = await up(cloud);

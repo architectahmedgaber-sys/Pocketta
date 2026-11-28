@@ -32,7 +32,7 @@ const DEFAULT_SETTINGS = {
 };
 
 function empty() {
-  return { app: 'pocketta', v: 1, seq: 1, settings: { ...DEFAULT_SETTINGS }, wallets: [], categories: [], txns: [], bills: [], installments: [], circles: [], loans: [] };
+  return { app: 'pocketta', v: 2, seq: 1, settings: { ...DEFAULT_SETTINGS }, wallets: [], categories: [], txns: [], bills: [], installments: [], circles: [], loans: [], loanInstallments: [] };
 }
 
 export let data = empty();
@@ -87,6 +87,21 @@ function normalize(raw) {
   const d = empty();
   for (const k of Object.keys(d)) if (raw[k] !== undefined) d[k] = raw[k];
   d.settings = { ...DEFAULT_SETTINGS, ...(raw.settings || {}) };
+  // 1.23: loans have a repayment schedule. Older data (and older cloud copies) get the same derivation as the Android migration:
+  // one instalment for what is left on every open loan that had a date; loans without a date get none.
+  for (const l of d.loans) {
+    if (l.recordedIncome === undefined) {
+      const first = l.direction === 'LENT' ? 'EXPENSE' : 'INCOME';
+      l.recordedIncome = d.txns.some((t) => t.source === 'LOAN' && t.sourceId === l.id && t.type === first);
+    }
+    if (!l.scheduleType) l.scheduleType = 'LUMP';
+    if (l.countInBudget === undefined) l.countInBudget = true;
+  }
+  if (!Array.isArray(raw.loanInstallments)) {
+    d.loanInstallments = d.loans.filter((l) => !l.closed && l.dueDay != null && l.amount - l.repaid > 0.004)
+      .map((l) => ({ id: nextId(), loanId: l.id, dueDay: l.dueDay, amount: l.amount - l.repaid, paidAmount: 0, paidDay: null, walletId: null }));
+  }
+  d.v = 2;
   return d;
 }
 
@@ -221,12 +236,14 @@ function txn(t) {
 export function saveTxn(t) {
   if (!t.walletId) t = { ...t, walletId: defaultWallet() };
   if (t.tags) t = { ...t, tags: normTags(t.tags) };
-  if (!t.id) data.txns.push(txn(t));
+  let saved = null;
+  if (!t.id) { saved = txn(t); data.txns.push(saved); }
   else {
     const i = data.txns.findIndex((x) => x.id === t.id);
     if (i >= 0) {
       const old = data.txns[i];
       data.txns[i] = { ...old, ...t };
+      saved = data.txns[i];
       if (old.source === 'PIGGY') piggyApply(old.sourceId, base(data.txns[i]) - base(old));
       if (old.source === 'PIGGYOUT') piggyApply(old.sourceId, base(old) - base(data.txns[i]));
       if (old.source === 'LOAN') loanFollowsTxn(old, data.txns[i]);
@@ -235,6 +252,7 @@ export function saveTxn(t) {
   if (t.type === 'EXPENSE' && t.categoryId && !t.source) S().lastCategory = t.categoryId;
   S().lastWallet = t.walletId;
   changed();
+  return saved;
 }
 
 export function deleteTxn(t) {
@@ -252,6 +270,7 @@ export function deleteTxn(t) {
       const lent = l.direction === 'LENT';
       if ((lent && t.type === 'INCOME') || (!lent && t.type === 'EXPENSE')) {
         l.repaid = Math.max(l.repaid - t.amount, 0);
+        applyToInstalments(l.id, -t.amount, t.epochDay, t.walletId);
         l.closed = l.repaid >= l.amount - 0.001;
       }
     }
@@ -271,13 +290,21 @@ export function recentItems(limit = 6) {
   return [...seen.values()].sort((a, b) => b.n - a.n).slice(0, limit);
 }
 
-/** Guesses the category for a quick note like "koshary": same note as before, or a category with that name. */
+/** Guesses the category for a quick note like "koshary". It learns: the category used most often for the same word wins (a tie goes to the latest). */
 export function guessCategory(note, type) {
   if (!note.trim()) return null;
-  const n = note.trim().toLowerCase();
-  const prev = [...data.txns].reverse().find((t) => t.type === type && t.note.toLowerCase() === n && t.categoryId);
-  if (prev) return prev.categoryId;
-  const words = n.split(' ').filter((w) => w.length >= 3);
+  const key = C.normKey(note);
+  const count = new Map(), last = new Map();
+  for (const t of data.txns) {
+    if (t.type !== type || !t.categoryId || t.source || C.normKey(t.note) !== key) continue;
+    count.set(t.categoryId, (count.get(t.categoryId) || 0) + 1);
+    last.set(t.categoryId, Math.max(last.get(t.categoryId) || 0, t.epochDay));
+  }
+  let best = null;
+  for (const [id, n] of count) if (best == null || n > count.get(best) || (n === count.get(best) && last.get(id) > last.get(best))) best = id;
+  if (best != null) return best;
+  const ALIAS = { 'مرتب': 'salary', 'مرتبي': 'salary', 'راتب': 'salary', 'راتبي': 'salary', 'قبضت': 'salary' };
+  const words = key.split(' ').map((w) => ALIAS[w] || w).filter((w) => w.length >= 3);
   return categories().filter((c) => c.kind === type).find((c) => {
     const cn = c.name.toLowerCase();
     return words.some((w) => cn === w || cn.startsWith(w) || w.startsWith(cn));
@@ -293,16 +320,48 @@ export function quickExpense(note, amount, daysAgo = 0) {
   return t;
 }
 
-/** Expenses you type again and again, so they can be added with one tap. */
-export function suggestions(today = C.todayEpoch()) {
+/** The chips on the add sheet: what you add most often in the last 60 days (2 times or more), up to 6. Removed chips stay removed. */
+export function suggestions(today = C.todayEpoch(), limit = 6) {
+  const hidden = new Set(S().favHidden || []);
   const groups = new Map();
   for (const t of data.txns) {
-    if (t.type !== 'EXPENSE' || t.source || !t.note.trim() || t.currency !== S().baseCurrency || t.epochDay < today - 60 || t.epochDay > today) continue;
-    const k = `${t.note.trim().toLowerCase()}|${t.amount}`;
-    const g = groups.get(k) || { note: t.note.trim(), amount: t.amount, n: 0 };
-    g.n++; groups.set(k, g);
+    if (t.type !== 'EXPENSE' || t.source || !t.note.trim() || t.currency !== S().baseCurrency || t.epochDay <= today - 60 || t.epochDay > today) continue;
+    const k = `${C.normKey(t.note)}|${Math.round(t.amount * 100)}|${t.categoryId || 0}`;
+    const g = groups.get(k) || { note: t.note.trim(), amount: t.amount, categoryId: t.categoryId, n: 0, last: 0, key: `${C.normKey(t.note)}|${Math.round(t.amount * 100)}` };
+    g.n++; g.last = Math.max(g.last, t.epochDay); groups.set(k, g);
   }
-  return [...groups.values()].filter((g) => g.n >= 2).sort((a, b) => b.n - a.n).slice(0, 4);
+  return [...groups.values()].filter((g) => g.n >= 2 && !hidden.has(g.key)).sort((a, b) => b.n - a.n || b.last - a.last).slice(0, limit);
+}
+export function hideFavourite(g) { S().favHidden = [...(S().favHidden || []), g.key].slice(-100); changed(); }
+
+/** Puts back a transaction that was just deleted and redoes what deleting it reversed. For Undo. */
+export function restoreTxn(t) {
+  if (byId(data.txns, t.id)) return;
+  data.txns.push(t);
+  if (t.source === 'PIGGY') piggyApply(t.sourceId, base(t));
+  if (t.source === 'PIGGYOUT') piggyApply(t.sourceId, -base(t));
+  if (t.source === 'INSTALLMENT') { const i = byId(data.installments, t.sourceId); if (i) i.paid += 1; }
+  if (t.source === 'CIRCLE') { const c = byId(data.circles, t.sourceId); if (c) { if (t.type === 'INCOME') c.payoutReceived = true; else c.paid += 1; } }
+  if (t.source === 'LOAN') {
+    const l = byId(data.loans, t.sourceId);
+    if (l) {
+      const lent = l.direction === 'LENT';
+      if ((lent && t.type === 'INCOME') || (!lent && t.type === 'EXPENSE')) {
+        l.repaid += t.amount;
+        applyToInstalments(l.id, t.amount, t.epochDay, t.walletId);
+        l.closed = l.repaid >= l.amount - 0.001;
+      }
+    }
+  }
+  changed();
+}
+
+/** Runs a payment and returns what Undo needs: the new money records and the bills' old due dates. */
+export function trackPay(fn) {
+  const before = new Set(data.txns.map((t) => t.id));
+  const dues = data.bills.map((b) => [b.id, b.nextDue]);
+  fn();
+  return { txnIds: data.txns.filter((t) => !before.has(t.id)).map((t) => t.id), bills: dues.filter(([id, d]) => byId(data.bills, id)?.nextDue !== d) };
 }
 
 /** The last 7 days against the 7 before, for the Friday/Saturday card. */
@@ -484,9 +543,20 @@ export function receivePayout(c, dayArg = null) {
 
 // ---------- Loans ----------
 
-export function addLoan({ person, lent, amount, walletId, day, due, note, record = true }) {
+export const loanRows = (loanId) => data.loanInstallments.filter((r) => r.loanId === loanId).sort((a, b) => a.dueDay - b.dueDay);
+
+/**
+ * Borrowing: the money is income in the month it came; every repayment is a commitment in the month it is due.
+ * Lending is the mirror. [schedule] is [{ due, amount }]; with only [due] it is one lump; with neither the loan has no date yet.
+ */
+export function addLoan({ person, lent, amount, walletId, day, due, note, record = true, schedule = [], countInBudget = true }) {
   const id = nextId();
-  data.loans.push({ id, person, direction: lent ? 'LENT' : 'BORROWED', amount, repaid: 0, epochDay: day, dueDay: due ?? null, note: note || '', closed: false });
+  const plan = schedule.length ? schedule : due != null ? [{ due, amount }] : [];
+  data.loans.push({
+    id, person, direction: lent ? 'LENT' : 'BORROWED', amount, repaid: 0, epochDay: day, dueDay: plan.length ? plan[0].due : null, note: note || '', closed: false,
+    recordedIncome: !!record, scheduleType: plan.length > 1 ? 'INSTALLMENTS' : 'LUMP', countInBudget,
+  });
+  for (const s of plan) data.loanInstallments.push({ id: nextId(), loanId: id, dueDay: s.due, amount: s.amount, paidAmount: 0, paidDay: null, walletId: null });
   if (record) {
     data.txns.push(txn({
       type: lent ? 'EXPENSE' : 'INCOME', amount, walletId: walletId || defaultWallet(),
@@ -495,11 +565,23 @@ export function addLoan({ person, lent, amount, walletId, day, due, note, record
     }));
   }
   changed();
+  return id;
 }
-/** Was the loan's first money record made? (Unticking "Add it to my balance" makes none.) Derived, so old data keeps working. */
+/** Was the loan's first money record made? (Switching "the money came to my wallet" off makes none.) */
 export function loanRecorded(l) {
+  if (l.recordedIncome !== undefined) return !!l.recordedIncome;
   const first = l.direction === 'LENT' ? 'EXPENSE' : 'INCOME';
   return data.txns.some((t) => t.source === 'LOAN' && t.sourceId === l.id && t.type === first);
+}
+/** Moves paid amounts on the instalments: delta > 0 settles the oldest unpaid first, < 0 takes back from the latest paid. */
+function applyToInstalments(loanId, delta, day, walletId) {
+  const rows = loanRows(loanId);
+  if (!rows.length) return;
+  if (delta > 0.004) {
+    for (const [id, amt] of C.loanAllocate(rows, delta).parts) { const r = byId(data.loanInstallments, id); r.paidAmount = (r.paidAmount || 0) + amt; r.paidDay = day; r.walletId = walletId || r.walletId || null; }
+  } else if (delta < -0.004) {
+    for (const [id, amt] of C.loanUnallocate(rows, -delta)) { const r = byId(data.loanInstallments, id); r.paidAmount = Math.max((r.paidAmount || 0) - amt, 0); if (r.paidAmount < 0.005) r.paidDay = null; }
+  }
 }
 /** Editing a loan's money record in the transactions list keeps the loan itself in step. */
 function loanFollowsTxn(old, now) {
@@ -507,17 +589,18 @@ function loanFollowsTxn(old, now) {
   if (!l) return;
   const lent = l.direction === 'LENT';
   const isRepayment = (lent && old.type === 'INCOME') || (!lent && old.type === 'EXPENSE');
-  if (isRepayment) l.repaid = Math.max(l.repaid + now.amount - old.amount, 0);
+  if (isRepayment) { l.repaid = Math.max(l.repaid + now.amount - old.amount, 0); applyToInstalments(l.id, now.amount - old.amount, now.epochDay, now.walletId); }
   else l.amount = now.amount;
   l.closed = l.repaid >= l.amount - 0.001;
 }
-/** Changes a loan's person, amount or note. Its first money record follows, so the balance stays right. */
+/** Changes a loan's person, amount or note. Its first money record follows, so the balance stays right; only the unpaid instalments are rebuilt. */
 export function editLoan(l, { person, amount, note }) {
   const x = byId(data.loans, l.id);
   if (!x) return;
   const lent = x.direction === 'LENT';
   const first = lent ? 'EXPENSE' : 'INCOME';
   const oldPerson = x.person;
+  const oldAmount = x.amount;
   x.person = person; x.note = note ?? x.note;
   if (amount > 0) x.amount = amount;
   for (const t of data.txns) {
@@ -525,10 +608,35 @@ export function editLoan(l, { person, amount, note }) {
     if (t.type === first) { if (amount > 0) t.amount = amount; t.note = lent ? `Lent to ${person}` : `Borrowed from ${person}`; }
     else if (person !== oldPerson) t.note = lent ? `${person} paid back` : `Paid back ${person}`;
   }
+  if (amount > 0 && Math.abs(amount - oldAmount) > 0.004) {
+    const rows = loanRows(x.id);
+    const open = rows.filter((r) => C.instRemaining(r) > 0.004);
+    if (open.length) {
+      // A part-paid instalment is cut down to what was paid; untouched ones are rebuilt for what is left.
+      for (const r of open) if ((r.paidAmount || 0) > 0.004) r.amount = r.paidAmount;
+      const gone = new Set(open.filter((r) => (r.paidAmount || 0) <= 0.004).map((r) => r.id));
+      data.loanInstallments = data.loanInstallments.filter((r) => !gone.has(r.id));
+      const paidSum = rows.reduce((a, r) => a + (r.paidAmount || 0), 0);
+      const left = Math.round((amount - paidSum) * 100) / 100;
+      if (left > 0.004) for (const s of C.loanGenerate(left, Math.max(open.length, 1), Math.min(...open.map((r) => r.dueDay)))) {
+        data.loanInstallments.push({ id: nextId(), loanId: x.id, dueDay: s.due, amount: s.amount, paidAmount: 0, paidDay: null, walletId: null });
+      }
+    }
+  }
   x.closed = x.repaid >= x.amount - 0.001;
   changed();
 }
 export const remaining = (l) => Math.max(l.amount - l.repaid, 0);
+/** Gives a loan that had no date a repayment plan: [count] monthly instalments from [first] for what is still owed. */
+export function setRepayment(l, first, count = 1) {
+  const x = byId(data.loans, l.id);
+  if (!x) return;
+  data.loanInstallments = data.loanInstallments.filter((r) => !(r.loanId === x.id && (r.paidAmount || 0) <= 0.004));
+  const plan = C.loanGenerate(remaining(x), count, first);
+  for (const s of plan) data.loanInstallments.push({ id: nextId(), loanId: x.id, dueDay: s.due, amount: s.amount, paidAmount: 0, paidDay: null, walletId: null });
+  x.dueDay = first; x.scheduleType = plan.length > 1 ? 'INSTALLMENTS' : 'LUMP';
+  changed();
+}
 export function loanPayment(l, amount, walletId = null, day = C.todayEpoch()) {
   const x = byId(data.loans, l.id);
   if (!x) return;
@@ -539,13 +647,22 @@ export function loanPayment(l, amount, walletId = null, day = C.todayEpoch()) {
     categoryId: lent ? categoryNamed('Loan repaid', 'INCOME') : categoryNamed('Loans', 'EXPENSE'),
     note: lent ? `${x.person} paid back` : `Paid back ${x.person}`, epochDay: day, source: 'LOAN', sourceId: x.id,
   }));
+  applyToInstalments(x.id, amount, day, walletId);
   x.repaid += amount;
   x.closed = x.repaid >= x.amount - 0.001;
   changed();
 }
+/** "I paid" / "Got it": settles the next unpaid instalment (all that is left when the loan has no schedule). */
+export function payNextInstalment(l, walletId = null, day = C.todayEpoch()) {
+  const x = byId(data.loans, l.id);
+  if (!x) return;
+  const next = C.loanNext(loanRows(x.id));
+  loanPayment(x, next ? C.instRemaining(next) : remaining(x), walletId, day);
+}
 /** Deleting a loan also removes the money records it made, so wallets and the budget stay right. */
 export function deleteLoan(l) {
   data.txns = data.txns.filter((t) => !(t.source === 'LOAN' && t.sourceId === l.id));
+  data.loanInstallments = data.loanInstallments.filter((r) => r.loanId !== l.id);
   data.loans = data.loans.filter((x) => x.id !== l.id);
   changed();
 }
@@ -592,9 +709,14 @@ export function upcoming(to) {
     });
   }
   for (const l of data.loans) {
-    if (l.dueDay == null || l.closed || l.dueDay >= to) continue;
+    if (l.closed) continue;
     const lent = l.direction === 'LENT';
-    out.push({ kind: 'LOAN', id: l.id, title: lent ? `${l.person} pays you back` : `Pay back ${l.person}`, sub: lent ? 'They owe you' : 'You owe', amount: remaining(l), due: l.dueDay, incoming: lent, remind: 1 });
+    // Borrowed money that never came to the wallet counts in the budget only when the person chose so.
+    if (!lent && !loanRecorded(l) && l.countInBudget === false) continue;
+    const rows = loanRows(l.id), done = rows.filter(C.instIsPaid).length;
+    rows.filter((r) => !C.instIsPaid(r) && r.dueDay < to).forEach((r, k) => {
+      out.push({ kind: 'LOAN', id: l.id, title: lent ? `${l.person} pays you back` : `Pay back ${l.person}`, sub: rows.length > 1 ? `${done + k + 1} of ${rows.length}` : lent ? 'They owe you' : 'You owe', amount: C.instRemaining(r), due: r.dueDay, incoming: lent, remind: 1 });
+    });
   }
   return out.sort((a, b) => a.due - b.due);
 }
@@ -603,7 +725,7 @@ export function payUpcoming(u) {
   if (u.kind === 'BILL') { const b = byId(data.bills, u.id); if (b) payBill(b); }
   if (u.kind === 'INSTALLMENT') { const i = byId(data.installments, u.id); if (i) payInstallment(i); }
   if (u.kind === 'CIRCLE') { const c = byId(data.circles, u.id); if (c) payCircle(c); }
-  if (u.kind === 'LOAN') { const l = byId(data.loans, u.id); if (l) loanPayment(l, remaining(l)); }
+  if (u.kind === 'LOAN') { const l = byId(data.loans, u.id); if (l) payNextInstalment(l); }
 }
 
 export function setAside() {
@@ -863,7 +985,9 @@ export function monthPlan(past = 3, future = 12, today = C.todayEpoch()) {
     bills: data.bills.filter((b) => b.active !== false).map((b) => ({ name: b.name, amount: b.amount * rateOf(b.currency), frequency: b.frequency, everyN: b.everyN, nextDue: b.nextDue, anchorDay: b.anchorDay })),
     installments: data.installments.map((i) => ({ name: i.name, amount: i.amount, total: i.total, paid: i.paid, firstDue: i.firstDue, card: String(i.type).toLowerCase() === 'credit card' })),
     circles: data.circles,
-    loans: data.loans.filter((l) => !l.closed).map((l) => ({ person: l.person, remaining: remaining(l), due: l.dueDay, lent: l.direction === 'LENT' })),
+    // One line per unpaid instalment, so every future month shows its own repayment.
+    loans: data.loans.filter((l) => !l.closed && (l.direction === 'LENT' || loanRecorded(l) || l.countInBudget !== false))
+      .flatMap((l) => loanRows(l.id).filter((r) => !C.instIsPaid(r)).map((r) => ({ person: l.person, remaining: C.instRemaining(r), due: r.dueDay, lent: l.direction === 'LENT' }))),
   };
   const proj = Object.fromEntries(P.project(input, nowYm, future + 1).map((m) => [m.ym, m]));
   const rows = [];

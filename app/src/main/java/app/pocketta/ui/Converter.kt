@@ -52,7 +52,7 @@ fun ConverterCard(prefs: Prefs) {
     var fromKey by rememberSaveable { mutableStateOf(all.firstOrNull { it.key == "USD" }?.key ?: all.getOrNull(1)?.key ?: prefs.baseCurrency) }
     var toKey by rememberSaveable { mutableStateOf(prefs.baseCurrency) }
     SectionCard {
-        Text("Convert money and gold", fontWeight = FontWeight.SemiBold)
+        Text("Convert money and gold", fontWeight = FontWeight.Medium)
         Gap(8)
         RatesStrip(prefs)
         if (all.size < 2) {
@@ -121,7 +121,7 @@ private fun RateChip(label: String, value: String, change: Double?, modifier: Mo
     ) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(value, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+            Text(value, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium, maxLines = 1)
             if (change != null) {
                 val pct = kotlin.math.abs(change) * 100
                 when {

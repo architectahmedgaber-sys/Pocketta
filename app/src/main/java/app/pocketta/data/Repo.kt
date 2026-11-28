@@ -4,6 +4,13 @@ import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
 import app.pocketta.core.Budget
+import app.pocketta.core.FavEntry
+import app.pocketta.core.Favourite
+import app.pocketta.core.Favourites
+import app.pocketta.core.SmartDefaults
+import app.pocketta.core.SmsCard
+import app.pocketta.core.SmsCards
+import app.pocketta.core.TextKey
 import app.pocketta.core.Money
 import app.pocketta.core.BudgetInput
 import app.pocketta.core.BudgetResult
@@ -22,6 +29,8 @@ import app.pocketta.core.PlanInput
 import app.pocketta.core.PlanBill
 import app.pocketta.core.PlanInstallment
 import app.pocketta.core.PlanCircle
+import app.pocketta.core.Instalment
+import app.pocketta.core.LoanSchedule
 import app.pocketta.core.PlanLoan
 import app.pocketta.core.PlanMonth
 import app.pocketta.core.MonthPlanner
@@ -178,7 +187,7 @@ class Repo private constructor(private val app: Context) {
         val keep = dao.settings().filter { it.key == "theme" || it.key == "lang" }
         db.withTransaction {
             val raw = db.openHelper.writableDatabase
-            for (t in listOf("txns", "bills", "installments", "circles", "loans", "categories", "wallets", "settings")) raw.execSQL("DELETE FROM $t")
+            for (t in listOf("txns", "bills", "installments", "circles", "loan_installments", "loans", "categories", "wallets", "settings")) raw.execSQL("DELETE FROM $t")
             keep.forEach { dao.put(it) }
         }
         Money.setCurrency("EGP")
@@ -233,6 +242,7 @@ class Repo private constructor(private val app: Context) {
                 val repaid = if (isRepayment) (l.repaid + t.amount - old.amount).coerceAtLeast(0.0) else l.repaid
                 val amount = if (isRepayment) l.amount else t.amount
                 dao.updateLoan(l.copy(amount = amount, repaid = repaid, closed = repaid >= amount - 0.001))
+                if (isRepayment) applyToInstalments(l.id, t.amount - old.amount, LocalDate.ofEpochDay(t.epochDay), t.walletId)
             }
             if (old != null && old.source == Source.PIGGY) piggyApply(old.sourceId, t.base - old.base)
             if (old != null && old.source == Source.PIGGYOUT) piggyApply(old.sourceId, old.base - t.base)
@@ -260,17 +270,28 @@ class Repo private constructor(private val app: Context) {
                 if (isRepayment) {
                     val repaid = (l.repaid - t.amount).coerceAtLeast(0.0)
                     dao.updateLoan(l.copy(repaid = repaid, closed = repaid >= l.amount - 0.001))
+                    applyToInstalments(l.id, -t.amount, LocalDate.ofEpochDay(t.epochDay), t.walletId)
                 }
             }
         }
         changed()
     }
 
-    /** Guesses the category for a quick note like "koshary": same note as before, or a category with that name. */
+    /**
+     * Guesses the category for a quick note like "koshary". It learns: the category you used most often for the same
+     * word wins (a tie goes to the latest), so after two "koshary" entries under Food the third needs no tap.
+     * Falls back to a category with that name. Everything is worked out on the phone from your own entries.
+     */
     suspend fun guessCategory(note: String, type: String): Long? {
         if (note.isBlank()) return null
+        val key = TextKey.normalize(note)
+        val history = dao.allTxns()
+            .filter { it.type == type && it.categoryId != null && it.source == Source.NONE && TextKey.normalize(it.note) == key }
+            .map { it.categoryId!! to it.epochDay }
+        SmartDefaults.mostFrequent(history)?.let { return it }
         dao.lastWithNote(type, note.trim())?.categoryId?.let { return it }
-        val words = note.lowercase().split(' ').filter { it.length >= 3 }
+        val alias = mapOf("مرتب" to "salary", "مرتبي" to "salary", "راتب" to "salary", "راتبي" to "salary", "قبضت" to "salary")
+        val words = key.split(' ').map { alias[it] ?: it }.filter { it.length >= 3 }
         return dao.categories().filter { it.kind == type && !it.archived }.firstOrNull { c ->
             val n = c.name.lowercase()
             words.any { w -> n == w || n.startsWith(w) || w.startsWith(n) }
@@ -304,8 +325,8 @@ class Repo private constructor(private val app: Context) {
     suspend fun week(today: LocalDate, dayReference: Double): WeekData {
         val from = today.minusDays(6).toEpochDay()
         val to = today.toEpochDay() + 1
-        val now = dao.txns(from, to).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && t.source != Source.LOAN && it.source != Source.LOAN }
-        val before = dao.txns(from - 7, from).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && t.source != Source.LOAN && it.source != Source.LOAN }
+        val now = dao.txns(from, to).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && it.source != Source.LOAN }
+        val before = dao.txns(from - 7, from).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && it.source != Source.LOAN }
         val cats = dao.categories().associateBy { it.id }
         fun topName(id: Long?): String? = id?.let { cats[it] }?.let { c -> (c.parentId?.let { cats[it] } ?: c).name }
         val top = now.groupBy { topName(it.categoryId) }.filterKeys { it != null }
@@ -412,14 +433,28 @@ class Repo private constructor(private val app: Context) {
 
     // ---------- Loans ----------
 
+    private fun LoanInstallment.toCore() = Instalment(id, LocalDate.ofEpochDay(dueDay), amount, paidAmount)
+
+    /**
+     * Borrowing: the money is income in the month it came (a money record dated [day]); every repayment is a commitment in the month it is due.
+     * Lending is the mirror: an expense in its month, each expected repayment is money coming in.
+     * [schedule] is the planned repayments (date, amount); with only [due] it is one lump; with neither the loan has no date yet.
+     */
     suspend fun addLoan(
         person: String, lent: Boolean, amount: Double, walletId: Long?, day: LocalDate,
         due: LocalDate?, note: String, recordMoney: Boolean = true,
+        schedule: List<Pair<LocalDate, Double>> = emptyList(), countInBudget: Boolean = true,
     ): Long {
         val p = prefs()
+        val plan = if (schedule.isNotEmpty()) schedule else due?.let { listOf(it to amount) } ?: emptyList()
         val id = dao.insertLoan(
-            Loan(person = person, direction = if (lent) "LENT" else "BORROWED", amount = amount, epochDay = day.toEpochDay(), dueDay = due?.toEpochDay(), note = note)
+            Loan(
+                person = person, direction = if (lent) "LENT" else "BORROWED", amount = amount, epochDay = day.toEpochDay(),
+                dueDay = plan.firstOrNull()?.first?.toEpochDay(), note = note,
+                recordedIncome = recordMoney, scheduleType = if (plan.size > 1) "INSTALLMENTS" else "LUMP", countInBudget = countInBudget,
+            )
         )
+        plan.forEach { (d, a) -> dao.insertLoanInstallment(LoanInstallment(loanId = id, dueDay = d.toEpochDay(), amount = a)) }
         if (recordMoney) {
             dao.insertTxn(
                 Txn(
@@ -436,15 +471,32 @@ class Repo private constructor(private val app: Context) {
 
     suspend fun updateLoan(l: Loan) { dao.updateLoan(l); changed() }
     /** Deleting a loan also removes the money records it made, so wallets and the budget stay right. */
-    suspend fun deleteLoan(l: Loan) { dao.deleteTxnsFor(Source.LOAN, l.id); dao.deleteLoan(l); changed() }
+    suspend fun deleteLoan(l: Loan) { dao.deleteTxnsFor(Source.LOAN, l.id); dao.deleteInstallmentsOfLoan(l.id); dao.deleteLoan(l); changed() }
 
-    /** Was the loan's first money record made? (Unticking "Add it to my balance" makes none.) */
-    suspend fun loanRecorded(l: Loan): Boolean {
-        val first = if (l.lent) TxType.EXPENSE else TxType.INCOME
-        return dao.allTxns().any { it.source == Source.LOAN && it.sourceId == l.id && it.type == first }
+    /** Was the loan's first money record made? (Switching "the money came to my wallet" off makes none.) */
+    @Suppress("RedundantSuspendModifier")
+    suspend fun loanRecorded(l: Loan): Boolean = l.recordedIncome
+
+    /** The instalments of a loan as core objects, oldest first. */
+    suspend fun loanSchedule(loanId: Long): List<LoanInstallment> = dao.installmentsOfLoan(loanId)
+
+    /** Moves paid amounts on the instalments: [delta] > 0 settles the oldest unpaid first, < 0 takes back from the latest paid. */
+    private suspend fun applyToInstalments(loanId: Long, delta: Double, day: LocalDate, walletId: Long?) {
+        val rows = dao.installmentsOfLoan(loanId)
+        if (rows.isEmpty()) return
+        val before = rows.map { it.toCore() }
+        val after = LoanSchedule.applyDelta(before, delta).associateBy { it.id }
+        for (r in rows) {
+            val n = after[r.id] ?: continue
+            if (LoanSchedule.same(n.paid, r.paidAmount)) continue
+            dao.updateLoanInstallment(
+                if (delta > 0) r.copy(paidAmount = n.paid, paidDay = day.toEpochDay(), walletId = walletId ?: r.walletId)
+                else r.copy(paidAmount = n.paid, paidDay = if (n.paid < 0.005) null else r.paidDay)
+            )
+        }
     }
 
-    /** Fixes a loan's person or amount. Its first money record follows, so the balance stays right. */
+    /** Fixes a loan's person or amount. Its first money record follows, so the balance stays right; only the unpaid instalments are rebuilt. */
     suspend fun editLoan(l: Loan, person: String, amount: Double) {
         val first = if (l.lent) TxType.EXPENSE else TxType.INCOME
         val newAmount = if (amount > 0) amount else l.amount
@@ -452,12 +504,43 @@ class Repo private constructor(private val app: Context) {
             if (t.type == first) dao.updateTxn(t.copy(amount = newAmount, note = if (l.lent) "Lent to $person" else "Borrowed from $person"))
             else if (person != l.person) dao.updateTxn(t.copy(note = if (l.lent) "$person paid back" else "Paid back $person"))
         }
+        if (kotlin.math.abs(newAmount - l.amount) > 0.004) {
+            val rows = dao.installmentsOfLoan(l.id)
+            val open = rows.filter { it.remaining > 0.004 }
+            if (open.isNotEmpty()) {
+                // A part-paid instalment is cut down to what was paid; untouched ones are rebuilt for what is left.
+                open.filter { it.paidAmount > 0.004 }.forEach { dao.updateLoanInstallment(it.copy(amount = it.paidAmount)) }
+                open.filter { it.paidAmount <= 0.004 }.forEach { dao.deleteLoanInstallment(it.id) }
+                val kept = rows.filter { it.paidAmount > 0.004 }.map { Instalment(it.id, LocalDate.ofEpochDay(it.dueDay), it.paidAmount, it.paidAmount) }
+                val firstOpen = LocalDate.ofEpochDay(open.minOf { it.dueDay })
+                LoanSchedule.regenerate(kept, newAmount, open.size.coerceAtLeast(1), firstOpen)
+                    .forEach { (d, a) -> dao.insertLoanInstallment(LoanInstallment(loanId = l.id, dueDay = d.toEpochDay(), amount = a)) }
+            }
+        }
         dao.updateLoan(l.copy(person = person, amount = newAmount, closed = l.repaid >= newAmount - 0.001))
         changed()
     }
 
-    suspend fun loanPayment(l: Loan, amount: Double, walletId: Long? = null, day: LocalDate = LocalDate.now()) {
+    /** Gives a loan that had no date a repayment plan: [count] monthly instalments from [first] for what is still owed. */
+    suspend fun setRepayment(l: Loan, first: LocalDate, count: Int = 1) {
+        val plan = LoanSchedule.generate(l.remaining, count.coerceAtLeast(1), first)
+        dao.installmentsOfLoan(l.id).filter { it.paidAmount <= 0.004 }.forEach { dao.deleteLoanInstallment(it.id) }
+        plan.forEach { (d, a) -> dao.insertLoanInstallment(LoanInstallment(loanId = l.id, dueDay = d.toEpochDay(), amount = a)) }
+        dao.updateLoan(l.copy(dueDay = first.toEpochDay(), scheduleType = if (plan.size > 1) "INSTALLMENTS" else "LUMP"))
+        changed()
+    }
+
+    /** "I paid" / "Got it": settles the next unpaid instalment (all that is left when the loan has no schedule). */
+    suspend fun payNextInstalment(l: Loan, walletId: Long? = null, day: LocalDate = LocalDate.now()) {
+        val next = LoanSchedule.next(dao.installmentsOfLoan(l.id).map { it.toCore() })
+        loanPayment(l, next?.remaining ?: l.remaining, walletId, day)
+    }
+
+    suspend fun loanPayment(l: Loan, amount0: Double, walletId: Long? = null, day: LocalDate = LocalDate.now()) {
         val p = prefs()
+        // Paying more than is left counts only what is left, so "repaid" and the instalments always agree.
+        val amount = minOf(amount0, l.remaining)
+        if (amount < 0.005) return
         // If the loan never touched the balance, paying it back must not touch it either.
         if (loanRecorded(l)) dao.insertTxn(
             Txn(
@@ -467,6 +550,7 @@ class Repo private constructor(private val app: Context) {
                 epochDay = day.toEpochDay(), source = Source.LOAN, sourceId = l.id,
             )
         )
+        applyToInstalments(l.id, amount, day, walletId)
         val repaid = l.repaid + amount
         dao.updateLoan(l.copy(repaid = repaid, closed = repaid >= l.amount - 0.001))
         changed()
@@ -523,13 +607,20 @@ class Repo private constructor(private val app: Context) {
                 out += Upcoming("CIRCLE", c.id, "${c.name} share", "Month ${c.paid + k + 1} of ${c.months}", c.share, d)
             }
         }
+        val schedules = dao.loanInstallments().groupBy { it.loanId }
         for (l in dao.loans()) {
-            val due = l.dueDay ?: continue
-            if (l.closed || due >= to.toEpochDay()) continue
-            out += Upcoming(
-                "LOAN", l.id, if (l.lent) "${l.person} pays you back" else "Pay back ${l.person}",
-                if (l.lent) "They owe you" else "You owe", l.remaining, LocalDate.ofEpochDay(due), incoming = l.lent,
-            )
+            if (l.closed) continue
+            // Borrowed money that never came to the wallet counts in the budget only when the person chose so.
+            if (!l.lent && !l.recordedIncome && !l.countInBudget) continue
+            val all = schedules[l.id].orEmpty().sortedBy { it.dueDay }
+            val done = all.count { it.remaining < 0.005 }
+            all.filter { it.remaining >= 0.005 && it.dueDay < to.toEpochDay() }.forEachIndexed { k, r ->
+                out += Upcoming(
+                    "LOAN", l.id, if (l.lent) "${l.person} pays you back" else "Pay back ${l.person}",
+                    if (all.size > 1) "${done + k + 1} of ${all.size}" else if (l.lent) "They owe you" else "You owe",
+                    r.remaining, LocalDate.ofEpochDay(r.dueDay), incoming = l.lent,
+                )
+            }
         }
         return out.sortedBy { it.due }
     }
@@ -644,8 +735,12 @@ class Repo private constructor(private val app: Context) {
             circles = dao.circles().map {
                 PlanCircle(it.name, it.share, it.months, it.myTurn, it.paid, LocalDate.ofEpochDay(it.firstDue), it.payoutReceived)
             },
-            loans = dao.loans().filter { !it.closed }.map {
-                PlanLoan(it.person, it.remaining, it.dueDay?.let { d -> LocalDate.ofEpochDay(d) }, it.lent)
+            loans = dao.loanInstallments().let { all ->
+                val byLoan = all.groupBy { it.loanId }
+                dao.loans().filter { !it.closed && (it.lent || it.recordedIncome || it.countInBudget) }.flatMap { l ->
+                    // One line per unpaid instalment, so every future month shows its own repayment.
+                    byLoan[l.id].orEmpty().filter { it.remaining >= 0.005 }.map { PlanLoan(l.person, it.remaining, LocalDate.ofEpochDay(it.dueDay), l.lent) }
+                }
             },
         )
         val projected = MonthPlanner.project(input, nowYm, future + 1).associateBy { it.ym }
@@ -926,6 +1021,84 @@ class Repo private constructor(private val app: Context) {
         }
     }
 
+    // ---------- Favourites (add sheet chips) ----------
+
+    private suspend fun setting(key: String): String = dao.settings().firstOrNull { it.key == key }?.value.orEmpty()
+
+    /** Up to 6 chips: what you add most often in the last 60 days. Chips you removed stay removed. */
+    suspend fun favourites(today: LocalDate = LocalDate.now()): List<Favourite> {
+        val p = prefs()
+        val hidden = setting("favHidden").split('\n').filter { it.isNotEmpty() }.toSet()
+        val entries = dao.allTxns()
+            .filter { it.type == TxType.EXPENSE && it.source == Source.NONE && it.currency == p.baseCurrency }
+            .map { FavEntry(it.note, it.categoryId, it.amount, it.epochDay) }
+        return Favourites.top(entries, today.toEpochDay(), hidden)
+    }
+
+    suspend fun hideFavourite(f: Favourite) {
+        val hidden = (setting("favHidden").split('\n').filter { it.isNotEmpty() } + f.key).distinct().takeLast(100)
+        set("favHidden", hidden.joinToString("\n"))
+    }
+
+    /** One tap on a chip: a new expense dated today. Returns it so the screen can offer Undo. */
+    suspend fun addFavourite(f: Favourite, today: LocalDate = LocalDate.now()): Txn {
+        val p = prefs()
+        val t = Txn(
+            type = TxType.EXPENSE, amount = f.amount, currency = p.baseCurrency, rate = 1.0, walletId = defaultWallet(p),
+            categoryId = f.categoryId, note = f.note, epochDay = today.toEpochDay(),
+        )
+        return t.copy(id = saveTxn(t))
+    }
+
+    /** Puts back a transaction that was just deleted (same id) and redoes what deleting it reversed. For Undo. */
+    suspend fun restoreTxn(t: Txn) {
+        if (dao.txn(t.id) != null) return
+        dao.insertTxn(t)
+        when (t.source) {
+            Source.INSTALLMENT -> dao.installment(t.sourceId)?.let { dao.updateInstallment(it.copy(paid = it.paid + 1)) }
+            Source.CIRCLE -> dao.circle(t.sourceId)?.let {
+                if (t.type == TxType.INCOME) dao.updateCircle(it.copy(payoutReceived = true)) else dao.updateCircle(it.copy(paid = it.paid + 1))
+            }
+            Source.PIGGY -> piggyApply(t.sourceId, t.base)
+            Source.PIGGYOUT -> piggyApply(t.sourceId, -t.base)
+            Source.LOAN -> dao.loan(t.sourceId)?.let { l ->
+                val isRepayment = (l.lent && t.type == TxType.INCOME) || (!l.lent && t.type == TxType.EXPENSE)
+                if (isRepayment) {
+                    val repaid = l.repaid + t.amount
+                    dao.updateLoan(l.copy(repaid = repaid, closed = repaid >= l.amount - 0.001))
+                    applyToInstalments(l.id, t.amount, LocalDate.ofEpochDay(t.epochDay), t.walletId)
+                }
+            }
+        }
+        changed()
+    }
+
+    // ---------- Bank messages waiting as "ready to add" cards ----------
+
+    suspend fun smsCards(): List<SmsCard> = SmsCards.decode(setting("smsPending"))
+
+    suspend fun addSmsCard(c: SmsCard) {
+        set("smsPending", SmsCards.encode(SmsCards.add(smsCards(), c)))
+    }
+
+    suspend fun dismissSmsCard(id: Int) {
+        set("smsPending", SmsCards.encode(SmsCards.remove(smsCards(), id)))
+    }
+
+    /** The one tap that saves a card as an expense. Never called without a tap. */
+    suspend fun acceptSmsCard(c: SmsCard): Txn {
+        val p = prefs()
+        val cur = if (c.currency in p.currencies) c.currency else p.baseCurrency
+        val cat = (if (c.merchant.isNotBlank()) guessCategory(c.merchant, TxType.EXPENSE) else null) ?: p.lastCategory.takeIf { it != 0L }
+        val t = Txn(
+            type = TxType.EXPENSE, amount = c.amount, currency = cur, rate = p.rateOf(cur), walletId = defaultWallet(p),
+            categoryId = cat, note = c.merchant.trim(), epochDay = c.epochDay,
+        )
+        val saved = t.copy(id = saveTxn(t))
+        dismissSmsCard(c.id)
+        return saved
+    }
+
     /** One month of one category (or tag): its spending, last month's total, and the top-level categories to pick from. */
     data class CategoryMonth(val txns: List<Txn>, val total: Double, val previousTotal: Double, val limit: Double, val cycle: Cycle)
 
@@ -965,7 +1138,7 @@ class Repo private constructor(private val app: Context) {
         val p = prefs()
         var cycle = CycleMath.cycleFor(today, p.cycleStart)
         suspend fun total(c: Cycle) = dao.txns(c.start.toEpochDay(), c.nextStart.toEpochDay())
-            .filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && t.source != Source.LOAN && it.source != Source.LOAN }.sumOf { it.base }
+            .filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && it.source != Source.LOAN }.sumOf { it.base }
         val past = ArrayList<Double>()
         repeat(3) {
             cycle = cycle.previous(p.cycleStart)
@@ -987,7 +1160,7 @@ class Repo private constructor(private val app: Context) {
     /** Saves everything as the portable JSON file that the web app can restore too. */
     suspend fun exportJsonTo(uri: Uri) = withContext(Dispatchers.IO) {
         val text = PortableBackup.write(PortableBackup.Data(
-            dao.wallets(), dao.categories(), dao.allTxns(), dao.bills(), dao.installments(), dao.circles(), dao.loans(), dao.settings(),
+            dao.wallets(), dao.categories(), dao.allTxns(), dao.bills(), dao.installments(), dao.circles(), dao.loans(), dao.settings(), dao.loanInstallments(),
         ))
         val out = app.contentResolver.openOutputStream(uri, "wt") ?: error("Can't write to that file")
         out.use { it.write(text.toByteArray(Charsets.UTF_8)) }
@@ -999,7 +1172,7 @@ class Repo private constructor(private val app: Context) {
         val keep = dao.settings().filter { it.key !in PortableBackup.KEYS }
         db.withTransaction {
             val raw = db.openHelper.writableDatabase
-            for (t in listOf("txns", "bills", "installments", "circles", "loans", "categories", "wallets", "settings")) raw.execSQL("DELETE FROM $t")
+            for (t in listOf("txns", "bills", "installments", "circles", "loan_installments", "loans", "categories", "wallets", "settings")) raw.execSQL("DELETE FROM $t")
             d.wallets.forEach { dao.insertWallet(it) }
             d.categories.forEach { dao.insertCategory(it) }
             d.txns.forEach { dao.insertTxn(it) }
@@ -1007,6 +1180,7 @@ class Repo private constructor(private val app: Context) {
             d.installments.forEach { dao.insertInstallment(it) }
             d.circles.forEach { dao.insertCircle(it) }
             d.loans.forEach { dao.insertLoan(it) }
+            d.loanInstallments.forEach { dao.insertLoanInstallment(it) }
             (keep + d.settings).forEach { dao.put(it) }
         }
         return true

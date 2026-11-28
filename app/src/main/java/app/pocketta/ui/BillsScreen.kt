@@ -69,7 +69,7 @@ fun BillsScreen(repo: Repo, prefs: Prefs, modifier: Modifier) {
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text("left to pay this month", style = MaterialTheme.typography.bodySmall)
-                            Text(Money.short(leftThisMonth), fontWeight = FontWeight.Bold)
+                            Text(Money.short(leftThisMonth), fontWeight = FontWeight.Medium)
                         }
                     }
                     Text("Yearly and quarterly bills are spread over the months, so they never surprise you.", style = MaterialTheme.typography.bodySmall)
@@ -92,7 +92,7 @@ fun BillsScreen(repo: Repo, prefs: Prefs, modifier: Modifier) {
                         days == 0L -> Pill("today", Warn)
                         days <= 3 -> Pill("in $days d", Warn)
                     }
-                    Text((if (b.variable) "~" else "") + Money.fmt(b.amount), fontWeight = FontWeight.SemiBold)
+                    Text((if (b.variable) "~" else "") + Money.fmt(b.amount), fontWeight = FontWeight.Medium)
                     TextButton(onClick = { if (b.variable) paying = b else scope.launch { repo.payBill(b) } }) { Text("Paid") }
                 }
             }

@@ -39,7 +39,7 @@ object SummaryImage {
         val bmp = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(0f, 0f, W.toFloat(), H.toFloat(), 0xFF1F6B4F.toInt(), 0xFF0C3526.toInt(), Shader.TileMode.CLAMP)
+            shader = LinearGradient(0f, 0f, W.toFloat(), H.toFloat(), 0xFF17493A.toInt(), 0xFF0F332A.toInt(), Shader.TileMode.CLAMP)
         }
         c.drawRect(0f, 0f, W.toFloat(), H.toFloat(), bg)
 

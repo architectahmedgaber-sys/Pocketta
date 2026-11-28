@@ -229,6 +229,36 @@ export function parseQuickDay(input) {
   if (TODAYW.test(input)) return { ...parseQuick(input.replace(TODAYW, ' ')), daysAgo: 0 };
   return { ...parseQuick(input), daysAgo: 0 };
 }
+/** Same word, same key: no diacritics, one spelling of alef / teh marbuta / yeh, lower case. */
+export function normKey(s) {
+  return String(s).trim().toLowerCase().replace(/[\u064B-\u0652\u0670\u0640]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ');
+}
+const BORROW = new Set(['استلفت', 'استلف', 'اقترضت', 'اقترض', 'borrowed', 'borrow', 'استدنت']);
+const LEND = new Set(['سلفت', 'اسلفت', 'سلف', 'اقرضت', 'اقرض', 'lent', 'lend', 'loaned', 'اديت']);
+const INCOMEW = new Set(['مرتب', 'مرتبي', 'راتب', 'راتبي', 'قبضت', 'قبض', 'استلمت', 'salary', 'income', 'paycheck', 'payday', 'received']);
+const FROMW = new Set(['من', 'from']);
+const TOW = new Set(['ل', 'الى', 'to', 'لـ']);
+/** What a typed sentence means: { kind: EXPENSE | INCOME | BORROWED | LENT, amount, note, person, daysAgo, confident }.
+ *  A loan is never saved from here: the app shows the loan form with its schedule first. */
+export function parseIntent(input) {
+  const q = parseQuickDay(input);
+  const raw = q.note.split(/\s+/).filter(Boolean);
+  const words = raw.map(normKey);
+  const li = words.findIndex((w) => BORROW.has(w) || LEND.has(w));
+  const hasIncome = words.some((w) => INCOMEW.has(w)) || /got paid|paid me/i.test(q.note);
+  const base = { amount: q.amount, note: q.note, person: '', daysAgo: q.daysAgo };
+  if (li >= 0) {
+    const borrowed = BORROW.has(words[li]);
+    if (hasIncome) return { ...base, kind: 'EXPENSE', confident: false };
+    const after = raw.slice(li + 1), keys = words.slice(li + 1);
+    let person;
+    if (borrowed) { const i = keys.findIndex((k) => FROMW.has(k)); person = (i >= 0 ? after.slice(i + 1) : after).join(' '); }
+    else person = after.filter((_, i) => !TOW.has(keys[i])).join(' ');
+    return { ...base, kind: borrowed ? 'BORROWED' : 'LENT', person: person.trim(), confident: q.amount != null };
+  }
+  if (hasIncome) return { ...base, kind: 'INCOME', confident: q.amount != null };
+  return { ...base, kind: 'EXPENSE', confident: q.amount != null && !!q.note };
+}
 export function parseNumber(s) {
   if (s == null) return null;
   const t = normalizeDigits(String(s)).replace(/\s/g, '');
@@ -473,4 +503,69 @@ export function badgeFor(name, kind) {
   }
   const t = TOPICS.find(([keys]) => keys.some(hit));
   return { letter: null, color: null, emoji: t ? t[1] : KIND_EMOJI[kind] };
+}
+
+
+// ---------- Loan schedule (port of core/Loans.kt) ----------
+const cents = (x) => Math.round(x * 100) / 100;
+/** [count] monthly instalments adding up to exactly [total], on the day of [first] (clamped to month end); the rounding remainder goes on the last. */
+export function loanGenerate(total, count, first) {
+  const n = Math.max(1, Math.floor(count) || 1);
+  const each = cents(total / n);
+  const anchor = ymd(first).d;
+  return Array.from({ length: n }, (_, k) => ({ due: addMonths(first, k, anchor), amount: k === n - 1 ? cents(total - each * (n - 1)) : each }));
+}
+/** What a loan does to each month: borrowed money is income in the month it came, each instalment a commitment in its month (lent is the mirror). */
+export function loanPreview(lent, total, day, schedule, recorded = true) {
+  const ymOf = (ed) => { const { y, m } = ymd(ed); return y * 12 + m - 1; };
+  const rows = new Map();
+  const at = (ym) => { if (!rows.has(ym)) rows.set(ym, { ym, income: 0, commitment: 0 }); return rows.get(ym); };
+  if (!lent && recorded) at(ymOf(day)).income += total;
+  for (const s of schedule) { if (lent) at(ymOf(s.due)).income += s.amount; else at(ymOf(s.due)).commitment += s.amount; }
+  return [...rows.values()].sort((a, b) => a.ym - b.ym);
+}
+const instRem = (r) => Math.max(r.amount - (r.paidAmount || 0), 0);
+export const instIsPaid = (r) => instRem(r) < 0.005;
+/** Splits a payment over the oldest unpaid instalments first: { parts: [[id, amount]], left }. */
+export function loanAllocate(rows, payment) {
+  let left = payment;
+  const parts = [];
+  for (const r of rows.filter((x) => !instIsPaid(x)).sort((a, b) => a.dueDay - b.dueDay)) {
+    if (left < 0.005) break;
+    const use = Math.min(left, instRem(r));
+    parts.push([r.id, use]);
+    left -= use;
+  }
+  return { parts, left: left < 0.005 ? 0 : left };
+}
+/** Takes an amount back off the instalments, the most recently paid first (undo). */
+export function loanUnallocate(rows, amount) {
+  let left = amount;
+  const out = [];
+  for (const r of rows.filter((x) => (x.paidAmount || 0) > 0.004).sort((a, b) => b.dueDay - a.dueDay)) {
+    if (left < 0.005) break;
+    const take = Math.min(left, r.paidAmount);
+    out.push([r.id, take]);
+    left -= take;
+  }
+  return out;
+}
+export const loanNext = (rows) => rows.filter((x) => !instIsPaid(x)).sort((a, b) => a.dueDay - b.dueDay)[0] || null;
+export const instRemaining = instRem;
+
+// ---------- Cloud sync decision (port of core/SyncDecision.kt) ----------
+/** What a sync should do: { action: NOTHING | UPLOAD | APPLY_CLOUD | MARK_SYNCED | ASK_CONFLICT, newest?: 'local' | 'cloud' }.
+ *  Only ASK_CONFLICT asks: both sides differ and nothing is merged. [remembered] ('local' | 'cloud') is an answer already given for exactly these two copies. */
+export function syncDecision(f) {
+  const conflict = () => {
+    if (f.remembered === 'local') return { action: 'UPLOAD' };
+    if (f.remembered === 'cloud') return { action: 'APPLY_CLOUD' };
+    return { action: 'ASK_CONFLICT', newest: (f.localAt || 0) >= (f.cloudAt || 0) ? 'local' : 'cloud' };
+  };
+  if (!f.cloudExists) return { action: f.localEmpty ? 'NOTHING' : 'UPLOAD' };
+  if (!f.syncedBefore) return f.localEmpty ? { action: 'APPLY_CLOUD' } : f.sameContent ? { action: 'MARK_SYNCED' } : conflict();
+  if (f.localChanged && f.cloudChanged) return f.sameContent ? { action: 'MARK_SYNCED' } : conflict();
+  if (f.localChanged) return { action: 'UPLOAD' };
+  if (f.cloudChanged) return { action: 'APPLY_CLOUD' };
+  return { action: 'NOTHING' };
 }

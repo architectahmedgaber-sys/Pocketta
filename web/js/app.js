@@ -10,7 +10,7 @@ import * as Sync from './sync.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.22.1';
+const VERSION = '1.23.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -29,9 +29,10 @@ const ICON = {
 };
 const icon = (n, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path d="${ICON[n]}" fill="currentColor"/></svg>`;
 
-const TABS = [['home', 'Today'], ['spend', 'Spending'], ['assistant', 'Miqrish'], ['commit', 'Commitments'], ['more', 'More']];
+// Four tabs; the gold add button sits in the middle of the bar. Miqrish (the assistant) is opened from Today.
+const TABS = [['home', 'Today'], ['spend', 'Month'], ['commit', 'Commitments'], ['more', 'More']];
 // Pages that draw their own top bar (so they are not wrapped in the usual page container).
-const SELF_WRAPPED = new Set(['more', 'assistant']);
+const SELF_WRAPPED = new Set(['more']);
 
 // ---------- UI state ----------
 
@@ -39,7 +40,7 @@ const ui = {
   stack: [{ r: 'home' }],
   spendOffset: 0, spendFilter: null, spendSearch: '',
   commitTab: 0, catKind: 'EXPENSE',
-  details: false, quickText: '', quickHint: false, quickSaved: null, heroShown: 0, hideGuide: false,
+  details: false, more: false, quickText: '', quickHint: false, quickSaved: null, heroShown: 0, hideGuide: false,
   conv: { amount: '1', from: 'USD', to: '' },
   plan: { price: '', cat: null, pct: 20 },
   locked: false, hiddenAt: 0,
@@ -86,15 +87,31 @@ const checked = (root, name) => !!$(`[name="${name}"]`, root)?.checked;
 
 function toast(msg, ms = 3200) {
   const t = $('#toast');
+  t.classList.remove('act'); ui.undoFn = null;
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toast.t);
   toast.t = setTimeout(() => t.classList.remove('show'), ms);
 }
 
+/** "Saved · Undo" for 5 seconds, instead of asking "are you sure?". fn must put everything back. */
+function toastUndo(msg, fn, ms = 5000) {
+  const t = $('#toast');
+  ui.undoFn = fn;
+  t.innerHTML = `<span>${esc(msg)}</span> · <button class="toast-undo" data-act="toast-undo">Undo</button>`;
+  t.classList.add('show', 'act');
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { t.classList.remove('show', 'act'); ui.undoFn = null; }, ms);
+}
+/** Runs a payment and offers Undo for it. */
+function payWithUndo(msg, fn) {
+  const undo = R.trackPay(fn);
+  if (undo.txnIds.length || undo.bills.length) toastUndo(msg, () => R.undoPayGroup(undo)); else toast(msg);
+}
+
 // ---------- Sheets (dialogs) ----------
 
-function sheet({ title, body, saveLabel = 'Save', onSave, onDelete, deleteLabel = 'Delete', extra = '', onClose }) {
+function sheet({ title, body, saveLabel = 'Save', onSave, onDelete, deleteLabel = 'Delete', extra = '', onClose, onOpen }) {
   const el = document.createElement('div');
   el.className = 'scrim';
   el.innerHTML = `<div class="sheet" role="dialog" aria-label="${esc(title)}">
@@ -109,6 +126,7 @@ function sheet({ title, body, saveLabel = 'Save', onSave, onDelete, deleteLabel 
   document.body.appendChild(el);
   document.body.classList.add('noscroll');
   requestAnimationFrame(() => el.classList.add('open'));
+  if (onOpen) onOpen(el);
   const close = () => { el.classList.remove('open'); document.body.classList.remove('noscroll'); setTimeout(() => el.remove(), 200); if (onClose) onClose(); };
   el.addEventListener('click', (e) => {
     if (e.target === el) return close();
@@ -174,9 +192,10 @@ function render() {
   const pages = { home, spend, commit, more, add, income, tagsPage, tagDetail, catMonth, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage, monthPlanPage, assistant: assistantPage };
   const page = pages[c.r === 'currencies' ? 'currencyPage' : c.r] || home;
   if (isTab(c.r)) {
-    const tabIcon = (r) => (r === 'assistant' ? '<span class="coin">🪙</span>' : icon(r));
+    const tabBtn = ([r, l]) => `<button class="tab ${c.r === r ? 'on' : ''}" data-act="tab" data-r="${r}"><span class="ti">${icon(r)}</span><span>${esc(l)}</span></button>`;
+    const addBtn = `<button class="tab add" data-act="open" data-r="add" aria-label="Add"><span class="ti">${icon('add')}</span><span>Add</span></button>`;
     app.innerHTML = (SELF_WRAPPED.has(c.r) ? page(c) : `<main class="page wide">${page(c)}</main>`) +
-      `<nav class="tabs">${TABS.map(([r, l]) => `<button class="tab ${r === 'assistant' ? 'center' : ''} ${c.r === r ? 'on' : ''}" data-act="tab" data-r="${r}"><span class="ti">${tabIcon(r)}</span><span>${esc(l)}</span></button>`).join('')}</nav>`;
+      `<nav class="tabs">${tabBtn(TABS[0])}${tabBtn(TABS[1])}${addBtn}${tabBtn(TABS[2])}${tabBtn(TABS[3])}</nav>`;
   } else {
     app.innerHTML = page(c);
   }
@@ -191,14 +210,14 @@ function topbar(title, actions = '') {
 
 // ---------- Today ----------
 
-const CHART_COLORS = ['#1F6B4F', '#C2571A', '#2B5FB0', '#8E3B8C', '#E8A33D', '#00687A', '#B3261E', '#6D7B74'];
+const CHART_COLORS = ['#17493A', '#C2571A', '#2B5FB0', '#8E3B8C', '#E8A33D', '#00687A', '#B3261E', '#6D7B74'];
 const isDark = () => document.documentElement.dataset.theme === 'dark' || (document.documentElement.dataset.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
 function applyTheme() {
   const t = R.S().theme;
   const el = document.documentElement;
   if (t === 'DARK') el.dataset.theme = 'dark'; else if (t === 'LIGHT') el.dataset.theme = 'light'; else delete el.dataset.theme;
   const dark = isDark();
-  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', dark ? '#0f1512' : '#1F6B4F'));
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', dark ? '#0b100e' : '#17493a'));
 }
 
 function home() {
@@ -207,10 +226,9 @@ function home() {
   const b = s.budget;
   const cur = base();
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !navigator.standalone;
-  const over = b.flexLeft < 0;
-  const spentPct = Math.round(b.flexSpentFraction * 100), monthPct = Math.round(b.elapsedFraction * 100);
-  // Green while you spend slower than the month passes, amber when you are ahead of it, red when the flexible money is gone.
-  const tone = over ? 'red' : b.flexSpentFraction > b.elapsedFraction + 0.1 ? 'amber' : 'green';
+  const over = b.leftToday < 0;
+  const spentToday = (s.days.find((d) => d[0] === s.today) || [0, 0])[1];
+  const usedPct = b.dailyAllowance > 0 ? Math.min(100, Math.round(spentToday / b.dailyAllowance * 100)) : 0;
   let html = `<div class="head"><div class="grow"><h1 class="title">${C.fmtMonth(s.cycle.end)}</h1><div class="small">${b.daysLeft} days left in this month</div></div>
     <button class="icon-btn emoji" data-act="toggle-theme" aria-label="Night mode">${isDark() ? '☀️' : '🌙'}</button>
     <button class="icon-btn" data-act="open" data-r="more" aria-label="Settings and more">${icon('settings')}</button></div>`;
@@ -225,32 +243,17 @@ function home() {
   if (b.budget <= 0 && s.salaryExpected <= 0) {
     html += card(`<b>Add your salary to see how much you can spend</b><div class="small">Tap here to set it</div>`, 'tap', 'data-act="open" data-r="income"');
   }
-  // The one question: how much is left for everyday spending after the commitments?
-  html += card(`<div class="hero-t">${over ? 'Over the flexible amount' : 'Left for flexible spending'}</div>
-    <div class="hero-n"><span id="hero-amt" data-v="${Math.abs(b.flexLeft)}">${money(Math.abs(b.flexLeft))}</span><span class="hero-c"> ${esc(cur)}</span></div>
-    <div class="hero-s">of ${money(Math.max(b.flexTotal, 0))} left after commitments${b.household > 0 ? ' and household shopping' : ''}</div>
-    <div class="hero-row"><span>Month passed</span><b>${monthPct}%</b></div><div class="bar hero-bar"><i style="width:${monthPct}%"></i></div>
-    <div class="hero-row"><span>Flexible money spent</span><b>${spentPct}%</b></div><div class="bar hero-bar"><i style="width:${spentPct}%"></i></div>`, `hero ${tone}`);
-  html += streakCard(s);
-  html += quickCard();
-  html += converterCard();
-  html += planEntryCard();
-  html += wealthEntry();
-  html += gameyaCards(s);
-  html += weekCard(s);
-  html += limitCard(s);
-  html += piggyAutoCard();
-  html += monthEndCard(s);
-  html += goalCard();
-  const sp = b.spentFraction, cm = b.committedFraction, rest = Math.max(1 - sp - cm, 0);
-  html += card(`<div class="row-flex"><b class="grow">This month</b><span class="small">${money(b.left)} left of ${money(b.budget)} ${esc(cur)}</span></div>
-    <div class="seg3"><i style="flex:${sp};background:${b.left < 0 ? 'var(--error)' : 'var(--primary)'}"></i><i style="flex:${cm};background:var(--warn)"></i><i style="flex:${rest};background:var(--variant)"></i></div>
-    <div class="legend"><span><i style="background:var(--primary)"></i>Spent</span><span><i style="background:var(--warn)"></i>Still to pay</span><span><i style="background:var(--outline)"></i>Free</span></div>`);
+  // The one big thing: how much can I spend today?
+  html += card(`<div class="hero-t">${over ? "Over today's amount" : 'Spend today'}</div>
+    <div class="hero-n"><span id="hero-amt" data-v="${Math.abs(b.leftToday)}">${money(Math.abs(b.leftToday))}</span><span class="hero-c"> ${esc(cur)}</span></div>
+    <div class="bar hero-bar"><i style="width:${usedPct}%"></i></div>
+    <div class="hero-s">${b.daysLeft} days left · commitments already deducted</div>`, `hero ${over ? 'red' : 'green'}`);
+  html += `<div class="mini3">${card(`<span class="small">Income</span><b>${money(s.income + s.salaryExpected)}</b>`)}${card(`<span class="small">Commitments</span><b>${money(b.committed)}</b>`)}${card(`<span class="small">Remaining</span><b class="${b.left < 0 ? 'bad-t' : ''}">${money(b.left)}</b>`)}</div>`;
   html += startGuide(s);
   if (s.upcoming.length) {
     const list = s.upcoming.slice(0, 3);
     ui.homeUpcoming = list;
-    html += card(label('Coming up') + list.map((u, i) => {
+    html += card(label('Coming soon') + list.map((u, i) => {
       const late = u.due < s.today;
       const can = u.due <= s.today + 3;
       return `<div class="row-flex line"><div class="grow"><div class="ellipsis">${esc(u.title)}</div><div class="small ${late ? 'bad-t' : ''}">${late ? 'Late · ' : ''}${C.fmtDay(u.due)}</div></div>
@@ -258,8 +261,25 @@ function home() {
         ${can ? `<button class="btn text" data-act="pay-up" data-i="${i}">${u.incoming ? 'Got it' : 'Paid'}</button>` : ''}</div>`;
     }).join('') + `<div class="small">Amounts in ${esc(cur)}</div>`);
   }
-  html += `<button class="btn text" data-act="toggle-details">${ui.details ? 'Hide details' : 'Show details (forecast, days, how it is calculated)'}</button>`;
-  if (ui.details) {
+  const recent = R.data.txns.filter((t) => s.cycle.contains(t.epochDay)).sort((a, b2) => b2.epochDay - a.epochDay || b2.createdAt - a.createdAt).slice(0, 5);
+  if (recent.length) html += card(`<div class="row-flex"><div class="grow">${label('Last transactions')}</div><button class="btn text" data-act="tab" data-r="spend">All ›</button></div>` + recent.map(txnRow).join(''));
+  // Everything else lives below the fold.
+  html += `<button class="btn text" data-act="toggle-more">${ui.more ? 'Hide extras' : 'More: insights, converter, goals, details'}</button>`;
+  if (ui.more) {
+    html += streakCard(s);
+    html += quickCard();
+    html += converterCard();
+    html += planEntryCard();
+    html += wealthEntry();
+    html += gameyaCards(s);
+    html += weekCard(s);
+    html += limitCard(s);
+    html += piggyAutoCard();
+    html += monthEndCard(s);
+    html += goalCard();
+    html += `<button class="btn text" data-act="toggle-details">${ui.details ? 'Hide details' : 'Show details (forecast, days, how it is calculated)'}</button>`;
+  }
+  if (ui.more && ui.details) {
     html += card(`<div class="row-flex"><div class="grow">${label('Month-end forecast')}<div class="mid">${money(b.forecastSpend)} ${esc(cur)}</div></div>
       ${b.forecastDiff >= 0 ? pill(`${money(b.forecastDiff)} under`, 'good') : pill(`${money(-b.forecastDiff)} over`, 'bad')}</div>`);
     if (s.days.length) html += card(label('This month, day by day') + dayBars(s));
@@ -272,7 +292,7 @@ function home() {
       line('Still to pay this month', '−' + money(b.committed)) +
       line('Left', money(b.left), true));
   }
-  return html + '<div class="spacer"></div>' + fab('Add expense', 'open', 'data-r="add"');
+  return html + '<div class="spacer"></div>' + `<button class="fab-ai" data-act="open" data-r="assistant" aria-label="Miqrish">🪙</button>`;
 }
 
 function dayBars(s) {
@@ -294,7 +314,7 @@ function quickCard() {
       <button class="btn filled" data-act="qa-add">Add</button></div>
     ${ui.quickHint ? `<div class="small bad-t">Type what you spent, with the amount</div>` : ''}
     ${saved ? `<div class="row-flex"><b class="grow good-t">✓ Saved ${esc(saved.text)}</b><button class="btn text" data-act="qa-undo">Undo</button></div>` : ''}
-    ${sug.length && !saved ? `<div class="small">One tap to add again</div><div class="chips">${sug.map((g, i) => `<button class="chip" data-act="qa-chip" data-i="${i}">${esc(g.note)} ${C.fmt(g.amount)}</button>`).join('')}</div>` : ''}`);
+    ${sug.length && !saved ? `<div class="small">Your usual: tap to add, hold to remove</div><div class="chips">${sug.map((g, i) => `<button class="chip" data-act="qa-chip" data-i="${i}">${esc(g.note)} ${C.fmt(g.amount)}</button>`).join('')}</div>` : ''}`);
 }
 function quickAdd(note, amount, daysAgo) {
   const t = R.quickExpense(note, amount, daysAgo);
@@ -307,9 +327,18 @@ function quickAdd(note, amount, daysAgo) {
   checkOverBudget();
 }
 function quickSubmit() {
-  const q = C.parseQuickDay(ui.quickText);
+  const q = C.parseIntent(ui.quickText);
   if (!(q.amount > 0)) { ui.quickHint = true; render(); return; }
   ui.quickText = '';
+  // A loan is never saved from a sentence: the form opens with the repayment schedule first.
+  if (q.kind === 'BORROWED' || q.kind === 'LENT') { render(); return newLoan({ dir: q.kind, person: q.person, amount: q.amount }); }
+  if (q.kind === 'INCOME') {
+    const cat = R.guessCategory(q.note, 'INCOME');
+    if (!cat) { ui.quickText = ''; return go('add', { type: 'INCOME' }); }
+    const t = R.saveTxn({ type: 'INCOME', amount: q.amount, categoryId: cat, note: q.note, epochDay: C.todayEpoch() - q.daysAgo });
+    render();
+    return toastUndo(`Saved ${C.fmt(q.amount)} income`, () => { const x = R.byId(R.data.txns, t.id); if (x) R.deleteTxn(x); });
+  }
   quickAdd(q.note, q.amount, q.daysAgo);
 }
 
@@ -594,6 +623,7 @@ function spendData() {
   const s = R.S();
   let cycle = C.cycleFor(C.todayEpoch(), s.cycleStart);
   for (let i = 0; i < ui.spendOffset; i++) cycle = C.previousCycle(cycle, s.cycleStart);
+  for (let i = 0; i > ui.spendOffset; i--) cycle = C.cycleFor(cycle.nextStart, s.cycleStart);
   const txns = R.data.txns.filter((t) => cycle.contains(t.epochDay));
   return { cycle, txns };
 }
@@ -617,8 +647,9 @@ function spend() {
   ui.shareData = { month: `${C.fmtMonth(cycle.end)} ${C.ymd(cycle.end).y}`, currency: base(), spent, income, previousSpent: prevExp.reduce((a, t) => a + R.base(t), 0), categories: perList.map(([k, v]) => [nameOf(k), v]) };
   let html = `<div class="month-nav"><button class="icon-btn" data-act="spend-prev" aria-label="Previous month">${icon('left')}</button>
     <div class="center"><div class="mid">${C.fmtMonth(cycle.end)} ${C.ymd(cycle.end).y}</div><div class="small">${C.fmtDay(cycle.start)} → ${C.fmtDay(cycle.end)}</div></div>
-    <button class="icon-btn" data-act="spend-next" ${ui.spendOffset === 0 ? 'disabled' : ''} aria-label="Next month">${icon('right')}</button>
+    <button class="icon-btn" data-act="spend-next" ${ui.spendOffset <= -3 ? 'disabled' : ''} aria-label="Next month">${icon('right')}</button>
     ${spent > 0 ? `<button class="btn text" data-act="share-month">Share</button>` : ''}</div>
+    ${monthSummary(cycle)}
     <div class="two">${card(label('Spent') + `<div class="big">${money(spent)}</div>`)}${card(label('Income') + `<div class="big good-t">${money(income)}</div>`)}</div>
     ${saved > 0 ? card(label('Put in piggy bank') + `<div class="big piggy-t">🐷 ${money(saved)}</div><div class="small">Counted against what is left, but not as everyday spending.</div>`) : ''}`;
   if (perList.length) {
@@ -639,7 +670,32 @@ function spend() {
     }).join(''));
   }
   html += `<div class="pad"><input class="search" id="spend-search" type="search" placeholder="Search notes and categories" value="${esc(ui.spendSearch)}"></div>
-    <div id="spend-list">${spendList(txns)}</div><div class="spacer"></div>` + fab('Add expense', 'open', 'data-r="add"');
+    <div id="spend-list">${spendList(txns)}</div><div class="spacer"></div>`;
+  return html;
+}
+
+/** Income against commitments for a month, then every income and commitment of that month by date. */
+function monthSummary(cycle) {
+  const { out } = commitItems(-ui.spendOffset);
+  const items = out.slice();
+  for (const t of R.data.txns) if (t.type === 'INCOME' && t.source === 'LOAN' && cycle.contains(t.epochDay)) {
+    items.push({ kind: 'LOAN', refId: t.sourceId, name: t.note || 'Loan', sub: 'Borrowed', amount: R.base(t), date: t.epochDay, paid: true, incoming: true });
+  }
+  items.sort((a, b) => a.date - b.date || (a.paid ? 1 : 0) - (b.paid ? 1 : 0));
+  const income = items.filter((i) => i.incoming).reduce((a, i) => a + i.amount, 0);
+  const commits = items.filter((i) => !i.incoming).reduce((a, i) => a + i.amount, 0);
+  const left = items.filter((i) => !i.incoming && !i.paid).reduce((a, i) => a + i.amount, 0);
+  const today = C.todayEpoch();
+  let html = card(label(ui.spendOffset < 0 ? 'Planned for this month' : 'Income and commitments') +
+    `<div class="mini3" style="gap:8px"><div><div class="small">Income</div><b class="good-t">${money(income)}</b></div><div><div class="small">Commitments</div><b>${money(commits)}</b></div><div><div class="small">Still to pay</div><b>${money(left)}</b></div></div>`);
+  if (items.length) {
+    html += card(label('Timeline') + items.map((i) => {
+      const late = !i.paid && !i.incoming && i.date < today;
+      return `<div class="tl-row"><span class="tl-d">${C.fmtDay(i.date)}</span><div class="grow"><div class="ellipsis">${esc(i.name)}</div><div class="small ${late ? 'bad-t' : ''}">${late ? 'Late · ' : ''}${esc(i.sub)}</div></div>
+        <b class="${i.incoming ? 'good-t' : ''}">${i.incoming ? '+' : ''}${money(i.amount)}</b><span class="${i.paid ? 'good-t' : 'muted'}">${i.paid ? '✓' : '○'}</span></div>`;
+    }).join(''));
+  }
+  html += `<div class="link-row"><button class="btn text" data-act="open" data-r="monthPlanPage">Month plan ›</button><button class="btn text" data-act="open" data-r="goalsPage">Goals ›</button><button class="btn text" data-act="open" data-r="piggyPage">Piggy bank ›</button></div>`;
   return html;
 }
 
@@ -855,15 +911,20 @@ function add(c) {
   const today = C.todayEpoch();
   const otherDay = st.showDate || (st.date !== today && st.date !== today - 1);
   const recent = !editing && st.type === 'EXPENSE' ? R.recentItems() : [];
+  const favs = !editing && st.type === 'EXPENSE' ? R.suggestions() : [];
+  const showPad = editing || st.pad || piggy || st.type === 'TRANSFER';
   const goals = [[-1, 'General piggy bank']].concat(s.goalAmount > 0 ? [[0, s.goalName || 'My goal']] : [], (s.goals || []).map((g) => [g.id, g.name]));
   return `${topbar(title, editing ? `<button class="icon-btn" data-act="del-txn" aria-label="Delete">${icon('del')}</button>` : '')}
   <main class="page form" id="add">
     ${editing?.source ? `<p class="small">This was recorded from a bill, installment, gam'eya, loan or your piggy bank.</p>` : ''}
+    ${favs.length ? `<div class="small">Your usual: tap to add, hold to remove</div><div class="chips favs">${favs.map((g, i) => `<button type="button" class="chip" data-act="fav-add" data-i="${i}">${esc(g.note)} ${C.fmt(g.amount)}</button>`).join('')}</div>` : ''}
+    ${piggy ? '' : field('note', editing ? (income ? 'What is it?' : 'What did you buy?') : 'Type it', st.noteField, { ph: editing ? '' : 'koshary 60 · salary 9000 · lent Sam 500' })}
+    <div class="small" id="intent"></div>
     ${chips('type', types, st.type, 'seg')}
     <div class="amount" id="amt"></div><div class="small" id="qnote"></div>
-    <label class="field"><span>Amount</span>
-      <div class="input-wrap"><input id="quick" name="quick" value="${esc(st.input)}" placeholder="0" autocomplete="off" enterkeyhint="next" inputmode="decimal"></div></label>
-    ${piggy ? '' : field('note', income ? 'What is it?' : 'What did you buy?', st.noteField, { ph: income ? 'salary, side work…' : 'koshary, coffee…' })}
+    ${showPad ? `<label class="field"><span>Amount</span>
+      <div class="input-wrap"><input id="quick" name="quick" value="${esc(st.input)}" placeholder="0" autocomplete="off" enterkeyhint="next" inputmode="decimal"></div></label>`
+      : `<input id="quick" name="quick" type="hidden" value="${esc(st.input)}"><button type="button" class="btn outline wide" data-act="show-pad">Amount keypad</button>`}
     ${recent.length ? `<div class="small">Bought before: tap one</div><div class="chips recent">${recent.map((r, i) => `<button type="button" class="chip" data-act="recent-pick" data-i="${i}">${esc(r.note)} · ${C.fmt(r.amount)}</button>`).join('')}</div>` : ''}
     <div id="cats"></div>
     <div id="borrow"></div>
@@ -907,11 +968,20 @@ function addRefresh() {
   const st = c.st;
   const root = $('#add');
   if (!root) return;
-  const q = C.parseQuick(st.input);
+  const q0 = C.parseQuick(st.input);
+  // Typing a sentence in the first field works too: "koshary 60", "salary 9000", "borrowed 3000 from Sam".
+  const si = st.type === 'PIGGY' ? null : C.parseIntent(st.noteField);
+  const q = q0.amount != null ? q0 : { amount: si?.amount ?? null, note: q0.note };
   $('#amt').textContent = `${q.amount != null ? C.fmt(q.amount) : '0'} ${st.currency}`;
   $('#amt').classList.toggle('muted', q.amount == null);
-  $('#qnote').textContent = q.note && !st.noteField ? `Note: ${q.note}` : '';
-  const itemName = st.noteField.trim() || q.note;
+  $('#qnote').textContent = q0.note && !st.noteField ? `Note: ${q0.note}` : '';
+  const hint = $('#intent');
+  if (hint) {
+    const loan = !c.id && !st.typeHand && si && (si.kind === 'BORROWED' || si.kind === 'LENT');
+    hint.textContent = !st.noteField.trim() || c.id ? '' : loan ? (si.kind === 'BORROWED' ? 'A loan: you borrowed. You will see the repayment schedule before anything is saved.' : 'A loan: you lent. You will see the repayment schedule before anything is saved.')
+      : si && !si.confident && q.amount == null ? 'Add an amount, for example: coffee 30' : si && !si.confident ? 'Not sure what this is: pick the type and category below.' : '';
+  }
+  const itemName = (si && q0.amount == null ? si.note : st.noteField.trim()) || q0.note;
   if (!st.byHand && itemName && st.type !== 'TRANSFER' && st.type !== 'PIGGY') {
     const g = R.guessCategory(itemName, st.type);
     if (g) { st.categoryId = g; const cat = R.byId(R.data.categories, g); st.parentId = cat.parentId ?? cat.id; }
@@ -941,6 +1011,14 @@ function saveTxn() {
   const st = c.st;
   const root = $('#add');
   st.noteField = val(root, 'note');
+  // A sentence can mean income or a loan. A loan always opens its form with the schedule first.
+  if (!c.id && !st.typeHand && st.type === 'EXPENSE' && st.noteField.trim()) {
+    const si = C.parseIntent(st.noteField);
+    const pq = C.parseQuick(st.input);
+    const amt = pq.amount ?? si.amount;
+    if ((si.kind === 'BORROWED' || si.kind === 'LENT') && amt > 0) { back(); return newLoan({ dir: si.kind, person: si.person, amount: amt }); }
+    if (si.kind === 'INCOME' && si.confident) { st.type = 'INCOME'; st.categoryId = R.guessCategory(si.note, 'INCOME'); st.byHand = false; if (!st.categoryId) { st.parentId = null; toast('Pick a category'); return render(); } }
+  }
   if (st.type === 'PIGGY') {
     const pq = C.parseQuick(st.input);
     if (!(pq.amount > 0)) return toast('Type an amount first');
@@ -949,21 +1027,27 @@ function saveTxn() {
     return back();
   }
   if (st.isBorrowed) { st.person = val(root, 'person'); st.due = C.fromIso(val(root, 'due')); }
-  const q = C.parseQuick(st.input);
-  const amount = q.amount;
-  const note = st.noteField.trim() || q.note;
+  const q0 = C.parseQuick(st.input);
+  const sq = q0.amount == null && st.noteField.trim() ? C.parseIntent(st.noteField) : null;
+  const amount = q0.amount ?? sq?.amount ?? null;
+  const note = (sq ? sq.note : st.noteField.trim()) || q0.note;
   if (!(amount > 0)) return toast('Type an amount first');
   if (st.type !== 'TRANSFER' && !st.categoryId) return toast('Pick a category');
   if (st.isBorrowed && !st.person.trim()) return toast('Who did you borrow from?');
   if (st.isBorrowed) {
     R.addLoan({ person: st.person.trim(), lent: false, amount: amount * R.rateOf(st.currency), walletId: 0, day: st.date, due: st.due, note });
   } else {
-    R.saveTxn({
+    const oldCopy = c.id ? { ...R.byId(R.data.txns, c.id) } : null;
+    const saved = R.saveTxn({
       ...(c.id ? { id: c.id } : {}), type: st.type, amount, currency: st.currency, rate: R.rateOf(st.currency), walletId: st.walletId || 0,
       toWalletId: st.type === 'TRANSFER' ? st.toWalletId : null, tags: parseTags(val(root, 'tags')),
       ...($('[data-group="need"]', root) ? { need: chipVal(root, 'need') || '' } : {}), ...($('[data-group="how"]', root) ? { how: chipVal(root, 'how') || '' } : {}), ...($('[name="where"]', root) ? { where: val(root, 'where').trim() } : {}), categoryId: st.type === 'TRANSFER' ? null : st.categoryId, note, epochDay: st.date,
     });
     if (st.type === 'EXPENSE' && !c.id) checkOverBudget();
+    back();
+    // Undo puts it back the way it was: a new entry is removed, an edited one gets its old values.
+    if (saved) toastUndo('Saved', () => { if (oldCopy) R.saveTxn(oldCopy); else { const x = R.byId(R.data.txns, saved.id); if (x) R.deleteTxn(x); } });
+    return;
   }
   back();
 }
@@ -1124,9 +1208,14 @@ function commitItems(off = 0) {
       push({ kind: 'CIRCLE', refId: c.id, name: c.name, sub: `Gam'eya · ${c.paid + idx + 1} of ${c.months}`, amount: c.share, date: d, payable: idx === 0 && off === 0 }));
   }
   for (const l of off < 0 ? [] : R.data.loans) {
-    if (l.closed || l.dueDay == null || l.dueDay >= cycle.nextStart || l.dueDay < lo) continue;
+    if (l.closed) continue;
     const lent = l.direction === 'LENT';
-    push({ kind: 'LOAN', refId: l.id, name: l.person, sub: lent ? 'They owe you' : 'You owe', amount: R.remaining(l), date: l.dueDay, incoming: lent });
+    if (!lent && !R.loanRecorded(l) && l.countInBudget === false) continue;
+    const rows = R.loanRows(l.id), done = rows.filter(C.instIsPaid).length;
+    rows.filter((r) => !C.instIsPaid(r)).forEach((r, k) => {
+      if (r.dueDay >= cycle.nextStart || r.dueDay < lo) return;
+      push({ kind: 'LOAN', refId: l.id, name: l.person, sub: rows.length > 1 ? `${done + k + 1} of ${rows.length}` : lent ? 'They owe you' : 'You owe', amount: C.instRemaining(r), date: r.dueDay, incoming: lent });
+    });
   }
   const inCycle = R.data.txns.filter((t) => cycle.contains(t.epochDay));
   for (const t of inCycle) {
@@ -1548,29 +1637,65 @@ function circleEditor(c) {
 
 function loansTab() {
   const today = C.todayEpoch();
+  const cycle = C.cycleFor(today, R.S().cycleStart || 1);
+  const iOweTab = ui.loanTab !== 'owed';
   const loans = [...R.data.loans].sort((a, b) => (a.closed - b.closed) || b.epochDay - a.epochDay);
   const owedToMe = loans.filter((l) => l.direction === 'LENT' && !l.closed).reduce((a, l) => a + R.remaining(l), 0);
   const iOwe = loans.filter((l) => l.direction !== 'LENT' && !l.closed).reduce((a, l) => a + R.remaining(l), 0);
-  let html = `<div class="two">${card(label('They owe you') + `<div class="big good-t">${money(owedToMe)}</div>`)}${card(label('You owe') + `<div class="big bad-t">${money(iOwe)}</div>`)}</div>`;
-  if (!loans.length) html += `<p class="empty">No loans. Money you lend or borrow shows up here.</p>`;
-  html += loans.map((l) => {
+  const shown = loans.filter((l) => (l.direction !== 'LENT') === iOweTab);
+  const thisMonth = shown.filter((l) => !l.closed).reduce((a, l) => a + R.loanRows(l.id).filter((r) => !C.instIsPaid(r) && r.dueDay < cycle.nextStart).reduce((x, r) => x + C.instRemaining(r), 0), 0);
+  let html = `<div class="chips seg">${[['owe', 'I owe'], ['owed', 'Owed to me']].map(([v, l]) => `<button type="button" class="chip ${(iOweTab ? 'owe' : 'owed') === v ? 'on' : ''}" data-act="loan-tab" data-v="${v}">${esc(l)}</button>`).join('')}</div>` +
+    `<div class="two">${card(label(iOweTab ? 'Total I owe' : 'Total owed to me') + `<div class="big ${iOweTab ? 'bad-t' : 'good-t'}">${money(iOweTab ? iOwe : owedToMe)}</div>`)}${card(label('This month') + `<div class="big">${money(thisMonth)}</div>`)}</div>`;
+  if (!shown.length) html += `<p class="empty">No loans. Money you lend or borrow shows up here.</p>`;
+  html += shown.map((l) => {
     const lent = l.direction === 'LENT';
-    let sub = `${lent ? 'Lent' : 'Borrowed'} ${C.fmtDay(l.epochDay)}`;
-    if (l.repaid > 0) sub += ` · paid ${C.fmt(l.repaid)} of ${C.fmt(l.amount)}`;
-    if (l.dueDay != null && !l.closed) sub += ` · by ${C.fmtDay(l.dueDay)}`;
-    if (l.note) sub += ` · ${l.note}`;
-    const p = l.closed ? pill('settled', 'good') : l.dueDay != null && l.dueDay < today ? pill('late', 'bad') : '';
-    const cls = l.closed ? 'muted' : lent ? 'good-t' : 'bad-t';
-    return row(l.person, sub, { icon: l.person, act: 'open-loan', data: `data-id="${l.id}"`, trailing: `${p}<b class="${cls}">${lent ? '+' : '−'}${C.fmt(l.closed ? l.amount : R.remaining(l))}</b>` });
+    const rows = R.loanRows(l.id), next = C.loanNext(rows);
+    const frac = l.amount > 0 ? Math.min(l.repaid / l.amount, 1) : 0;
+    const list = l.closed ? '' : rows.map((r) => {
+      const paid = C.instIsPaid(r);
+      const p = paid ? pill('paid', 'good') : r.dueDay < today ? pill('late', 'bad') : r.dueDay < cycle.nextStart ? pill('This month', 'good') : '';
+      return `<div class="inst-row"><span>${esc(C.fmtDay(r.dueDay))}</span>${p}<b class="${paid ? 'muted' : lent ? 'good-t' : 'bad-t'}">${lent ? '+' : '−'}${C.fmt(paid ? r.amount : C.instRemaining(r))}</b></div>`;
+    }).join('');
+    return `<div class="card loan-card" data-act="open-loan" data-id="${l.id}"><div class="loan-head"><div><b>${esc(l.person)}</b><div class="small muted">${esc(`${lent ? 'Lent' : 'Borrowed'} ${C.fmtDay(l.epochDay)} · ${C.fmt(l.amount)}${l.note ? ' · ' + l.note : ''}`)}</div></div>${l.closed ? pill('settled', 'good') : rows.length > 1 ? pill(`Instalment ${rows.filter(C.instIsPaid).length + 1} of ${rows.length}`, 'good') : ''}</div>
+      <div class="bar"><i style="width:${Math.round(frac * 100)}%"></i></div>
+      <div class="small muted">${esc(`Repaid ${C.fmt(l.repaid)} · ${C.fmt(R.remaining(l))} left`)}</div>${list}
+      ${!l.closed && !rows.length ? `<p class="small">${esc('No repayment date yet. Set one so it counts in your budget.')}</p><button class="btn outline" data-act="set-repay" data-id="${l.id}">${esc('Set repayment date')}</button>` : ''}
+      ${!l.closed && next ? `<button class="btn filled" data-act="pay-loan-inst" data-id="${l.id}">${esc(lent ? 'Got the instalment' : 'I paid the instalment')}</button>` : ''}</div>`;
   }).join('');
   return html + '<div class="spacer"></div>' + fab('Loan', 'new-loan');
 }
 
-function newLoan() {
-  const body = label('Pick one first') + chips('dir', [['BORROWED', 'I borrowed money (I owe)'], ['LENT', 'I lent money (they owe me)']], '', 'seg') +
-    field('person', 'To / from whom', '') + numField('amount', 'Amount', null, { suffix: base() }) +
-    dateField('date', 'Date', C.todayEpoch()) + dateField('due', 'Pay back by (optional)', null) + field('note', 'Note (optional)', '') +
-    check('record', 'Add it to my balance too', true);
+/** The "What will happen" box: what the loan does to each month, shown before anything is saved. */
+function loanPreviewHtml(lent, total, day, schedule, recorded) {
+  const lines = C.loanPreview(lent, total, day, schedule, recorded);
+  const name = (ym) => C.fmtMonth(P.ymStart(ym));
+  let h = `<div class="notice"><b>${esc('What will happen')}</b>`;
+  if (lent && recorded) h += `<div class="bad-t">${esc(name(P.ymOf(day)) + ': −' + C.fmt(total))}</div>`;
+  for (const l of lines) {
+    if (l.income > 0) h += `<div class="good-t">${esc(`${name(l.ym)}: +${C.fmt(l.income)} ${lent ? 'coming back' : 'income'}`)}</div>`;
+    if (l.commitment > 0) h += `<div class="bad-t">${esc(`${name(l.ym)}: −${C.fmt(l.commitment)} commitment`)}</div>`;
+  }
+  if (!schedule.length) h += `<div class="small muted">${esc('No repayment date yet. You will be asked to set one.')}</div>`;
+  return h + '</div>';
+}
+
+function newLoan(pre = {}) {
+  const body = chips('dir', [['BORROWED', 'I borrowed'], ['LENT', 'I lent']], pre.dir || '', 'seg') +
+    field('person', 'Who', pre.person || '') + numField('amount', 'Amount', pre.amount ?? null, { suffix: base() }) +
+    label('Repay') + chips('mode', [['LUMP', 'One payment'], ['INST', 'Instalments']], 'LUMP', 'seg') +
+    `<div data-w="lump">${dateField('due', 'Pay back on (optional)', null)}</div>` +
+    `<div data-w="inst" hidden>${numField('count', 'Number of instalments', 3, { int: true })}${dateField('first', 'First instalment', C.addMonths(C.todayEpoch(), 1))}</div>` +
+    dateField('date', 'Date', C.todayEpoch()) + '<div data-w="preview"></div>' + field('note', 'Note (optional)', '') +
+    check('record', 'The money came to my wallet (counts as income)', true) +
+    `<div data-w="budget" hidden>${check('budget', 'Count the repayments in my budget', true)}</div>` +
+    `<p class="small muted">${esc('You can turn off recording as income if the money did not come into your wallet.')}</p>`;
+  const plan = (root) => {
+    const a = num(root, 'amount');
+    if (!(a > 0)) return [];
+    if (chipVal(root, 'mode') === 'INST') return C.loanGenerate(a, Math.max(1, Math.min(60, Math.floor(num(root, 'count')) || 1)), C.fromIso(val(root, 'first')) ?? C.todayEpoch());
+    const d = C.fromIso(val(root, 'due'));
+    return d != null ? [{ due: d, amount: a }] : [];
+  };
   sheet({
     title: 'New loan', body,
     onSave: (root) => {
@@ -1578,7 +1703,39 @@ function newLoan() {
       if (!chipVal(root, 'dir')) return 'Pick: I borrowed or I lent';
       if (!person) return 'Who is it?';
       if (!(a > 0)) return 'Type the amount';
-      R.addLoan({ person, lent: chipVal(root, 'dir') === 'LENT', amount: a, walletId: null, day: C.fromIso(val(root, 'date')) ?? C.todayEpoch(), due: C.fromIso(val(root, 'due')), note: val(root, 'note').trim(), record: checked(root, 'record') });
+      R.addLoan({ person, lent: chipVal(root, 'dir') === 'LENT', amount: a, walletId: null, day: C.fromIso(val(root, 'date')) ?? C.todayEpoch(), note: val(root, 'note').trim(), record: checked(root, 'record'), schedule: plan(root), countInBudget: checked(root, 'budget') || checked(root, 'record') });
+    },
+    onOpen: (root) => {
+      const upd = () => {
+        const lump = chipVal(root, 'mode') !== 'INST', lent = chipVal(root, 'dir') === 'LENT', rec = checked(root, 'record');
+        $('[data-w="lump"]', root).hidden = !lump; $('[data-w="inst"]', root).hidden = lump;
+        $('[data-w="budget"]', root).hidden = rec || lent;
+        const a = num(root, 'amount');
+        $('[data-w="preview"]', root).innerHTML = chipVal(root, 'dir') && a > 0 ? loanPreviewHtml(lent, a, C.fromIso(val(root, 'date')) ?? C.todayEpoch(), plan(root), rec) : '';
+      };
+      root.addEventListener('input', upd); root.addEventListener('click', () => setTimeout(upd, 0)); upd();
+    },
+  });
+}
+
+function setRepayment(l) {
+  const rem = R.remaining(l);
+  const body = chips('mode', [['LUMP', 'One payment'], ['INST', 'Instalments']], 'LUMP', 'seg') +
+    numField('count', 'Number of instalments', 3, { int: true }) + dateField('first', 'First instalment', C.addMonths(C.todayEpoch(), 1)) + '<div data-w="preview"></div>';
+  sheet({
+    title: 'Repayment date', body,
+    onSave: (root) => {
+      const first = C.fromIso(val(root, 'first'));
+      if (first == null) return 'Pick a date';
+      R.setRepayment(l, first, chipVal(root, 'mode') === 'INST' ? Math.max(1, Math.floor(num(root, 'count')) || 1) : 1);
+    },
+    onOpen: (root) => {
+      const upd = () => {
+        const first = C.fromIso(val(root, 'first'));
+        const n = chipVal(root, 'mode') === 'INST' ? Math.max(1, Math.floor(num(root, 'count')) || 1) : 1;
+        $('[data-w="preview"]', root).innerHTML = first != null ? loanPreviewHtml(l.direction === 'LENT', rem, C.todayEpoch(), C.loanGenerate(rem, n, first), false) : '';
+      };
+      root.addEventListener('input', upd); root.addEventListener('click', () => setTimeout(upd, 0)); upd();
     },
   });
 }
@@ -1588,8 +1745,8 @@ function loanDialog(l) {
   const rem = R.remaining(l);
   const msg = `Hi ${l.person}, just a friendly reminder about the ${C.fmt(rem)} ${base()}${l.dueDay != null ? ` (due ${C.fmtDay(l.dueDay)})` : ''}. Thanks!`;
   const body = `<p>${esc(lent ? `${l.person} owes you ` : `You owe ${l.person} `)}<b>${C.fmt(rem)} ${base()}</b>${l.repaid > 0 ? esc(` (paid ${C.fmt(l.repaid)} of ${C.fmt(l.amount)})`) : ''}</p>` +
-    (l.closed ? '' : numField('pay', lent ? 'Amount they paid back' : 'Amount you paid back', Math.round(rem * 100) / 100)) +
-    dateField('due', 'Pay back by', l.dueDay) +
+    (l.closed ? '' : numField('pay', lent ? 'Amount they paid back' : 'Amount you paid back', Math.round((C.loanNext(R.loanRows(l.id)) ? C.instRemaining(C.loanNext(R.loanRows(l.id))) : rem) * 100) / 100)) +
+    (R.loanRows(l.id).length ? R.loanRows(l.id).map((r) => `<p class="small">${esc(C.fmtDay(r.dueDay) + ' · ' + C.fmt(r.amount) + (C.instIsPaid(r) ? ' · paid' : ''))}</p>`).join('') : dateField('due', 'Pay back by', l.dueDay)) +
     `<details><summary class="small">Fix name or amount</summary>${field('person', 'To / from whom', l.person)}${numField('amount', 'Loan amount', l.amount, { suffix: base() })}</details>` +
     (lent && !l.closed ? `<a class="btn outline" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">Send a WhatsApp reminder</a>` : '');
   sheet({
@@ -1597,8 +1754,8 @@ function loanDialog(l) {
     onDelete: () => R.deleteLoan(l),
     onSave: (root) => {
       const due = C.fromIso(val(root, 'due'));
-      const x = R.byId(R.data.loans, l.id);
-      if (x && due !== x.dueDay) { x.dueDay = due; R.changed(); }
+      // Only a loan with no schedule gets its date here; scheduled loans change through their instalments.
+      if (!R.loanRows(l.id).length && due != null) R.setRepayment(l, due, 1);
       const person = val(root, 'person').trim(), amt = num(root, 'amount');
       if (!person) return 'Who is it?';
       if (person !== l.person || (amt > 0 && amt !== l.amount)) R.editLoan(l, { person, amount: amt > 0 ? amt : l.amount });
@@ -2000,7 +2157,8 @@ function syncCard() {
     ${i.encrypted ? '<div class="small">Encrypted on this device</div>' : ''}
     <div class="small">Last sync: ${esc(when)}</div>
     <div class="btns"><button class="btn filled" data-act="sync-now">Sync now</button><button class="btn outline" data-act="sync-out">Sign out</button></div>
-    <div class="small">If you sign out, your data stays on this device and sync stops.</div>${note}
+    <div class="small">If you sign out, your data stays on this device and sync stops.</div>
+    <label class="row-flex"><span class="grow"><b>Use cloud always</b><div class="small">On: it syncs by itself and asks only when this device and the cloud hold different data. Off: it also asks before the first upload.</div></span><input type="checkbox" data-act="cloud-always" ${i.cloudAlways ? 'checked' : ''}></label>${note}
     ${Sync.hasKeys() ? `<div class="label">Encryption</div><div class="btns"><button class="btn outline" data-act="enc-newkey">New encryption key</button></div>` : ''}
     <button class="btn text danger" data-act="sync-delete">Delete my data from the cloud</button>`;
 }
@@ -2064,7 +2222,7 @@ function syncUnlock({ bad }) {
 }
 
 /** Asked only when it is really needed: first upload, or two different copies of the same account. */
-function syncChoose({ kind, local, cloud }) {
+function syncChoose({ kind, local, cloud, newest }) {
   return new Promise((resolve) => {
     let done = false;
     const fin = (v) => { if (!done) { done = true; resolve(v); } };
@@ -2077,8 +2235,8 @@ function syncChoose({ kind, local, cloud }) {
       return el;
     }
     body = `<p>This account already has data in the cloud, and this device has different data. Pick the one you want to keep. Nothing is merged.</p>
-      <label class="pick"><input type="radio" name="keep" value="local" checked><div><b>Keep this device</b><div class="small">${esc(line(local))}${local.at ? ' · changed ' + esc(fmtAt(local.at)) : ''}<br>Replaces what is in the cloud</div></div></label>
-      <label class="pick"><input type="radio" name="keep" value="cloud"><div><b>Keep the cloud copy</b><div class="small">${esc(line(cloud))} · saved ${esc(fmtAt(cloud.at))}${cloud.device ? ' from ' + esc(cloud.device) : ''}<br>Replaces what is on this device</div></div></label>
+      <label class="pick"><input type="radio" name="keep" value="local" ${newest === 'cloud' ? '' : 'checked'}><div><b>Keep this device</b><div class="small">${esc(line(local))}${local.at ? ' · changed ' + esc(fmtAt(local.at)) : ''}<br>Replaces what is in the cloud</div></div></label>
+      <label class="pick"><input type="radio" name="keep" value="cloud" ${newest === 'cloud' ? 'checked' : ''}><div><b>Keep the cloud copy</b><div class="small">${esc(line(cloud))} · saved ${esc(fmtAt(cloud.at))}${cloud.device ? ' from ' + esc(cloud.device) : ''}<br>Replaces what is on this device</div></div></label>
       <p class="small">Before anything is replaced, a safety copy of that side is kept.</p>`;
     sheet({ title: 'Your data is different', body, saveLabel: 'Continue', onSave: (el) => { fin($('input[name=keep]:checked', el).value); }, onClose: () => fin(null) });
   });
@@ -2125,16 +2283,12 @@ function countrySheet() {
 function onboarding() {
   return `<main class="page onboard" id="onb"><h1 class="brand">Pocketta</h1>
     ${chips('lang', [['EN', 'English'], ['AR', 'العربية']], R.S().lang || 'EN', 'seg')}
-    <p>Your money for the month: what you can spend today, your bills, installments, gam'eya and loans. Everything stays on your phone.</p>
-    <div class="field"><span>${isAr() ? 'بلدك' : 'Your country'}</span><div class="small">${isAr() ? 'منها هنظبط العملة. تقدر تغيّرها بعدين من الإعدادات.' : 'We set your currency from it. You can change it later in Settings.'}</div></div>
+    <p>Four answers and you are in. Everything else is offered later, when it is useful. Your data stays on your phone.</p>
+    <div class="field"><span>${isAr() ? 'بلدك وعملتك' : 'Your country and currency'}</span></div>
     ${countrySearch()}<div class="clist" id="clist" data-sel="EG">${countryRows('EG')}</div>
     ${numField('salary', 'Monthly salary (optional)', null, { suffix: 'EGP' })}
     ${numField('salaryDay', 'Salary day of the month', 1, { int: true })}
-    ${numField('start', 'My month starts on day', 1, { int: true })}
-    <div class="small">Most people pick the day the salary arrives.</div>
-    ${numField('savings', 'Save every month (optional)', null, { suffix: 'EGP' })}
-    ${numField('balance', 'How much money do I have now? (optional)', null, { suffix: 'EGP' })}
-    <div class="small">Cash, bank and mobile wallet together.</div>
+    <div class="small">Your month starts on the salary day.</div>
     <button class="btn filled wide" data-act="start">Start</button>
     <div class="small">You can change all of this later in More.</div></main>`;
 }
@@ -2166,17 +2320,32 @@ function pinSheet() {
 
 // ---------- After render hooks ----------
 
+/** Long press on a chip removes it from "your usual" (it stays removed). */
+function holdToRemove() {
+  document.querySelectorAll('[data-act="fav-add"],[data-act="qa-chip"]').forEach((el) => {
+    let timer = null;
+    const start = () => { timer = setTimeout(() => { el.dataset.held = '1'; const g = R.suggestions()[+el.dataset.i]; if (g) { R.hideFavourite(g); toast('Removed'); } }, 600); };
+    const stop = () => clearTimeout(timer);
+    el.addEventListener('pointerdown', start); el.addEventListener('pointerup', stop); el.addEventListener('pointerleave', stop); el.addEventListener('pointercancel', stop);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  });
+}
+
 function afterRender(c) {
   if (c.r === 'add') {
     addRefresh();
     const q = $('#quick');
-    if (!c.id && !c.focused) { c.focused = true; setTimeout(() => q.focus(), 60); }
+    const nf = $('[name="note"]');
+    if (!c.id && !c.focused) { c.focused = true; setTimeout(() => (nf || q).focus(), 60); }
     q.addEventListener('input', () => { c.st.input = q.value; addRefresh(); });
     q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveTxn(); } });
+    nf?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveTxn(); } });
+    holdToRemove();
     $('[name="date"]')?.addEventListener('change', (e) => { const d = C.fromIso(e.target.value); if (d != null) { c.st.date = d; } });
     $('[name="note"]')?.addEventListener('input', (e) => { c.st.noteField = e.target.value; addRefresh(); });
   }
   if (c.r === 'home') {
+    holdToRemove();
     const el = $('#hero-amt');
     if (el) {
       const to = +el.dataset.v, from = ui.heroShown;
@@ -2242,10 +2411,22 @@ const actions = {
   'toggle-theme': () => R.setSetting('theme', isDark() ? 'LIGHT' : 'DARK'),
   'apply-update': () => location.reload(),
   'toggle-details': () => { ui.details = !ui.details; render(); },
+  'toggle-more': () => { ui.more = !ui.more; render(); },
   'hide-guide': () => { ui.hideGuide = true; try { localStorage.setItem('pocketta-hide-guide', '1'); } catch { /* fine */ } render(); },
   'qa-add': () => quickSubmit(),
   'qa-undo': () => { const t = R.byId(R.data.txns, ui.quickSaved?.id); ui.quickSaved = null; if (t) R.deleteTxn(t); else render(); },
-  'qa-chip': (el) => { const g = R.suggestions()[+el.dataset.i]; if (g) quickAdd(g.note, g.amount, 0); },
+  'qa-chip': (el) => { if (el.dataset.held) { el.dataset.held = ''; return; } const g = R.suggestions()[+el.dataset.i]; if (g) quickAdd(g.note, g.amount, 0); },
+  'fav-add': (el) => {
+    if (el.dataset.held) { el.dataset.held = ''; return; }
+    const g = R.suggestions()[+el.dataset.i];
+    if (!g) return;
+    const t = R.saveTxn({ type: 'EXPENSE', amount: g.amount, categoryId: g.categoryId, note: g.note, epochDay: C.todayEpoch() });
+    back();
+    toastUndo(`Saved ${g.note}`, () => { const x = R.byId(R.data.txns, t.id); if (x) R.deleteTxn(x); });
+    checkOverBudget();
+  },
+  'toast-undo': () => { const f = ui.undoFn; ui.undoFn = null; const t = $('#toast'); t.classList.remove('show', 'act'); if (f) { f(); toast('Undone'); render(); } },
+  'show-pad': () => { cur().st.pad = true; render(); },
   'gameya-pay': (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) R.payCircle(c); },
   'gameya-payout': (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) R.receivePayout(c); },
   'plan-cat': (el) => { ui.plan.cat = el.dataset.val; $('#sim-out').innerHTML = simOut(); },
@@ -2283,7 +2464,7 @@ const actions = {
     R.S().goalName = val(root, 'goalName').trim(); R.S().goalAmount = num(root, 'goalAmount') || 0; R.S().goalSaved = num(root, 'goalSaved') || 0;
     R.changed(); toast('Saved');
   },
-  'pay-up': (el) => { const u = ui.homeUpcoming?.[+el.dataset.i]; if (u) { R.payUpcoming(u); toast(u.incoming ? 'Recorded' : 'Paid'); } },
+  'pay-up': (el) => { const u = ui.homeUpcoming?.[+el.dataset.i]; if (u) payWithUndo(u.incoming ? 'Marked received' : 'Marked paid', () => R.payUpcoming(u)); },
   chip: (el) => {
     const g = el.closest('[data-group]');
     const group = g.dataset.group;
@@ -2292,7 +2473,7 @@ const actions = {
     const c = cur();
     if (c.r === 'add' && !el.closest('.sheet')) {
       const st = c.st, v = el.dataset.val;
-      if (group === 'type' && v !== st.type) { st.type = v; st.categoryId = null; st.parentId = null; st.byHand = false; render(); return; }
+      if (group === 'type' && v !== st.type) { st.type = v; st.typeHand = true; st.categoryId = null; st.parentId = null; st.byHand = false; render(); return; }
       if (group === 'parent') { st.parentId = +v; st.categoryId = +v; st.byHand = true; addRefresh(); }
       if (group === 'sub') { st.categoryId = st.categoryId === +v ? st.parentId : +v; st.byHand = true; addRefresh(); }
       if (group === 'currency') { st.currency = v; addRefresh(); }
@@ -2319,16 +2500,16 @@ const actions = {
   'edit-txn': (el) => go('add', { id: +el.dataset.id }),
   'del-txn': () => {
     const t = R.byId(R.data.txns, cur().id);
-    if (t) confirmSheet('Delete this?', `${t.note || 'This record'} · ${C.fmt(t.amount)} ${t.currency}`, 'Delete', () => { R.deleteTxn(t); back(); });
+    if (t) { const copy = { ...t }; R.deleteTxn(t); back(); toastUndo('Deleted', () => R.restoreTxn(copy)); }
   },
   'cm-prev': () => { ui.cmOffset = (ui.cmOffset || 0) + 1; render(); },
   'cm-next': () => { ui.cmOffset = Math.max(0, (ui.cmOffset || 0) - 1); render(); },
-  'open-catmonth': (el) => { ui.cmKey = el.dataset.key; ui.cmOffset = ui.spendOffset || 0; go('catMonth'); },
+  'open-catmonth': (el) => { ui.cmKey = el.dataset.key; ui.cmOffset = Math.max(0, ui.spendOffset || 0); go('catMonth'); },
   'spend-prev': () => { ui.spendOffset++; ui.spendFilter = null; render(); },
-  'spend-next': () => { if (ui.spendOffset > 0) { ui.spendOffset--; ui.spendFilter = null; render(); } },
+  'spend-next': () => { if (ui.spendOffset > -3) { ui.spendOffset--; ui.spendFilter = null; render(); } },
   'spend-filter': (el) => { ui.spendFilter = String(ui.spendFilter) === el.dataset.k ? null : el.dataset.k; render(); },
   'edit-bill': (el) => billEditor(R.byId(R.data.bills, +el.dataset.id)),
-  'pay-bill': (el) => { const b = R.byId(R.data.bills, +el.dataset.id); if (!b) return; if (b.variable) payVariableBill(b); else { R.payBill(b); toast(`${b.name} paid`); } },
+  'pay-bill': (el) => { const b = R.byId(R.data.bills, +el.dataset.id); if (!b) return; if (b.variable) payVariableBill(b); else payWithUndo(`${b.name} paid`, () => R.payBill(b)); },
   'skip-bill': (el) => { const b = R.byId(R.data.bills, +el.dataset.id); if (b) { R.skipBill(b); document.querySelector('.scrim [data-s="cancel"]')?.click(); toast('Skipped to the next date'); } },
   'commit-tab': (el) => { ui.commitTab = +el.dataset.i; render(); },
   'commit-filter': (el) => { ui.cFilter = el.dataset.v; ui.cDay = null; render(); },
@@ -2403,11 +2584,14 @@ const actions = {
     onSave: (root) => { const v = num(root, 'bal'); if (v == null || isNaN(v)) return 'Type a number'; R.setBalance(v); },
   }),
   'edit-inst': (el) => instEditor(R.byId(R.data.installments, +el.dataset.id)),
-  'pay-inst': (el) => { const i = R.byId(R.data.installments, +el.dataset.id); if (i) { R.payInstallment(i); toast('Paid'); } },
+  'pay-inst': (el) => { const i = R.byId(R.data.installments, +el.dataset.id); if (i) payWithUndo('Marked paid', () => R.payInstallment(i)); },
   'edit-circle': (el) => circleEditor(R.byId(R.data.circles, +el.dataset.id)),
   'pay-circle': (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) { R.payCircle(c); toast('Share paid'); } },
   payout: (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) { R.receivePayout(c); toast('Payout recorded'); } },
   'new-loan': () => newLoan(),
+  'loan-tab': (el) => { ui.loanTab = el.dataset.v; render(); },
+  'pay-loan-inst': (el) => { const l = R.byId(R.data.loans, +el.dataset.id); if (l) payWithUndo(l.direction === 'LENT' ? 'Marked received' : 'Marked paid', () => R.payNextInstalment(l)); },
+  'set-repay': (el) => { const l = R.byId(R.data.loans, +el.dataset.id); if (l) setRepayment(l); },
   'open-loan': (el) => { const l = R.byId(R.data.loans, +el.dataset.id); if (l) loanDialog(l); },
   'save-income': () => {
     const root = $('#income');
@@ -2492,12 +2676,9 @@ const actions = {
     R.setCurrency(cur, cc);
     R.ensureSeeded();
     const s = R.S();
-    s.cycleStart = Math.min(Math.max(parseInt(val(root, 'start')) || 1, 1), 31);
     s.salary = num(root, 'salary') || 0;
     s.salaryDay = Math.min(Math.max(parseInt(val(root, 'salaryDay')) || 1, 1), 31);
-    s.savingsPerMonth = num(root, 'savings') || 0;
-    const bal = num(root, 'balance');
-    if (bal > 0) R.setBalance(bal);
+    s.cycleStart = s.salaryDay;
     s.onboarded = true;
     R.changed();
     R.ensureSalary();
@@ -2540,6 +2721,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', (e) => {
   const a = e.target.dataset?.act;
   if (a === 'toggle-alert' || a === 'toggle-weekly' || a === 'toggle-auto' || a === 'toggle-monthend' || a === 'toggle-addfield') actions[a](e.target);
+  if (a === 'cloud-always') Sync.setCloudAlways(e.target.checked);
   if (e.target.id === 'conv-from') { ui.conv.from = e.target.value; convRefresh(); }
   if (e.target.id === 'conv-to') { ui.conv.to = e.target.value; convRefresh(); }
 });

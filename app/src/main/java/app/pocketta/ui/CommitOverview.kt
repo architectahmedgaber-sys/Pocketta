@@ -152,7 +152,7 @@ internal fun CommitBadge(item: CItem, size: Int, version: Int, onClick: (() -> U
         custom != null -> Image(custom.asImageBitmap(), contentDescription = null, modifier = base, contentScale = ContentScale.Crop)
         letter != null -> Box(base.background(Color(b.color)), contentAlignment = Alignment.Center) {
             Text(
-                letter, color = Color.White, fontWeight = FontWeight.Bold,
+                letter, color = Color.White, fontWeight = FontWeight.Medium,
                 fontSize = (size * (if (letter.length > 1) 0.34f else 0.46f)).sp, maxLines = 1,
             )
         }
@@ -219,8 +219,8 @@ private fun groupPayoff(key: String, insts: List<Installment>, circles: List<Cir
 }
 
 /** Everything due or paid inside one budget cycle, as one list. */
-private fun buildItems(
-    bills: List<Bill>, insts: List<Installment>, circles: List<CircleEntity>, loans: List<Loan>,
+internal fun buildItems(
+    bills: List<Bill>, insts: List<Installment>, circles: List<CircleEntity>, loans: List<Loan>, loanInst: List<app.pocketta.data.LoanInstallment>,
     txns: List<app.pocketta.data.Txn>, prefs: Prefs, repo: Repo, today: LocalDate, cycle: Cycle, off: Int,
 ): List<CItem> {
     val out = ArrayList<CItem>()
@@ -252,14 +252,23 @@ private fun buildItems(
         }
     }
     for (l in if (off < 0) emptyList() else loans) {
-        val due = l.dueDay ?: continue
         if (l.closed) continue
-        val d = LocalDate.ofEpochDay(due)
-        if (!d.isBefore(cycle.nextStart) || d.isBefore(epoch)) continue
-        out += CItem(
-            CKind.LOAN, l.id, l.person, if (l.lent) "They owe you" else "You owe", l.remaining, d,
-            paid = false, incoming = l.lent,
-        )
+        if (!l.lent && !l.recordedIncome && !l.countInBudget) continue
+        // One line per unpaid instalment. Late ones stay in the current month (epoch = the start of time there).
+        val rows = loanInst.filter { it.loanId == l.id }.sortedBy { it.dueDay }
+        val done = rows.count { it.remaining < 0.005 }
+        var idx = 0
+        for (r in rows) {
+            if (r.remaining < 0.005) continue
+            val d = LocalDate.ofEpochDay(r.dueDay)
+            val k = idx++
+            if (!d.isBefore(cycle.nextStart) || d.isBefore(epoch)) continue
+            out += CItem(
+                CKind.LOAN, l.id, l.person,
+                if (rows.size > 1) "${done + k + 1} of ${rows.size}" else if (l.lent) "They owe you" else "You owe",
+                r.remaining, d, paid = false, incoming = l.lent, payable = k == 0 && off == 0,
+            )
+        }
     }
 
     // Money already paid this cycle.
@@ -302,11 +311,13 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
     val instFlow = remember { repo.dao.installmentsFlow() }
     val circFlow = remember { repo.dao.circlesFlow() }
     val loanFlow = remember { repo.dao.loansFlow() }
+    val loanInstFlow = remember { repo.dao.loanInstallmentsFlow() }
     val txnFlow = remember(cycle.start) { repo.dao.txnsFlow(cycle.start.toEpochDay(), cycle.nextStart.toEpochDay()) }
     val bills by billsFlow.collectAsState(initial = emptyList())
     val insts by instFlow.collectAsState(initial = emptyList())
     val circles by circFlow.collectAsState(initial = emptyList())
     val loans by loanFlow.collectAsState(initial = emptyList())
+    val loanInst by loanInstFlow.collectAsState(initial = emptyList())
     val txns by txnFlow.collectAsState(initial = emptyList())
     val categories by remember { repo.dao.categoriesFlow() }.collectAsState(initial = emptyList())
 
@@ -343,7 +354,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
         iconFor = null
     }
 
-    val all = remember(bills, insts, circles, loans, txns, prefs, today, cycle) { buildItems(bills, insts, circles, loans, txns, prefs, repo, today, cycle, off) }
+    val all = remember(bills, insts, circles, loans, loanInst, txns, prefs, today, cycle) { buildItems(bills, insts, circles, loans, loanInst, txns, prefs, repo, today, cycle, off) }
     val filtered = all.filter { Commitments.matches(filter, it) }
     val left = Commitments.leftToPay(all)
     val leftCount = Commitments.leftCount(all)
@@ -366,14 +377,18 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
         }
     }
 
-    fun pay(it: CItem) {
+    fun pay(item: CItem) {
         scope.launch {
-            when (it.kind) {
-                CKind.BILL, CKind.SUB -> bills.firstOrNull { b -> b.id == it.refId }?.let { b -> if (b.variable) payVariable = b else repo.payBill(b) }
-                CKind.INSTALLMENT, CKind.CARD -> insts.firstOrNull { i -> i.id == it.refId }?.let { i -> repo.payInstallment(i) }
-                CKind.CIRCLE -> circles.firstOrNull { c -> c.id == it.refId }?.let { c -> repo.payCircle(c) }
+            val before = repo.dao.allTxns().map { x -> x.id }.toSet()
+            val billDue = ArrayList<Pair<Long, Long>>()
+            when (item.kind) {
+                CKind.BILL, CKind.SUB -> bills.firstOrNull { b -> b.id == item.refId }?.let { b -> if (b.variable) payVariable = b else { billDue += b.id to b.nextDue; repo.payBill(b) } }
+                CKind.INSTALLMENT, CKind.CARD -> insts.firstOrNull { i -> i.id == item.refId }?.let { i -> repo.payInstallment(i) }
+                CKind.CIRCLE -> circles.firstOrNull { c -> c.id == item.refId }?.let { c -> repo.payCircle(c) }
                 else -> {}
             }
+            val made = repo.dao.allTxns().filter { x -> x.id !in before }.map { x -> x.id }
+            if (made.isNotEmpty() || billDue.isNotEmpty()) UndoBus.show("Marked paid") { repo.undoPayGroup(app.pocketta.data.PayUndo(made, billDue)) }
         }
     }
 
@@ -423,7 +438,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
             else Spacer(Modifier.width(8.dp))
             CommitBadge(item, 40, version, onClick = { iconFor = item })
             Column(Modifier.weight(1f)) {
-                Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                 Text(
                     item.date.format(dowFmt) + " · " + (if (isLate) "Late · " else "") + item.sub, style = MaterialTheme.typography.bodySmall,
                     color = if (isLate) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -431,7 +446,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                 )
             }
             Text(
-                (if (item.incoming) "+" else "") + Money.fmt(item.amount), fontWeight = FontWeight.SemiBold,
+                (if (item.incoming) "+" else "") + Money.fmt(item.amount), fontWeight = FontWeight.Medium,
                 color = if (item.incoming) Good else if (item.paid) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified,
             )
         }
@@ -449,7 +464,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
         (0..3).map { o ->
             var c = CycleMath.cycleFor(today, prefs.cycleStart)
             repeat(o) { c = CycleMath.cycleFor(c.nextStart, prefs.cycleStart) }
-            c.start to buildItems(bills, insts, circles, loans, if (o == 0) txns else emptyList(), prefs, repo, today, c, o).filter { !it.incoming }.sumOf { it.amount }
+            c.start to buildItems(bills, insts, circles, loans, loanInst, if (o == 0) txns else emptyList(), prefs, repo, today, c, o).filter { !it.incoming }.sumOf { it.amount }
         }
     }
 
@@ -475,7 +490,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                 item {
                     SectionCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), container = MaterialTheme.colorScheme.tertiaryContainer) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("✓ $text", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            Text("✓ $text", fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                             TextButton(onClick = { scope.launch { repo.undoPayGroup(undo); lastBulk = null } }) { Text("Undo") }
                             TextButton(onClick = { lastBulk = null }) { Text("OK") }
                         }
@@ -486,7 +501,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                 val sum = dueNow.sumOf { it.amount }
                 val lateN = dueNow.count { it.date.isBefore(today) }
                 SectionCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), container = MaterialTheme.colorScheme.errorContainer) {
-                    Text("⚠ Due today or late", fontWeight = FontWeight.Bold)
+                    Text("⚠ Due today or late", fontWeight = FontWeight.Medium)
                     Text(
                         dueNow.size.toString() + (if (dueNow.size == 1) " payment" else " payments") + " · " + Money.short(sum) + " " + prefs.baseCurrency +
                             (if (lateN > 0) " · $lateN late" else ""),
@@ -516,7 +531,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                                         .background(MaterialTheme.colorScheme.primary.copy(alpha = if (idx == 0) 1f else 0.55f)),
                                 )
                                 Text(start.format(monthFmt), fontSize = 11.sp)
-                                Text(Money.short(total), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text(Money.short(total), fontSize = 12.sp, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
@@ -544,7 +559,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { off--; selected = null }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous month") }
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(monthName, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        Text(monthName, fontWeight = FontWeight.Medium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                         if (off != 0) TextButton(onClick = { off = 0; selected = null }) { Text("This month") }
                     }
                     IconButton(onClick = { off++; selected = null }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next month") }
@@ -580,7 +595,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                                     ) {
                                         Text(
                                             "${d.dayOfMonth}" + if (plainByDay[d].orEmpty().isNotEmpty()) " •" else "", fontSize = 12.sp,
-                                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                                            fontWeight = if (isToday) FontWeight.Medium else FontWeight.Normal,
                                             color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                         )
                                         Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -637,7 +652,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                         )
                         Column(Modifier.weight(1f).padding(start = 4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(e.key.second, fontWeight = FontWeight.Bold)
+                                Text(e.key.second, fontWeight = FontWeight.Medium)
                                 if (hasLate) Text("  Late", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                             }
                             Text(
@@ -664,7 +679,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("Paid", fontWeight = FontWeight.Bold)
+                            Text("Paid", fontWeight = FontWeight.Medium)
                             Text(
                                 paidList.size.toString() + (if (paidList.size == 1) " payment" else " payments") + " · " + Money.short(paidList.sumOf { it.amount }),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -688,7 +703,7 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(pickedItems.size.toString() + " selected", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                    Text(pickedItems.size.toString() + " selected", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Medium)
                     Text(Money.short(pickedItems.sumOf { it.amount }) + " " + prefs.baseCurrency, color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.bodySmall)
                 }
                 androidx.compose.material3.Button(
@@ -748,10 +763,10 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
-                                Text(g.title, fontWeight = FontWeight.SemiBold)
+                                Text(g.title, fontWeight = FontWeight.Medium)
                                 Text(g.items.size.toString() + (if (g.items.size == 1) " item" else " items"), style = MaterialTheme.typography.bodySmall)
                             }
-                            Text(Money.short(g.total), fontWeight = FontWeight.SemiBold)
+                            Text(Money.short(g.total), fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -773,8 +788,8 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                     }
                     Gap(6)
                     Row(Modifier.fillMaxWidth()) {
-                        Text("Total", Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                        Text(Money.short(g.total) + " " + prefs.baseCurrency, fontWeight = FontWeight.Bold)
+                        Text("Total", Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                        Text(Money.short(g.total) + " " + prefs.baseCurrency, fontWeight = FontWeight.Medium)
                     }
                     Gap(6)
                     Text("You can undo it right after.", style = MaterialTheme.typography.bodySmall)
@@ -810,12 +825,12 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
                         if (keyOf(l) in variable) OutlinedTextField(
                             value = amounts[keyOf(l)] ?: "", onValueChange = { v -> amounts = amounts + (keyOf(l) to v) },
                             singleLine = true, modifier = Modifier.width(110.dp),
-                        ) else Text(Money.short(l.amount), fontWeight = FontWeight.SemiBold)
+                        ) else Text(Money.short(l.amount), fontWeight = FontWeight.Medium)
                     }
                     Gap(8)
                     Row(Modifier.fillMaxWidth()) {
-                        Text("Total", Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                        Text(Money.short(total) + " " + prefs.baseCurrency, fontWeight = FontWeight.Bold)
+                        Text("Total", Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                        Text(Money.short(total) + " " + prefs.baseCurrency, fontWeight = FontWeight.Medium)
                     }
                     Row(Modifier.fillMaxWidth()) {
                         Text("Money left after paying", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)

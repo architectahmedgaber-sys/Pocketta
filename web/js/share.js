@@ -9,7 +9,7 @@ function draw(d) {
   cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
   const g = c.createLinearGradient(0, 0, W, H);
-  g.addColorStop(0, '#1F6B4F'); g.addColorStop(1, '#0C3526');
+  g.addColorStop(0, '#17493A'); g.addColorStop(1, '#0F332A');
   c.fillStyle = g; c.fillRect(0, 0, W, H);
   const m = 90, font = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
   const t = (s, x, y, size, { bold = false, color = '#fff', alpha = 1, align = 'left' } = {}) => {
@@ -21,7 +21,7 @@ function draw(d) {
   t(`${short(d.spent)} ${d.currency}`, m, 490, 120, { bold: true });
   if (d.previousSpent > 0) {
     const pct = Math.trunc((d.spent - d.previousSpent) / d.previousSpent * 100);
-    const [txt, col] = pct > 0 ? [`▲ ${pct}% vs last month`, '#FFB4A9'] : pct < 0 ? [`▼ ${-pct}% vs last month`, '#A9F0CF'] : ['＝ vs last month', '#fff'];
+    const [txt, col] = pct > 0 ? [`▲ ${pct}% vs last month`, '#FFB4A9'] : pct < 0 ? [`▼ ${-pct}% vs last month`, '#8DD5B3'] : ['＝ vs last month', '#fff'];
     t(txt, m, 570, 44, { bold: true, color: col });
   }
   const colW = (W - 2 * m) / 2, left = d.income - d.spent;

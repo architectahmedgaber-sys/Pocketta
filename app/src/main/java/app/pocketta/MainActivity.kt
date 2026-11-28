@@ -140,6 +140,7 @@ class MainActivity : FragmentActivity() {
                     amount = intent?.getDoubleExtra(EXTRA_AMOUNT, 0.0) ?: 0.0,
                     note = intent?.getStringExtra(EXTRA_NOTE).orEmpty(),
                     currency = intent?.getStringExtra(EXTRA_CURRENCY).orEmpty(),
+                    smsId = intent?.getIntExtra(EXTRA_SMS_ID, 0) ?: 0,
                 )
             )
             ACTION_ADD_INCOME -> nav.open(Route.Add(type = TxType.INCOME))
@@ -201,6 +202,7 @@ class MainActivity : FragmentActivity() {
         const val ACTION_UPDATE = "app.pocketta.UPDATE"
         const val EXTRA_CATEGORY = "app.pocketta.CATEGORY"
         const val EXTRA_AMOUNT = "app.pocketta.AMOUNT"
+        const val EXTRA_SMS_ID = "app.pocketta.SMS_ID"
         const val EXTRA_NOTE = "app.pocketta.NOTE"
         const val EXTRA_CURRENCY = "app.pocketta.CURRENCY"
     }

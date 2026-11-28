@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -76,7 +77,7 @@ fun SyncCard(repo: Repo) {
                 s.status == "paused" -> "Paused. Tap Sync now to choose."
                 else -> "Sync is on"
             }
-            Text(line, fontWeight = FontWeight.SemiBold)
+            Text(line, fontWeight = FontWeight.Medium)
             Text(s.email, style = MaterialTheme.typography.bodySmall)
             Text("Last sync: " + ago(s.lastSyncAt), style = MaterialTheme.typography.bodySmall)
             Gap(8)
@@ -85,9 +86,17 @@ fun SyncCard(repo: Repo) {
                 OutlinedButton(onClick = { confirmOut = true }, modifier = Modifier.padding(start = 8.dp)) { Text("Sign out") }
             }
             Text("If you sign out, your data stays on this device and sync stops.", style = MaterialTheme.typography.bodySmall)
+            var always by remember { mutableStateOf(CloudSync.cloudAlways) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Use cloud always", fontWeight = FontWeight.Medium)
+                    Text("On: it syncs by itself and asks only when your phone and the cloud hold different data. Off: it also asks before the first upload.", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = always, onCheckedChange = { always = it; CloudSync.cloudAlways = it })
+            }
             if (s.encrypted) {
                 Gap(4)
-                Text("Encryption", fontWeight = FontWeight.SemiBold)
+                Text("Encryption", fontWeight = FontWeight.Medium)
                 OutlinedButton(onClick = { encDialog = "key" }) { Text("New encryption key") }
             }
             TextButton(onClick = { confirmDel = true }) { Text("Delete my data from the cloud", color = MaterialTheme.colorScheme.error) }
@@ -126,7 +135,7 @@ private fun SideText(x: SyncSide, extra: String) {
 fun SyncDialog() {
     val ch by CloudSync.choice.collectAsState()
     val c = ch ?: return
-    var pick by remember(c) { mutableStateOf("local") }
+    var pick by remember(c) { mutableStateOf(c.newest) }
     AlertDialog(
         onDismissRequest = { c.answer.complete(null) },
         title = { Text(if (c.firstUpload) "First sync" else "Your data is different") },
@@ -137,11 +146,11 @@ fun SyncDialog() {
                     SideText(c.local, "")
                     Text("It is uploaded to your own private space.", style = MaterialTheme.typography.bodySmall)
                 } else {
-                    Text("This account already has data in the cloud, and this device has different data. Pick the one you want to keep. Nothing is merged.")
+                    Text("This account already has data in the cloud, and this device has different data. The newest copy is selected. Nothing is merged, and your answer is remembered for these two copies.")
                     Row(Modifier.fillMaxWidth().clickable { pick = "local" }.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = pick == "local", onClick = { pick = "local" })
                         Column {
-                            Text("Keep this device", fontWeight = FontWeight.SemiBold)
+                            Text("Keep this device", fontWeight = FontWeight.Medium)
                             SideText(c.local, if (c.local.at > 0) "Changed " + fmt(c.local.at) else "")
                             Text("Replaces what is in the cloud", style = MaterialTheme.typography.bodySmall)
                         }
@@ -149,7 +158,7 @@ fun SyncDialog() {
                     Row(Modifier.fillMaxWidth().clickable { pick = "cloud" }.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = pick == "cloud", onClick = { pick = "cloud" })
                         Column {
-                            Text("Keep the cloud copy", fontWeight = FontWeight.SemiBold)
+                            Text("Keep the cloud copy", fontWeight = FontWeight.Medium)
                             SideText(c.cloud, "Saved " + fmt(c.cloud.at) + (if (c.cloud.device.isNotEmpty()) " from " + c.cloud.device else ""))
                             Text("Replaces what is on this device", style = MaterialTheme.typography.bodySmall)
                         }
@@ -198,7 +207,7 @@ fun SyncSetupDialog() {
         text = {
             Column {
                 Text("Your data is locked on your phone before it goes to the cloud. The app made your encryption key for you. Nobody can read your data without it, not even us.", style = MaterialTheme.typography.bodySmall)
-                Text(q.recovery, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
+                Text(q.recovery, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 12.dp))
                 KeyButtons(q.recovery) { saved = true; err = "" }
                 Text("Copy it or download it as a file, and keep it somewhere safe. A new device needs it once. If you lose it, your cloud copy cannot be opened. Your data on this device stays safe.", style = MaterialTheme.typography.bodySmall)
                 if (err.isNotEmpty()) Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -291,7 +300,7 @@ private fun NewKeyDialog(key: String, onClose: () -> Unit) {
         title = { Text("Your new encryption key") },
         text = {
             Column {
-                Text(key, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                Text(key, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium)
                 KeyButtons(key) {}
                 Text("Save it now. It is shown only once. The old key no longer works for new devices.", style = MaterialTheme.typography.bodySmall)
             }

@@ -72,7 +72,7 @@ fun GoalsScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Label("Piggy bank")
-                        Text(Money.short(piggy) + " " + cur, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                        Text(Money.short(piggy) + " " + cur, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleLarge)
                     }
                     Text("›", color = MaterialTheme.colorScheme.outline)
                 }
@@ -183,18 +183,18 @@ private fun GoalRow(g: SavingsGoal, first: Boolean, cur: String, today: LocalDat
                     drawArc(track, -90f, 360f, false, Offset(inset, inset), sz, style = Stroke(stroke))
                     if (frac > 0f) drawArc(ring, -90f, 360f * frac, false, Offset(inset, inset), sz, style = Stroke(stroke, cap = StrokeCap.Round))
                 }
-                Text((frac * 100).toInt().toString() + "%", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text((frac * 100).toInt().toString() + "%", fontWeight = FontWeight.Medium, fontSize = 15.sp)
             }
             Column(Modifier.weight(1f)) {
-                if (first) Text(tr("Finishes first").uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Text(g.name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                if (first) Text(tr("Finishes first").uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+                Text(g.name, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 Text(Money.short(g.saved) + " of " + Money.short(g.target) + " " + cur, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (g.reached) {
-                    Text("Goal reached!", color = Good, fontWeight = FontWeight.SemiBold)
+                    Text("Goal reached!", color = Good, fontWeight = FontWeight.Medium)
                 } else {
                     val m = g.monthsLeft
                     if (g.monthly > 0) Text(Money.short(g.monthly) + " a month", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (m != null) Text("Done by " + Planning.goalDate(today, m).format(monthYearFmt), fontWeight = FontWeight.SemiBold)
+                    if (m != null) Text("Done by " + Planning.goalDate(today, m).format(monthYearFmt), fontWeight = FontWeight.Medium)
                     else Text("No date yet. Put an amount towards it each month.", style = MaterialTheme.typography.bodySmall, color = Warn)
                     val sooner = GoalList.monthsSoonerWith(g.target, g.saved, g.monthly, 1000.0)
                     if (sooner != null && sooner >= 6) {

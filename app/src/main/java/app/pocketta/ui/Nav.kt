@@ -7,7 +7,9 @@ import app.pocketta.data.TxType
 
 sealed interface Route {
     data object Home : Route
+    /** Old name of the Month tab; kept so any old link or shortcut still lands on the right screen. */
     data object Spend : Route
+    data object Month : Route
     data object Commit : Route
     data object More : Route
     data class Add(
@@ -16,6 +18,8 @@ sealed interface Route {
         val amount: Double = 0.0, val note: String = "", val currency: String = "",
         /** Epoch day to record it on (0 = today). Used when a calendar day is tapped. */
         val day: Long = 0L,
+        /** The bank-message card this came from (0 = none): it is cleared once the entry is saved. */
+        val smsId: Int = 0,
     ) : Route
     data object Income : Route
     data object Tags : Route
@@ -34,7 +38,8 @@ sealed interface Route {
     data class CategoryMonth(val categoryId: Long = 0, val tag: String = "") : Route
 }
 
-val tabs = listOf(Route.Home, Route.Spend, Route.Assistant, Route.Commit, Route.More)
+/** Four tabs; the add button sits in the middle of the bar. Miqrish (Assistant) is a screen opened from Today. */
+val tabs = listOf(Route.Home, Route.Month, Route.Commit, Route.More)
 
 /** A tiny back stack: one tab at the bottom, screens opened on top of it. */
 class Nav {
@@ -44,7 +49,7 @@ class Nav {
     val current: Route get() = stack.last()
     val canGoBack: Boolean get() = stack.size > 1 || stack.first() != Route.Home
 
-    fun tab(r: Route) { stack = listOf(r) }
+    fun tab(r: Route) { stack = listOf(if (r == Route.Spend) Route.Month else r) }
     fun open(r: Route) { stack = if (stack.last() is Route.Add && r is Route.Add) stack.dropLast(1) + r else stack + r }
     fun back() { stack = if (stack.size > 1) stack.dropLast(1) else listOf(Route.Home) }
 }

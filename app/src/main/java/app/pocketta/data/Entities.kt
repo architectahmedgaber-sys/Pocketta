@@ -1,6 +1,7 @@
 package app.pocketta.data
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -141,9 +142,33 @@ data class Loan(
     val dueDay: Long? = null,
     val note: String = "",
     val closed: Boolean = false,
+    /** Was the borrow/lend posted as a money record (income / expense)? Off = the money never touched the wallet. */
+    val recordedIncome: Boolean = true,
+    /** LUMP (one repayment) or INSTALLMENTS (monthly). */
+    val scheduleType: String = "LUMP",
+    /** When the loan was not recorded as money, still count its instalments in the budget. */
+    val countInBudget: Boolean = true,
 ) {
     val remaining: Double get() = (amount - repaid).coerceAtLeast(0.0)
     val lent: Boolean get() = direction == "LENT"
+}
+
+/** One planned repayment of a [Loan]: due on [dueDay], [paidAmount] of [amount] already settled. */
+@Entity(
+    tableName = "loan_installments",
+    foreignKeys = [ForeignKey(entity = Loan::class, parentColumns = ["id"], childColumns = ["loanId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("loanId")],
+)
+data class LoanInstallment(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val loanId: Long,
+    val dueDay: Long,
+    val amount: Double,
+    val paidAmount: Double = 0.0,
+    val paidDay: Long? = null,
+    val walletId: Long? = null,
+) {
+    val remaining: Double get() = (amount - paidAmount).coerceAtLeast(0.0)
 }
 
 @Entity(tableName = "settings")

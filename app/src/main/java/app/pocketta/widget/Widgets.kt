@@ -74,7 +74,7 @@ val goodColor: ColorProvider = ColorProvider(day = Color(0xFF1F7A3F), night = Co
 val warnColor: ColorProvider = ColorProvider(day = Color(0xFF9A6B00), night = Color(0xFFFFC94D))
 val badColor: ColorProvider = ColorProvider(day = Color(0xFFB3261E), night = Color(0xFFF2B8B5))
 val onPrimaryTile: ColorProvider = ColorProvider(day = Color.White, night = Color(0xFF0B2A1A))
-val primaryTile: ColorProvider = ColorProvider(day = Color(0xFF1F6B4F), night = Color(0xFF8FD8A4))
+val primaryTile: ColorProvider = ColorProvider(day = Color(0xFF17493A), night = Color(0xFF8FD8A4))
 val white: ColorProvider = ColorProvider(Color.White)
 val whiteSoft: ColorProvider = ColorProvider(Color.White.copy(alpha = 0.78f))
 

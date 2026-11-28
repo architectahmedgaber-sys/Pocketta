@@ -118,7 +118,7 @@ fun QuickAddCard(repo: Repo, prefs: Prefs) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "✓  " + tr("Saved") + "  " + Money.fmt(t.amount) + " · " + tr(savedCategory),
-                    Modifier.weight(1f), color = Good, fontWeight = FontWeight.SemiBold,
+                    Modifier.weight(1f), color = Good, fontWeight = FontWeight.Medium,
                 )
                 TextButton(onClick = { scope.launch { repo.deleteTxn(t); saved = null } }) { Text("Undo") }
             }
@@ -187,7 +187,7 @@ fun WeekCard(repo: Repo, s: HomeState) {
             val (first, second) = app.pocketta.core.Planning.weekSentences(d.spent, pct, d.topCategory, d.daysUnder, cur)
             Text(first, style = MaterialTheme.typography.bodyMedium)
             Text(second, style = MaterialTheme.typography.bodyMedium)
-            Text("💡 " + app.pocketta.core.Streak.weeklyTip(d.spent, d.previous, d.topCategory, s.budget.flexLeft, s.budget.daysLeft), fontWeight = FontWeight.SemiBold)
+            Text("💡 " + app.pocketta.core.Streak.weeklyTip(d.spent, d.previous, d.topCategory, s.budget.flexLeft, s.budget.daysLeft), fontWeight = FontWeight.Medium)
             if (app.pocketta.ai.AiConfig(context).key().isBlank()) {
                 Text("Add your own key in Miqrish to get this written for you every Friday.", style = MaterialTheme.typography.bodySmall)
             }
@@ -202,19 +202,19 @@ fun StreakCard(s: HomeState) {
     val cur = s.prefs.baseCurrency
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (k.days > 0) "🔥 ${k.days} " + (if (k.days == 1) "day" else "days") + " in a row" else "Saving challenge", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(if (k.days > 0) "🔥 ${k.days} " + (if (k.days == 1) "day" else "days") + " in a row" else "Saving challenge", fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
             if (k.best > k.days) Text("best ${k.best}", style = MaterialTheme.typography.bodySmall)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(if (k.days > 0) "Every day the last 7 days stayed under" else "Keep the last 7 days under", style = MaterialTheme.typography.bodySmall)
-            Text(Money.short(k.target) + " " + cur, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            Text(Money.short(k.target) + " " + cur, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
             if (k.days == 0) Text("to start a streak.", style = MaterialTheme.typography.bodySmall)
         }
         Gap(6)
         Progress((k.weekSpent / k.target).toFloat().coerceIn(0f, 1f), color = if (k.weekSpent > k.target) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
         Gap(4)
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(Money.short(kotlin.math.abs(k.weekLeft)) + " " + cur, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            Text(Money.short(kotlin.math.abs(k.weekLeft)) + " " + cur, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
             Text(if (k.weekLeft >= 0) "left for this week" else "over this week", style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -230,8 +230,8 @@ fun PiggyAutoCard(repo: Repo, prefs: Prefs) {
     androidx.compose.runtime.LaunchedEffect(version, prefs.piggyAuto, prefs.piggyAutoPct, prefs.piggyAutoDone) { due = repo.piggyAutoDue() }
     if (due <= 0) return
     SectionCard(container = MaterialTheme.colorScheme.secondaryContainer) {
-        Text("Move to your piggy bank?", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-        Text(Money.short(due) + " " + prefs.baseCurrency, fontWeight = FontWeight.Bold, fontSize = 28.sp)
+        Text("Move to your piggy bank?", fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium)
+        Text(Money.short(due) + " " + prefs.baseCurrency, fontWeight = FontWeight.Medium, fontSize = 28.sp)
         Text("Your monthly saving, now that the salary is in.", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.material3.Button(onClick = { scope.launch { repo.piggyAutoAnswer(true) } }) { Text("Yes, move it") }
@@ -259,11 +259,11 @@ fun GoalCard(repo: Repo, prefs: Prefs) {
                     drawArc(track, -90f, 360f, false, Offset(inset, inset), sz, style = Stroke(stroke))
                     if (frac > 0f) drawArc(ring, -90f, 360f * frac, false, Offset(inset, inset), sz, style = Stroke(stroke, cap = StrokeCap.Round))
                 }
-                Text((frac * 100).toInt().toString() + "%", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text((frac * 100).toInt().toString() + "%", fontWeight = FontWeight.Medium, fontSize = 18.sp)
             }
             Column(Modifier.weight(1f)) {
                 Label("Savings goal")
-                Text(prefs.goalName.ifBlank { "Savings goal" }, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                Text(prefs.goalName.ifBlank { "Savings goal" }, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 Text(
                     if (frac >= 1f) "Goal reached!" else "Saved " + Money.short(prefs.goalSaved) + " of " + Money.short(prefs.goalAmount),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

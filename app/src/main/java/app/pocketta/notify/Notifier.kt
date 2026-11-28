@@ -229,7 +229,7 @@ object Notifier {
         val open = PendingIntent.getActivity(
             context, key,
             Intent(context, MainActivity::class.java).setAction(MainActivity.ACTION_ADD)
-                .putExtra(MainActivity.EXTRA_AMOUNT, amount).putExtra(MainActivity.EXTRA_NOTE, merchant).putExtra(MainActivity.EXTRA_CURRENCY, currency)
+                .putExtra(MainActivity.EXTRA_AMOUNT, amount).putExtra(MainActivity.EXTRA_NOTE, merchant).putExtra(MainActivity.EXTRA_CURRENCY, currency).putExtra(MainActivity.EXTRA_SMS_ID, key)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )

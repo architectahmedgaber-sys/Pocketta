@@ -2,7 +2,12 @@ package app.pocketta.ui
 
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -62,6 +67,9 @@ import androidx.compose.foundation.layout.FlowRow
 import app.pocketta.core.CycleMath
 import app.pocketta.core.LimitAlerts
 import app.pocketta.core.Money
+import app.pocketta.core.Favourite
+import app.pocketta.core.QuickIntentParser
+import app.pocketta.core.QuickKind
 import app.pocketta.core.QuickText
 import app.pocketta.data.Category
 import app.pocketta.data.Prefs
@@ -109,6 +117,15 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
     var place by remember { mutableStateOf("") }
     var recent by remember { mutableStateOf<List<Repo.RecentItem>>(emptyList()) }
     LaunchedEffect(Unit) { recent = repo.recentItems() }
+    // Favourites: the things you add most often lately, one tap each.
+    var favs by remember { mutableStateOf<List<Favourite>>(emptyList()) }
+    LaunchedEffect(Unit) { favs = repo.favourites() }
+    var typeByHand by remember { mutableStateOf(false) }
+    // The big keypad is still there, behind a button, for people who prefer it. Editing opens with it.
+    var keypadOn by remember { mutableStateOf(route.txnId != 0L) }
+    var loanOpen by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(route.txnId) { if (route.txnId == 0L) runCatching { focus.requestFocus() } }
 
     // Load the transaction being edited, or pick sensible defaults for a new one.
     LaunchedEffect(route.txnId, categories.isNotEmpty()) {
@@ -176,6 +193,14 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
     val typedAmount = parseNumber(input)?.takeIf { it > 0 }
     val amount = typedAmount ?: quick.amount?.takeIf { it > 0 }
     val note = if (typedAmount == null && quick.amount != null) quick.note else noteField.trim()
+    // What the sentence means: expense, income, or a loan (a loan always shows its schedule before anything is saved).
+    val intent = QuickIntentParser.parse(noteField)
+    val loanIntent = editing == null && !typeByHand && type == TxType.EXPENSE && (intent.kind == QuickKind.BORROWED || intent.kind == QuickKind.LENT)
+    LaunchedEffect(intent.kind, noteField.isBlank()) {
+        if (editing != null || typeByHand || noteField.isBlank() || type == PIGGY || type == TxType.TRANSFER) return@LaunchedEffect
+        val want = if (intent.kind == QuickKind.INCOME) TxType.INCOME else TxType.EXPENSE
+        if (want != type) { type = want; categoryId = null; parentId = null; pickedByHand = false }
+    }
 
     // Guess the category from the words typed ("koshary" -> Food).
     LaunchedEffect(quick.note, type) {
@@ -195,14 +220,18 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
     val isBorrowed = type == TxType.INCOME && catName.equals("Borrowed", true) && editing == null
 
     val canSave = amount != null && amount > 0 && walletId != 0L &&
-        (type == TxType.TRANSFER || type == PIGGY || categoryId != null) &&
+        (loanIntent || type == TxType.TRANSFER || type == PIGGY || categoryId != null) &&
         (!isBorrowed || person.isNotBlank())
 
     fun save() {
         if (!canSave || amount == null) return
+        if (loanIntent) { loanOpen = true; return }
         scope.launch {
             if (type == PIGGY) {
                 repo.savePiggy(amount * prefs.rateOf(currency), goalId = goal, epochDay = date.toEpochDay(), note = note)
+                repo.dao.allTxns().filter { it.source == Source.PIGGY }.maxByOrNull { it.id }?.let { last ->
+                    UndoBus.show("Saved") { repo.dao.txn(last.id)?.let { repo.deleteTxn(it) } }
+                }
                 nav.back()
                 return@launch
             }
@@ -210,7 +239,8 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                 repo.addLoan(person.trim(), lent = false, amount = amount * prefs.rateOf(currency), walletId = walletId, day = date, due = dueDate, note = note)
             } else {
                 val base = editing ?: Txn(type = type, amount = 0.0, walletId = walletId, epochDay = date.toEpochDay())
-                repo.saveTxn(
+                val oldCopy = editing
+                val savedId = repo.saveTxn(
                     base.copy(
                         type = type, amount = amount, currency = currency, rate = prefs.rateOf(currency),
                         walletId = walletId, toWalletId = if (type == TxType.TRANSFER) toWalletId else null,
@@ -222,6 +252,10 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                     )
                 )
                 if (type == TxType.EXPENSE && editing == null) checkOverBudget(context, repo, prefs)
+                // Undo puts it back the way it was: a new entry is removed, an edited one gets its old values.
+                if (oldCopy == null) UndoBus.show("Saved") { repo.dao.txn(savedId)?.let { repo.deleteTxn(it) } }
+                else UndoBus.show("Saved") { repo.saveTxn(oldCopy) }
+                if (route.smsId != 0) repo.dismissSmsCard(route.smsId)
             }
             nav.back()
         }
@@ -245,7 +279,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
         topBar = {
             BackBar(title, { nav.back() }) {
                 editing?.let { t ->
-                    IconButton(onClick = { scope.launch { repo.deleteTxn(t); nav.back() } }) {
+                    IconButton(onClick = { scope.launch { repo.deleteTxn(t); UndoBus.show("Deleted") { repo.restoreTxn(t) }; nav.back() } }) {
                         Icon(Icons.Filled.Delete, contentDescription = "Delete")
                     }
                 }
@@ -260,12 +294,52 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                 if (editing?.source.let { it != null && it != Source.NONE }) {
                     Text("This was recorded from a bill, installment, gam'eya or loan.", style = MaterialTheme.typography.bodySmall)
                 }
+                if (editing == null && type == TxType.EXPENSE && favs.isNotEmpty()) {
+                    Label("Your usual: tap to add, hold to remove")
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (f in favs) FavChip(
+                            f.note + " " + Money.fmt(f.amount),
+                            onTap = {
+                                scope.launch {
+                                    val t = repo.addFavourite(f)
+                                    checkOverBudget(context, repo, prefs)
+                                    UndoBus.show("Saved") { repo.deleteTxn(t) }
+                                    nav.back()
+                                }
+                            },
+                            onHold = { scope.launch { repo.hideFavourite(f); favs = repo.favourites() } },
+                        )
+                    }
+                }
+                val listen = rememberVoiceInput(prefs.lang, onText = { noteField = it }, onMessage = { scanState = it.ifBlank { null } })
+                val micButton: (@Composable () -> Unit)? = if (editing == null) { { TextButton(onClick = { listen() }) { Text("🎤") } } } else null
+                OutlinedTextField(
+                    value = noteField,
+                    onValueChange = { noteField = it },
+                    placeholder = { Text(if (type == TxType.EXPENSE) "Type it: koshary 60, salary 9000, borrowed 3000 from Sam" else "Note (optional)") },
+                    singleLine = true,
+                    shape = FieldShape,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, capitalization = KeyboardCapitalization.Sentences),
+                    keyboardActions = KeyboardActions(onDone = { save() }),
+                    trailingIcon = micButton,
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                )
+                if (editing == null && noteField.isNotBlank()) {
+                    val hint = when {
+                        loanIntent -> if (intent.kind == QuickKind.BORROWED) "A loan: you borrowed. You will see the repayment schedule before anything is saved."
+                            else "A loan: you lent. You will see the repayment schedule before anything is saved."
+                        !intent.confident && amount == null -> "Add an amount, for example: coffee 30"
+                        !intent.confident -> "Not sure what this is: pick the type and category below."
+                        else -> null
+                    }
+                    hint?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     val types = if (type == TxType.TRANSFER) listOf(TxType.TRANSFER to "Transfer") else if (editing != null) listOf(TxType.EXPENSE to "Expense", TxType.INCOME to "Income") else listOf(TxType.EXPENSE to "Expense", TxType.INCOME to "Income", PIGGY to "🐷 Piggy bank")
                     types.forEachIndexed { i, (t, label) ->
                         SegmentedButton(
                             selected = type == t,
-                            onClick = { if (t != type) { type = t; categoryId = null; parentId = null; pickedByHand = false } },
+                            onClick = { if (t != type) { type = t; typeByHand = true; categoryId = null; parentId = null; pickedByHand = false } },
                             shape = SegmentedButtonDefaults.itemShape(i, types.size),
                         ) { Text(label) }
                     }
@@ -280,7 +354,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             amount?.let { Money.fmt(it) } ?: "0",
-                            fontSize = 46.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                            fontSize = 46.sp, fontWeight = FontWeight.Medium, maxLines = 1,
                             color = if (amount == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                         Text(" $currency", fontSize = 18.sp, modifier = Modifier.padding(bottom = 8.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -303,18 +377,6 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                     }
                     scanState?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
-                OutlinedTextField(
-                    value = noteField,
-                    onValueChange = {
-                        noteField = it
-                    },
-                    placeholder = { Text(if (type == TxType.EXPENSE) "What did you buy? e.g. koshary" else "Note (optional)") },
-                    singleLine = true,
-                    shape = FieldShape,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, capitalization = KeyboardCapitalization.Sentences),
-                    keyboardActions = KeyboardActions(onDone = { save() }),
-                    modifier = Modifier.fillMaxWidth(),
-                )
                 if (type == TxType.EXPENSE && editing == null && recent.isNotEmpty()) {
                     Label("Bought before: tap one")
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -412,14 +474,30 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                 }
                 Gap(4)
             }
-            Keypad(::press)
+            if (keypadOn || type == PIGGY || type == TxType.TRANSFER) Keypad(::press)
+            else if (!loanIntent) OutlinedButton(onClick = { keypadOn = true }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) { Text("Amount keypad") }
             Button(
                 onClick = { save() }, enabled = canSave,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).height(54.dp),
                 shape = RoundedCornerShape(18.dp),
-            ) { Text(if (editing != null) "Save changes" else if (type == PIGGY) "Save in piggy bank" else "Save", fontSize = 17.sp) }
+            ) { Text(if (editing != null) "Save changes" else if (type == PIGGY) "Save in piggy bank" else if (loanIntent) "Next: see the schedule" else "Save", fontSize = 17.sp) }
         }
     }
+    if (loanOpen) {
+        NewLoanDialog(
+            repo, prefs, initLent = intent.kind == QuickKind.LENT, initPerson = intent.person, initAmount = amount?.let { numText(it) }.orEmpty(),
+            onSaved = { nav.back() }, onClose = { loanOpen = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FavChip(text: String, onTap: () -> Unit, onHold: () -> Unit) {
+    Box(
+        Modifier.clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
+            .combinedClickable(onClick = onTap, onLongClick = onHold).padding(horizontal = 14.dp, vertical = 9.dp),
+    ) { Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1) }
 }
 
 @Composable
@@ -440,7 +518,7 @@ private fun CategoryGrid(items: List<Category>, selected: Long?, onPick: (Catego
                     Text(Emoji.of(c.name) ?: c.name.take(1).uppercase(), fontSize = 24.sp)
                     Text(
                         c.name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        fontWeight = if (on) FontWeight.Medium else FontWeight.Normal,
                         color = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                     )
                 }

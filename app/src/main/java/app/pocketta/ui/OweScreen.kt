@@ -45,10 +45,12 @@ import androidx.compose.ui.unit.sp
 import app.pocketta.core.Circle
 import app.pocketta.core.CycleMath
 import app.pocketta.core.InstallmentPlan
+import app.pocketta.core.LoanSchedule
 import app.pocketta.core.Money
 import app.pocketta.data.CircleEntity
 import app.pocketta.data.Installment
 import app.pocketta.data.Loan
+import app.pocketta.data.LoanInstallment
 import app.pocketta.data.Prefs
 import app.pocketta.data.Repo
 import kotlinx.coroutines.launch
@@ -61,7 +63,7 @@ private fun circle(c: CircleEntity) = Circle(c.share, c.months, c.myTurn, c.paid
 fun CommitmentsScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     var tab by remember { mutableIntStateOf(0) }
     Column(modifier.fillMaxSize()) {
-        Text("Commitments", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 8.dp))
+        Text("Commitments", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 8.dp))
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp, containerColor = androidx.compose.ui.graphics.Color.Transparent) {
             listOf("This month", "Bills", "Installments", "Gam'eya", "Loans").forEachIndexed { i, t ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t, maxLines = 1) })
@@ -106,7 +108,7 @@ private fun InstallmentsTab(repo: Repo, prefs: Prefs, openCircles: () -> Unit) {
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text("still owed in total", style = MaterialTheme.typography.bodySmall)
-                            Text(Money.short(owed), fontWeight = FontWeight.Bold)
+                            Text(Money.short(owed), fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -157,7 +159,7 @@ private fun InstallmentRow(
     Column {
     ListRow(title, sub, icon = title, onClick = onClick) {
         Column(horizontalAlignment = Alignment.End) {
-            Text(Money.fmt(amount), fontWeight = FontWeight.SemiBold)
+            Text(Money.fmt(amount), fontWeight = FontWeight.Medium)
             if (next != null) {
                 val late = next.isBefore(today)
                 Text(
@@ -247,7 +249,7 @@ private fun CirclesTab(repo: Repo, prefs: Prefs) {
                 val cc = circle(c)
                 SectionCard(onClick = { editing = c }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(c.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        Text(c.name, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                         if (c.paid >= c.months) Pill("finished", Good) else Pill("Month ${cc.currentMonth} of ${c.months}")
                     }
                     Text(
@@ -311,7 +313,7 @@ private fun Turns(c: CircleEntity) {
                 Text(
                     "$m", fontSize = 10.sp,
                     color = if (mine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (mine) FontWeight.Bold else FontWeight.Normal,
+                    fontWeight = if (mine) FontWeight.Medium else FontWeight.Normal,
                 )
             }
         }
@@ -379,42 +381,88 @@ internal fun CircleEditor(repo: Repo, c: CircleEntity, onClose: () -> Unit) {
 private fun LoansTab(repo: Repo, prefs: Prefs) {
     val flow = remember { repo.dao.loansFlow() }
     val loans by flow.collectAsState(initial = emptyList())
+    val instFlow = remember { repo.dao.loanInstallmentsFlow() }
+    val allInst by instFlow.collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
     var adding by remember { mutableStateOf(false) }
     var open by remember { mutableStateOf<Loan?>(null) }
+    var dating by remember { mutableStateOf<Loan?>(null) }
+    var iOweTab by remember { mutableStateOf(true) }
     val today = LocalDate.now()
+    val cycle = remember(prefs.cycleStart) { CycleMath.cycleFor(today, prefs.cycleStart) }
     val owedToMe = loans.filter { it.lent && !it.closed }.sumOf { it.remaining }
     val iOwe = loans.filter { !it.lent && !it.closed }.sumOf { it.remaining }
+    val shown = loans.filter { it.lent != iOweTab }
+    // What falls due in this month's cycle on the shown side.
+    val thisMonth = allInst.filter { i -> shown.any { it.id == i.loanId && !it.closed } && i.remaining > 0.004 && LocalDate.ofEpochDay(i.dueDay).isBefore(cycle.nextStart) }.sumOf { it.remaining }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize()) {
             item {
-                Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SectionCard(Modifier.weight(1f)) {
-                        Label("They owe you")
-                        Big(Money.short(owedToMe), Good, 22)
-                    }
-                    SectionCard(Modifier.weight(1f)) {
-                        Label("You owe")
-                        Big(Money.short(iOwe), MaterialTheme.colorScheme.error, 22)
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Choices(listOf(true, false), iOweTab, { if (it) "I owe" else "Owed to me" }, { iOweTab = it })
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SectionCard(Modifier.weight(1f)) {
+                            Label(if (iOweTab) "Total I owe" else "Total owed to me")
+                            Big(Money.short(if (iOweTab) iOwe else owedToMe), if (iOweTab) MaterialTheme.colorScheme.error else Good, 22)
+                        }
+                        SectionCard(Modifier.weight(1f)) {
+                            Label("This month")
+                            Big(Money.short(thisMonth), MaterialTheme.colorScheme.onSurface, 22)
+                        }
                     }
                 }
             }
-            if (loans.isEmpty()) item { Text("No loans. Money you lend or borrow shows up here.", Modifier.padding(24.dp)) }
-            items(loans, key = { it.id }) { l ->
-                val sub = buildString {
-                    append(if (l.lent) "Lent " else "Borrowed ")
-                    append(LocalDate.ofEpochDay(l.epochDay).format(dayFmt))
-                    if (l.repaid > 0) append(" · paid ${Money.fmt(l.repaid)} of ${Money.fmt(l.amount)}")
-                    l.dueDay?.let { if (!l.closed) append(" · by ${LocalDate.ofEpochDay(it).format(dayFmt)}") }
-                    if (l.note.isNotBlank()) append(" · ${l.note}")
-                }
-                ListRow(l.person, sub, icon = l.person, onClick = { open = l }) {
-                    if (l.closed) Pill("settled", Good)
-                    else l.dueDay?.let { if (LocalDate.ofEpochDay(it).isBefore(today)) Pill("late", MaterialTheme.colorScheme.error) }
-                    Text(
-                        (if (l.lent) "+" else "−") + Money.fmt(if (l.closed) l.amount else l.remaining),
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (l.closed) MaterialTheme.colorScheme.onSurfaceVariant else if (l.lent) Good else MaterialTheme.colorScheme.error,
-                    )
+            if (shown.isEmpty()) item { Text("No loans. Money you lend or borrow shows up here.", Modifier.padding(24.dp)) }
+            items(shown, key = { it.id }) { l ->
+                val rows = allInst.filter { it.loanId == l.id }.sortedBy { it.dueDay }
+                val next = rows.firstOrNull { it.remaining > 0.004 }
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    SectionCard(onClick = { open = l }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(l.person, fontWeight = FontWeight.Medium)
+                                Text(
+                                    (if (l.lent) "Lent " else "Borrowed ") + LocalDate.ofEpochDay(l.epochDay).format(dayFmt) + " · " + Money.fmt(l.amount) +
+                                        (if (l.note.isNotBlank()) " · ${l.note}" else ""),
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (l.closed) Pill("settled", Good)
+                            else if (rows.size > 1) Pill("Instalment ${rows.count { it.remaining < 0.005 } + 1} of ${rows.size}", Good)
+                        }
+                        Gap(10)
+                        Progress(if (l.amount <= 0) 0f else (l.repaid / l.amount).toFloat().coerceIn(0f, 1f), color = GoldAccent)
+                        Gap(4)
+                        Text("Repaid ${Money.fmt(l.repaid)} · ${Money.fmt(l.remaining)} left", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (!l.closed && rows.isNotEmpty()) {
+                            Gap(8)
+                            for (r in rows) {
+                                val d = LocalDate.ofEpochDay(r.dueDay)
+                                val paid = r.remaining < 0.005
+                                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(d.format(dayFmt), Modifier.weight(1f), color = if (paid) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                                    if (paid) Pill("paid", Good)
+                                    else if (d.isBefore(today)) Pill("late", MaterialTheme.colorScheme.error)
+                                    else if (d.isBefore(cycle.nextStart)) Pill("This month", Good)
+                                    Text(
+                                        (if (l.lent) "+" else "−") + Money.fmt(if (paid) r.amount else r.remaining), Modifier.padding(start = 8.dp),
+                                        color = if (paid) MaterialTheme.colorScheme.onSurfaceVariant else if (l.lent) Good else MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
+                        if (!l.closed && rows.isEmpty()) {
+                            Gap(8)
+                            Text("No repayment date yet. Set one so it counts in your budget.", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { dating = l }) { Text("Set repayment date") }
+                        }
+                        if (!l.closed && next != null) {
+                            Gap(8)
+                            androidx.compose.material3.Button(
+                                onClick = { scope.launch { withPayUndo(repo, if (l.lent) "Marked received" else "Marked paid") { repo.payNextInstalment(l) } } }, modifier = Modifier.fillMaxWidth(),
+                            ) { Text(if (l.lent) "Got the instalment" else "I paid the instalment") }
+                        }
+                    }
                 }
             }
             item { Gap(88) }
@@ -428,41 +476,110 @@ private fun LoansTab(repo: Repo, prefs: Prefs) {
     }
     if (adding) NewLoanDialog(repo, prefs) { adding = false }
     open?.let { l -> LoanDialog(repo, prefs, loans.firstOrNull { it.id == l.id } ?: l) { open = null } }
+    dating?.let { l -> SetRepaymentDialog(repo, loans.firstOrNull { it.id == l.id } ?: l) { dating = null } }
+}
+
+/** A loan with no repayment date gets one (or monthly instalments) here; only then does it count as a commitment. */
+@Composable
+internal fun SetRepaymentDialog(repo: Repo, loan: Loan, onClose: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var mode by remember { mutableStateOf("LUMP") }
+    var first by remember { mutableStateOf<LocalDate?>(LocalDate.now().plusMonths(1)) }
+    var count by remember { mutableStateOf("3") }
+    val n = (parseNumber(count)?.toInt() ?: 1).coerceIn(1, 60)
+    val plan = first?.let { LoanSchedule.generate(loan.remaining, if (mode == "LUMP") 1 else n, it) } ?: emptyList()
+    FormDialog(
+        "Repayment date", onDismiss = onClose, saveEnabled = first != null,
+        onSave = { scope.launch { first?.let { repo.setRepayment(loan, it, if (mode == "LUMP") 1 else n) } }; onClose() },
+    ) {
+        Choices(listOf("LUMP", "INST"), mode, { if (it == "LUMP") "One payment" else "Instalments" }, { mode = it })
+        if (mode == "INST") NumberField("Number of instalments", count, { count = it }, decimal = false)
+        DateField(if (mode == "LUMP") "Pay back on" else "First instalment", first, { first = it })
+        if (plan.isNotEmpty()) LoanPreview(loan.lent, loan.remaining, LocalDate.now(), plan, false, "")
+    }
 }
 
 @Composable
-internal fun NewLoanDialog(repo: Repo, prefs: Prefs, onClose: () -> Unit) {
+internal fun NewLoanDialog(
+    repo: Repo, prefs: Prefs, initLent: Boolean? = null, initPerson: String = "", initAmount: String = "", onSaved: () -> Unit = {}, onClose: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     val walletsFlow = remember { repo.dao.walletsFlow() }
     val wallets by walletsFlow.collectAsState(initial = emptyList())
-    var lentSel by remember { mutableStateOf<Boolean?>(null) }
+    var lentSel by remember { mutableStateOf(initLent) }
     val lent = lentSel == true
-    var person by remember { mutableStateOf("") }
-    var amount by remember { mutableStateOf("") }
+    var person by remember { mutableStateOf(initPerson) }
+    var amount by remember { mutableStateOf(initAmount) }
     var date by remember { mutableStateOf(LocalDate.now()) }
+    var mode by remember { mutableStateOf("LUMP") }
     var due by remember { mutableStateOf<LocalDate?>(null) }
+    var count by remember { mutableStateOf("3") }
+    var first by remember { mutableStateOf(LocalDate.now().plusMonths(1)) }
     var note by remember { mutableStateOf("") }
     var walletId by remember { mutableStateOf<Long?>(null) }
     var record by remember { mutableStateOf(true) }
+    var countInBudget by remember { mutableStateOf(true) }
     val a = parseNumber(amount)
+    val n = (parseNumber(count)?.toInt() ?: 1).coerceIn(1, 60)
+    // What will be repaid and when: the same list is previewed and saved.
+    val schedule: List<Pair<LocalDate, Double>> =
+        if (a == null || a <= 0) emptyList()
+        else if (mode == "LUMP") due?.let { listOf(it to a) } ?: emptyList()
+        else LoanSchedule.generate(a, n, first)
     FormDialog(
         "New loan", onDismiss = onClose,
         saveEnabled = lentSel != null && person.isNotBlank() && a != null && a > 0,
         onSave = {
-            scope.launch { repo.addLoan(person.trim(), lent, a ?: 0.0, walletId, date, due, note.trim(), record) }
+            scope.launch { repo.addLoan(person.trim(), lent, a ?: 0.0, walletId, date, null, note.trim(), record, schedule, countInBudget) }
+            onSaved()
             onClose()
         },
     ) {
-        Label("Pick one first")
-        Choices(listOf(false, true), lentSel, { if (it) "I lent money (they owe me)" else "I borrowed money (I owe)" }, { lentSel = it })
+        Choices(listOf(false, true), lentSel, { if (it) "I lent" else "I borrowed" }, { lentSel = it })
         TextInput(if (lent) "To whom" else "From whom", person, { person = it })
         NumberField("Amount", amount, { amount = it }, suffix = prefs.baseCurrency)
-        DateField("Date", date, { if (it != null) date = it })
-        DateField("Pay back by (optional)", due, { due = it }, allowClear = true)
+        Label("Repay")
+        Choices(listOf("LUMP", "INST"), mode, { if (it == "LUMP") "One payment" else "Instalments" }, { mode = it })
+        if (mode == "LUMP") {
+            DateField("Pay back on (optional)", due, { due = it }, allowClear = true)
+        } else {
+            NumberField("Number of instalments", count, { count = it }, decimal = false)
+            DateField("First instalment", first, { if (it != null) first = it })
+        }
+        DateField(if (lent) "Date you lent" else "Date you borrowed", date, { if (it != null) date = it })
+        if (lentSel != null && a != null && a > 0) LoanPreview(lent, a, date, schedule, record, prefs.baseCurrency)
         TextInput("Note (optional)", note, { note = it })
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = record, onCheckedChange = { record = it })
-            Text(if (lent) "Take it out of my balance" else "Add it to my balance (counts as income)", style = MaterialTheme.typography.bodySmall)
+            Text(if (lent) "The money left my wallet" else "The money came to my wallet (counts as income)", style = MaterialTheme.typography.bodySmall)
+        }
+        if (!record && !lent) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = countInBudget, onCheckedChange = { countInBudget = it })
+                Text("Count the repayments in my budget", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Text("You can turn off recording as income if the money did not come into your wallet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** "What will happen": what the loan does to each month, shown before anything is saved. */
+@Composable
+internal fun LoanPreview(lent: Boolean, total: Double, day: LocalDate, schedule: List<Pair<LocalDate, Double>>, recorded: Boolean, currency: String) {
+    val lines = LoanSchedule.preview(lent, total, day, schedule, recorded)
+    SectionCard {
+        Label("What will happen")
+        Gap(6)
+        val start = java.time.YearMonth.from(day)
+        if (lent && recorded) Text(start.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.US) + ": −" + Money.fmt(total) + " " + currency, color = MaterialTheme.colorScheme.error)
+        for (l in lines) {
+            val name = l.month.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.US)
+            if (l.income > 0) Text("$name: +${Money.fmt(l.income)} " + (if (lent) "coming back" else "income"), color = Good)
+            if (l.commitment > 0) Text("$name: −${Money.fmt(l.commitment)} commitment", color = MaterialTheme.colorScheme.error)
+        }
+        if (schedule.isEmpty()) {
+            Gap(4)
+            Text("No repayment date yet. You will be asked to set one.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -471,7 +588,10 @@ internal fun NewLoanDialog(repo: Repo, prefs: Prefs, onClose: () -> Unit) {
 internal fun LoanDialog(repo: Repo, prefs: Prefs, loan: Loan, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var pay by remember { mutableStateOf(numText(loan.remaining)) }
+    val instFlow = remember { repo.dao.loanInstallmentsFlow() }
+    val schedule = instFlow.collectAsState(initial = emptyList()).value.filter { it.loanId == loan.id }.sortedBy { it.dueDay }
+    val next = schedule.firstOrNull { it.remaining > 0.004 }
+    var pay by remember(next?.id) { mutableStateOf(numText(next?.remaining ?: loan.remaining)) }
     var due by remember { mutableStateOf(loan.dueDay?.let { LocalDate.ofEpochDay(it) }) }
     var person by remember { mutableStateOf(loan.person) }
     var total by remember { mutableStateOf(numText(loan.amount)) }
@@ -483,14 +603,15 @@ internal fun LoanDialog(repo: Repo, prefs: Prefs, loan: Loan, onClose: () -> Uni
         onDelete = { scope.launch { repo.deleteLoan(loan) }; onClose() },
         onSave = {
             scope.launch {
-                if (due?.toEpochDay() != loan.dueDay) repo.updateLoan(loan.copy(dueDay = due?.toEpochDay()))
+                // Only a loan with no schedule gets its date here; scheduled loans change through their instalments.
+                if (schedule.isEmpty() && due != null && due?.toEpochDay() != loan.dueDay) repo.setRepayment(loan, due!!, 1)
                 val newTotal = parseNumber(total) ?: loan.amount
                 if (person.trim() != loan.person || (newTotal > 0 && newTotal != loan.amount)) {
                     repo.editLoan(repo.dao.loan(loan.id) ?: loan, person.trim(), newTotal)
                 }
                 if (!loan.closed && a != null && a > 0) {
                     val fresh = repo.dao.loan(loan.id) ?: loan
-                    repo.loanPayment(fresh, a)
+                    withPayUndo(repo, if (loan.lent) "Marked received" else "Marked paid") { repo.loanPayment(fresh, a) }
                 }
             }
             onClose()
@@ -504,7 +625,11 @@ internal fun LoanDialog(repo: Repo, prefs: Prefs, loan: Loan, onClose: () -> Uni
         if (!loan.closed) {
             NumberField(if (loan.lent) "Amount they paid back" else "Amount you paid back", pay, { pay = it })
         }
-        DateField("Pay back by", due, { due = it }, allowClear = true)
+        if (schedule.isEmpty()) DateField("Pay back by", due, { due = it }, allowClear = true)
+        else for (r in schedule) Text(
+            LocalDate.ofEpochDay(r.dueDay).format(dayFmt) + " · " + Money.fmt(r.amount) + if (r.remaining < 0.005) " · paid" else "",
+            style = MaterialTheme.typography.bodySmall,
+        )
         OutlinedTextField(person, { person = it }, label = { Text("To / from whom") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         NumberField("Loan amount", total, { total = it })
         if (loan.lent && !loan.closed) {
