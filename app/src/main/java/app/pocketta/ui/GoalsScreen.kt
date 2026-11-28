@@ -193,8 +193,9 @@ private fun GoalRow(g: SavingsGoal, first: Boolean, cur: String, today: LocalDat
                 if (first) Text(tr("Finishes first").uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
                 Text(g.name, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 Text(Money.short(g.saved) + " of " + Money.short(g.target) + " " + cur, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (g.deadline != null) {
-                    Text("Target: ${Money.short(g.target)} $cur · by ${LocalDate.ofEpochDay(g.deadline).format(dayYearFmt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val dl = g.deadline
+                if (dl != null) {
+                    Text("Target: ${Money.short(g.target)} $cur · by ${LocalDate.ofEpochDay(dl).format(dayYearFmt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (g.reached) {
                     Text("Goal reached!", color = Good, fontWeight = FontWeight.Medium)
