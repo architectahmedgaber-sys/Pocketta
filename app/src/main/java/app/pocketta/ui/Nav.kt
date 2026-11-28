@@ -34,6 +34,7 @@ sealed interface Route {
     data object Goals : Route
     data object MonthPlan : Route
     data object Assistant : Route
+    data object QuickAi : Route
     /** One month of one category (categoryId) or one tag: its total, every day and all its spending. */
     data class CategoryMonth(val categoryId: Long = 0, val tag: String = "") : Route
     /** The monthly report of the month shown on the Month screen ([offset] cycles back). */

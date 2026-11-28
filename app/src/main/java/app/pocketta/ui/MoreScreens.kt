@@ -59,6 +59,7 @@ fun MoreScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                 scope.launch { repo.set("theme", v) }
             })
         }
+        MoreCard("✨", "Quick AI entry", "Write a sentence in Egyptian Arabic, check it, save it with one tap") { nav.open(Route.QuickAi) }
         MoreCard("📅", "Month plan", "Every month like your spreadsheet: income, installments, living, what is left") { nav.open(Route.MonthPlan) }
         MoreCard("🐷", "Piggy bank", "Everything you saved, month by month") { nav.open(Route.Piggy) }
         MoreCard("🎯", "Goals", "Umra, a car, a laptop, each with its own date") { nav.open(Route.Goals) }

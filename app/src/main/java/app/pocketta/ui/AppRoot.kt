@@ -58,6 +58,7 @@ fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Uni
         } else {
             when (current) {
                 Route.Assistant -> AssistantScreen(repo, nav, prefs)
+                Route.QuickAi -> QuickAiScreen(repo, nav, prefs)
                 is Route.Add -> AddScreen(repo, nav, prefs, current)
                 Route.Income -> IncomeScreen(repo, nav, prefs)
                 Route.Tags -> TagsScreen(repo, nav, prefs)

@@ -201,6 +201,7 @@ fun SettingsScreen(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, ()
                 Text("Pocketta ${BuildConfig.VERSION_NAME}")
                 UpdateBox(repo)
             }
+            QuickAiCard(nav)
             PrivacyCard(prefs.lang)
         }
     }
@@ -350,5 +351,20 @@ private fun CsvCard(repo: Repo, prefs: Prefs) {
         }
         Gap(8)
         Button(onClick = { launcher.launch("pocketta-${LocalDate.now()}.csv") }) { Text("Save file") }
+    }
+}
+
+/** The month's estimated cost of Quick AI entry, counted from the token numbers in each answer. */
+@Composable
+private fun QuickAiCard(nav: Nav) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val store = androidx.compose.runtime.remember { app.pocketta.ai.QuickAiStore(ctx) }
+    SectionCard {
+        Label("Quick AI entry")
+        Gap(6)
+        Text(quickAiCostLine(store))
+        Gap(4)
+        Text("Model " + app.pocketta.core.QuickAi.MODEL + ", fixed. Prices: " + app.pocketta.core.QuickAi.PRICE_SOURCE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onClick = { nav.open(Route.QuickAi) }) { Text("Open Quick AI entry") }
     }
 }
