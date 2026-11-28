@@ -6,13 +6,12 @@ import { PRIVACY } from './privacy.js';
 import { COUNTRIES, OTHER_CURRENCIES, FLAGS, CURRENCY_AR, decimalsOf } from './countries.js';
 import * as P from './plan.js';
 import * as AI from './ai.js';
-import * as QA from './quickai.js';
 import * as Sync from './sync.js';
 import * as X from './extras.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.25.0';
+const VERSION = '1.25.1';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -50,7 +49,6 @@ const ui = {
   mp: { open: null },
   search: null,
   chat: { bubbles: [], busy: false, settings: null, draft: '', session: null },
-  qa: { busy: false, msg: '', err: false, pending: null, rows: [], chosen: [], draft: '', keyOpen: false },
 };
 try { ui.hideInstall = localStorage.getItem('pocketta-hide-install') === '1'; ui.hideGuide = localStorage.getItem('pocketta-hide-guide') === '1'; } catch { /* private mode */ }
 const cur = () => ui.stack[ui.stack.length - 1];
@@ -193,7 +191,7 @@ function render() {
   if (ui.locked) { app.innerHTML = lockScreen(); $('#pin')?.focus(); return; }
   if (!R.S().onboarded) { app.innerHTML = onboarding(); return; }
   const c = cur();
-  const pages = { home, spend, commit, more, add, income, tagsPage, tagDetail, catMonth, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage, monthPlanPage, reportPage, searchPage, assistant: assistantPage, quickai: quickAiPage };
+  const pages = { home, spend, commit, more, add, income, tagsPage, tagDetail, catMonth, categories, currencyPage, settings, plan, wealthPage, piggyPage, goalsPage, monthPlanPage, reportPage, searchPage, assistant: assistantPage };
   const page = pages[c.r === 'currencies' ? 'currencyPage' : c.r] || home;
   if (isTab(c.r)) {
     const tabBtn = ([r, l]) => `<button class="tab ${c.r === r ? 'on' : ''}" data-act="tab" data-r="${r}"><span class="ti">${icon(r)}</span><span>${esc(l)}</span></button>`;
@@ -2044,71 +2042,6 @@ async function aiSend() {
   render();
 }
 
-
-// ---------- Quick AI entry: one sentence in, proposals out, saved only after the user confirms ----------
-
-const qaStore = QA.makeStore();
-const qaCostLine = () => {
-  const c = qaStore.monthCost();
-  return `This month: about $${c < 0.01 ? c.toFixed(5) : c.toFixed(3)} (${qaStore.monthRequests()} requests). Estimate at $${QA.INPUT_USD_PER_MILLION} per million input tokens and $${QA.OUTPUT_USD_PER_MILLION} per million output tokens.`;
-};
-const qaTypeLabel = { expense: 'Expense', income: 'Income', loan_received: 'Borrowed', loan_given: 'Lent', loan_repaid_given: 'You paid back', loan_repaid_received: 'Paid back to you' };
-const qaNameMatch = (a, b) => !!a && !!b && (a.toLowerCase() === b.toLowerCase() || a.toLowerCase().includes(b.toLowerCase()) || b.toLowerCase().includes(a.toLowerCase()));
-/** The open loan a repayment belongs to: the right direction, same person, oldest first. */
-function qaLoanFor(p) {
-  const lent = p.type === 'loan_repaid_received';
-  return R.data.loans.filter((l) => !l.closed && l.amount - l.repaid > 0.004 && (l.direction === 'LENT') === lent && qaNameMatch(l.person, p.person)).sort((a, b) => a.epochDay - b.epochDay)[0] || null;
-}
-function qaProblem(p) {
-  if (p.type === 'loan_received' || p.type === 'loan_given') return p.person ? null : 'Who is the other person? Add it by hand.';
-  if (p.type === 'loan_repaid_given' || p.type === 'loan_repaid_received') return !p.person ? 'Who paid? Add it by hand.' : qaLoanFor(p) ? null : `No open loan with ${p.person} to settle. Add it by hand.`;
-  return null;
-}
-function qaCategory(name, note, kind) {
-  const n = (name || '').toLowerCase(), all = R.categories().filter((c) => c.kind === kind);
-  const byName = n ? (all.find((c) => c.name.toLowerCase() === n) || all.find((c) => c.name.toLowerCase().includes(n) || n.includes(c.name.toLowerCase())))?.id : null;
-  return byName ?? R.guessCategory(note || '', kind) ?? R.guessCategory(name || '', kind) ?? null;
-}
-/** Only Pending.confirm() calls this. */
-async function qaSink(p) {
-  const day = C.fromIso(p.date);
-  if (p.type === 'expense') R.saveTxn({ type: 'EXPENSE', amount: p.amountEgp, categoryId: qaCategory(p.category, p.note, 'EXPENSE') ?? (R.S().lastCategory || null), note: p.note || p.category, epochDay: day });
-  else if (p.type === 'income') R.saveTxn({ type: 'INCOME', amount: p.amountEgp, categoryId: qaCategory(p.category, p.note, 'INCOME') ?? R.categoryNamed('Other income', 'INCOME'), note: p.note || p.category, epochDay: day });
-  else if (p.type === 'loan_received' || p.type === 'loan_given') { if (p.person) R.addLoan({ person: p.person, lent: p.type === 'loan_given', amount: p.amountEgp, walletId: null, day, due: p.dueDate ? C.fromIso(p.dueDate) : null, note: p.note || '' }); }
-  else { const l = qaLoanFor(p); if (l) R.loanPayment(l, Math.min(p.amountEgp, l.amount - l.repaid), null, day); }
-}
-function quickAiPage() {
-  const q = ui.qa, hasKey = !!qaStore.key();
-  const keyCard = (!hasKey || q.keyOpen) ? card(label('Your Anthropic key') + field('qakey', 'API key (sk-ant-...)', '', { type: 'password' }) +
-    `<div class="btns"><button class="btn filled" data-act="qa-savekey">Save key</button>${hasKey ? `<button class="btn tonal" data-act="qa-clearkey">Remove key</button>` : ''}</div>` +
-    `<div class="small">The key stays in this browser only: it is not in your backups, exports or cloud sync. Your sentence is sent to Anthropic, and the cost is on your own account there. Get a key at console.anthropic.com.</div>`) : '';
-  const input = hasKey ? card(label('Write what happened') + `<textarea id="qa-in" rows="3" dir="auto" placeholder="كشري ٦٠ وبنزين ٢٠٠ النهاردة">${esc(q.draft)}</textarea>` +
-    `<div class="btns"><button class="btn filled" data-act="qa-ask" ${q.busy ? 'disabled' : ''}>Understand</button>${q.busy ? '<span class="small">…</span>' : ''}</div><div class="small">Nothing is saved until you tap Save.</div>`) : '';
-  const msg = q.msg ? card(`<div ${q.err ? 'style="color:var(--error)"' : ''}>${esc(q.msg)}</div>`) : '';
-  const res = q.pending ? card(label('Is this right?') + q.rows.map((r, i) => `<label class="switch-row"><input type="checkbox" data-act="qa-tick" data-i="${i}" ${q.chosen.includes(i) ? 'checked' : ''} ${r.problem ? 'disabled' : ''}>
-      <span><div class="mid">${esc(qaTypeLabel[r.p.type])} · ${esc(String(r.p.amountEgp))} ${esc(base())}${r.p.person ? ' · ' + esc(r.p.person) : ''}</div>
-      <div class="small">${esc([r.p.category, r.p.note, r.p.date].filter(Boolean).join(' · '))}${r.p.dueDate ? ' · pay back by ' + esc(r.p.dueDate) : ''}</div>${r.problem ? `<div class="small" style="color:var(--error)">${esc(r.problem)}</div>` : ''}</span></label>`).join('') +
-    `<div class="btns"><button class="btn filled" data-act="qa-save" ${q.chosen.length && !q.busy ? '' : 'disabled'}>Save ${q.chosen.length}</button><button class="btn tonal" data-act="qa-cancel">Cancel</button></div>`) : '';
-  const cost = card(label('Cost') + `<div class="small">${esc(qaCostLine())}</div><div class="small">Model: ${esc(QA.MODEL)} (fixed).</div>`);
-  return topbar('Quick AI entry', hasKey ? `<button class="btn text" data-act="qa-key">${q.keyOpen ? 'Close' : 'Key'}</button>` : '') + `<main class="page" id="qapage">${keyCard}${input}${msg}${res}${cost}</main>`;
-}
-async function qaAsk() {
-  const q = ui.qa, text = ($('#qa-in')?.value || '').trim(), key = qaStore.key();
-  q.draft = text;
-  if (!text || q.busy || !key) return;
-  q.busy = true; q.msg = ''; q.pending = null; q.rows = []; q.chosen = [];
-  render();
-  try {
-    const session = new QA.Session({ transport: QA.httpTransport(key), sink: qaSink, onUsage: (u, ok) => qaStore.addUsage(u, ok), onLog: (l) => qaStore.addLog(l) });
-    const r = await session.propose(text, C.isoOf(C.todayEpoch()));
-    if (r.kind === 'ready') { q.pending = r.pending; q.rows = r.pending.proposals.map((p) => ({ p, problem: qaProblem(p) })); q.chosen = q.rows.flatMap((x, i) => (x.problem ? [] : [i])); }
-    else if (r.kind === 'needs_review') { q.msg = 'Needs review: ' + r.reason; q.err = false; }
-    else { q.msg = r.message; q.err = true; }
-  } catch (e) { q.msg = e instanceof QA.HttpError ? e.friendly() : 'Could not reach the assistant. Check your internet and try again.'; q.err = true; }
-  q.busy = false;
-  render();
-}
-
 // ---------- More ----------
 
 /** One card per running gam'eya: when it's your turn, how much you collect, how many installments are left. */
@@ -2254,7 +2187,6 @@ function more() {
   const big = (emoji, title, sub, r) => `<div class="card bigcard tap" data-act="open" data-r="${r}"><span class="bigicon">${emoji}</span>
     <div class="grow"><div class="mid">${esc(title)}</div><div class="small">${esc(sub)}</div></div><span class="chev">›</span></div>`;
   return topbar('Settings & more') + `<main class="page more">` +
-    big('✨', 'Quick AI entry', 'Write a sentence in Egyptian Arabic, check it, save it with one tap', 'quickai') +
     big('📅', 'Month plan', 'Every month like your spreadsheet: income, installments, living, what is left', 'monthPlanPage') +
     big('🐷', 'Piggy bank', 'Everything you saved, month by month', 'piggyPage') +
     big('🎯', 'Goals', 'Umra, a car, a laptop, each with its own date', 'goalsPage') +
@@ -2363,7 +2295,6 @@ function settings() {
   return topbar('Settings') + `<main class="page" id="settings">` +
     card(label('Month') + `<div class="row-flex">${numField('start', 'My month starts on day', s.cycleStart, { int: true })}<button class="btn text" data-act="save-start">Save</button></div>`) +
     card(label('Look') + `<div class="small">Night mode</div>` + chips('theme', [['AUTO', 'Auto'], ['LIGHT', 'Light'], ['DARK', 'Dark']], s.theme, 'seg') + `<div class="small pad-t">Language</div>` + chips('lang', [['EN', 'English'], ['AR', 'العربية']], s.lang || 'EN', 'seg')) +
-    card(label('Quick AI entry') + `<div class="small">${esc(qaCostLine())}</div><div class="small">Model ${esc(QA.MODEL)}, fixed. Prices: ${esc(QA.PRICE_SOURCE)}</div><button class="btn text" data-act="open" data-r="quickai">Open Quick AI entry</button>`) +
     card(label('Savings goal') + `<div class="small">Set a goal (Umra, car, wedding...) and watch the ring fill up on Today.</div>` +
       field('goalName', 'Name', s.goalName) + `<div class="two">${numField('goalAmount', 'Goal amount', s.goalAmount, { suffix: base() })}${numField('goalSaved', 'Saved so far', s.goalSaved, { suffix: base() })}</div>` +
       `<button class="btn filled" data-act="save-goal">Save</button>`) +
@@ -2645,19 +2576,6 @@ const actions = {
   'mp-living': (el) => livingSheet(+el.dataset.ym),
   'mp-raise': (el) => raiseSheet(+el.dataset.ym),
   'ai-toggle': () => { ui.chat.settings = !(ui.chat.settings ?? !AI.cfg.key()); render(); },
-  'qa-key': () => { ui.qa.keyOpen = !ui.qa.keyOpen; render(); },
-  'qa-savekey': () => { const k = val($('#qapage'), 'qakey').trim(); if (!k) return toast('Paste your key first'); qaStore.setKey(k); ui.qa.keyOpen = false; render(); },
-  'qa-clearkey': () => { qaStore.removeKey(); ui.qa.keyOpen = false; render(); },
-  'qa-ask': () => qaAsk(),
-  'qa-tick': (el) => { const i = Number(el.dataset.i), c = ui.qa.chosen; if (c.includes(i)) c.splice(c.indexOf(i), 1); else c.push(i); render(); },
-  'qa-cancel': () => { Object.assign(ui.qa, { pending: null, rows: [], chosen: [], msg: 'Cancelled. Nothing was saved.', err: false }); render(); },
-  'qa-save': async () => {
-    const q = ui.qa; if (!q.pending || q.busy) return;
-    q.busy = true;
-    try { const n = await q.pending.confirm(q.chosen); Object.assign(q, { pending: null, rows: [], chosen: [], draft: '', msg: `Saved ${n}`, err: false }); }
-    catch { q.msg = 'Could not save.'; q.err = true; }
-    q.busy = false; render();
-  },
   'ai-save': async () => {
     const root = $('#aiset'), p = AI.cfg.provider(), key = val(root, 'key').trim();
     if (!key) return toast('Paste your key first');
@@ -3028,7 +2946,6 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', (e) => {
   const a = e.target.dataset?.act;
   if (a === 'toggle-alert' || a === 'toggle-weekly' || a === 'toggle-auto' || a === 'toggle-monthend' || a === 'toggle-addfield') actions[a](e.target);
-  if (a === 'qa-tick') actions[a](e.target);
   if (a === 'cloud-always') Sync.setCloudAlways(e.target.checked);
   if (e.target.id === 'conv-from') { ui.conv.from = e.target.value; convRefresh(); }
   if (e.target.id === 'conv-to') { ui.conv.to = e.target.value; convRefresh(); }

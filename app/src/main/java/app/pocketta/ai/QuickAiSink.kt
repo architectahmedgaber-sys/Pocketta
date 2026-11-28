@@ -8,7 +8,7 @@ import app.pocketta.data.TxType
 
 /**
  * Writes confirmed Quick AI proposals into the database. Only [QuickAi.Pending.confirm] calls [save]; the screen never calls it directly.
- * Loan repayments need an open loan with that person: [problem] tells the screen in advance when there is none, so it is not offered.
+ * Loan repayments need an open loan with that person: [problem] tells the screen when there is none, so "Confirm all" stays off until the card is fixed.
  */
 class QuickAiSink(private val repo: Repo) : QuickAi.Sink {
     private fun nameMatches(a: String, b: String) = a.isNotBlank() && b.isNotBlank() && (a.equals(b, true) || a.contains(b, true) || b.contains(a, true))
@@ -22,10 +22,9 @@ class QuickAiSink(private val repo: Repo) : QuickAi.Sink {
 
     /** Null when the proposal can be saved, otherwise a short reason why not. */
     suspend fun problem(p: QuickAi.Proposal): String? = when (p.type) {
-        "loan_received", "loan_given" -> if (p.person.isNullOrBlank()) "Who is the other person? Add it by hand." else null
         "loan_repaid_given", "loan_repaid_received" ->
-            if (p.person.isNullOrBlank()) "Who paid? Add it by hand."
-            else if (loanFor(p) == null) "No open loan with ${p.person} to settle. Add it by hand." else null
+            if (p.person.isNullOrBlank()) null // the card's own check asks for the name
+            else if (loanFor(p) == null) "مفيش سلفة مفتوحة مع ${p.person} علشان تتسدّد. سجّلها الأول أو غيّر النوع." else null
         else -> null
     }
 

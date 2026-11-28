@@ -25,6 +25,32 @@ object QuickAi {
 
     const val MAX_TRANSACTIONS = 20
 
+    /** The key is only ever sent to this host (the Transport also refuses redirects). */
+    const val API_HOST = "api.anthropic.com"
+    fun isAnthropicUrl(url: String): Boolean = url.startsWith("https://$API_HOST/")
+
+    /** For showing a saved key: only the last 4 characters are visible. */
+    fun maskKey(key: String): String = if (key.length <= 4) "••••" else "••••••••" + key.takeLast(4)
+
+    /** The tiny request behind the "Test" button: same pinned model, one output token, no user data. */
+    fun testBody(): String =
+        "{\"model\":" + Json.quote(MODEL) + ",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+
+    sealed class TestOutcome {
+        data class Ok(val usage: Usage?) : TestOutcome()
+        data class WrongModel(val got: String?, val usage: Usage?) : TestOutcome()
+        object Unreadable : TestOutcome()
+    }
+
+    /** Reads the answer of [testBody]: only the model and usage matter. */
+    fun readTest(responseBody: String): TestOutcome {
+        val root = try { Json.parse(responseBody) } catch (e: Json.JsonError) { null }
+        if (root !is Map<*, *>) return TestOutcome.Unreadable
+        val usage = readUsage(root["usage"])
+        val got = root["model"] as? String
+        return if (got == MODEL) TestOutcome.Ok(usage) else TestOutcome.WrongModel(got, usage)
+    }
+
     val TYPES = listOf("expense", "income", "loan_received", "loan_given", "loan_repaid_given", "loan_repaid_received")
 
     /** The parser prompt, exactly as written by the owner (prompt.txt). */
@@ -183,17 +209,37 @@ Rules:
         data class WrongModel(val got: String?, val message: String) : Proposed()
     }
 
+    /** Why a proposal (as the user may have edited it) cannot be saved, in Arabic, or null when it is fine. The same rules as the add sheet: a positive amount, and a loan needs a person. */
+    fun validate(p: Proposal): String? {
+        if (p.type !in TYPES) return "نوع المعاملة مش مظبوط"
+        if (p.amountEgp.isNaN() || p.amountEgp.isInfinite() || p.amountEgp <= 0 || p.amountEgp > 1e9) return "اكتب مبلغ أكبر من صفر"
+        val needsPerson = p.type != "expense" && p.type != "income"
+        if (needsPerson && p.person.isNullOrBlank()) return "اكتب اسم الشخص"
+        val loan = p.type == "loan_received" || p.type == "loan_given"
+        if (p.dueDate != null && !loan) return "تاريخ السداد للسلف بس"
+        if (p.dueDate != null && p.dueDate.isBefore(p.date)) return "تاريخ السداد قبل تاريخ المعاملة"
+        return null
+    }
+
+    /** A blank card for "add a missing one". It is not valid until the user types an amount. */
+    fun blankProposal(today: LocalDate) = Proposal("expense", 0.0, "", null, null, today, "")
+
     class Pending internal constructor(val proposals: List<Proposal>, private val sink: Sink) {
         var confirmed: Boolean = false
             private set
 
-        /** The only place a transaction is handed to the database. Saves the chosen proposals (all by default), once. */
-        suspend fun confirm(selected: Set<Int> = proposals.indices.toSet()): Int {
+        /**
+         * "Confirm all": saves exactly [final], the cards as the user left them (edited, deleted ones missing, added ones present),
+         * never the original model output. The only place a transaction is handed to the database. Works once.
+         * If any card is invalid nothing is saved and the call fails, so the screen can show what to fix.
+         */
+        suspend fun confirmAll(final: List<Proposal>): Int {
             check(!confirmed) { "already confirmed" }
+            require(final.isNotEmpty()) { "nothing to save" }
+            final.forEach { p -> validate(p)?.let { throw IllegalArgumentException(it) } }
             confirmed = true
-            var n = 0
-            for ((i, p) in proposals.withIndex()) if (i in selected) { sink.save(p); n++ }
-            return n
+            for (p in final) sink.save(p)
+            return final.size
         }
     }
 

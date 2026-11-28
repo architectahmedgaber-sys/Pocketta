@@ -31,7 +31,7 @@ export const info = () => ({ email: st.email || '', lastSyncAt: st.lastSyncAt ||
 
 // ---------- What is synced ----------
 
-function snapshot() {
+export function snapshot() {
   const d = JSON.parse(R.exportJson());
   delete d.exportedAt;
   d.settings = { ...d.settings };
