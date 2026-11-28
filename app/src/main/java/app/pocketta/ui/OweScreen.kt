@@ -22,6 +22,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -472,15 +473,21 @@ internal fun LoanDialog(repo: Repo, prefs: Prefs, loan: Loan, onClose: () -> Uni
     val context = LocalContext.current
     var pay by remember { mutableStateOf(numText(loan.remaining)) }
     var due by remember { mutableStateOf(loan.dueDay?.let { LocalDate.ofEpochDay(it) }) }
+    var person by remember { mutableStateOf(loan.person) }
+    var total by remember { mutableStateOf(numText(loan.amount)) }
     val a = parseNumber(pay)
     FormDialog(
         loan.person, onDismiss = onClose,
         saveLabel = if (loan.closed) "Save" else if (loan.lent) "Got it back" else "I paid",
-        saveEnabled = loan.closed || (a != null && a > 0),
+        saveEnabled = person.isNotBlank() && (loan.closed || (a != null && a > 0)),
         onDelete = { scope.launch { repo.deleteLoan(loan) }; onClose() },
         onSave = {
             scope.launch {
                 if (due?.toEpochDay() != loan.dueDay) repo.updateLoan(loan.copy(dueDay = due?.toEpochDay()))
+                val newTotal = parseNumber(total) ?: loan.amount
+                if (person.trim() != loan.person || (newTotal > 0 && newTotal != loan.amount)) {
+                    repo.editLoan(repo.dao.loan(loan.id) ?: loan, person.trim(), newTotal)
+                }
                 if (!loan.closed && a != null && a > 0) {
                     val fresh = repo.dao.loan(loan.id) ?: loan
                     repo.loanPayment(fresh, a)
@@ -498,6 +505,8 @@ internal fun LoanDialog(repo: Repo, prefs: Prefs, loan: Loan, onClose: () -> Uni
             NumberField(if (loan.lent) "Amount they paid back" else "Amount you paid back", pay, { pay = it })
         }
         DateField("Pay back by", due, { due = it }, allowClear = true)
+        OutlinedTextField(person, { person = it }, label = { Text("To / from whom") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        NumberField("Loan amount", total, { total = it })
         if (loan.lent && !loan.closed) {
             OutlinedButton(onClick = {
                 val msg = "Hi ${loan.person}, just a friendly reminder about the ${Money.fmt(loan.remaining)} ${prefs.baseCurrency}" +
