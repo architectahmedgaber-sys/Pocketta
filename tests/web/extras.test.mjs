@@ -31,6 +31,19 @@ eq(X.runOutIn(900, 100, 9), null);
 eq(X.runOutIn(899, 100, 20), 8);
 eq(X.runOutIn(-5, 100, 20), 0);
 eq(X.runOutIn(500, 0, 20), null);
+eq(X.runOutIn(800, 100, 9), null);                  // 8 >= 9 - 1: lasts to the end
+eq(X.runOutIn(700, 100, 9), 7);
+eq(X.runOutIn(700, 100, 8), null);
+eq(X.runOutIn(600, 100, 8), 6);
+
+// daily allowance = available / max(daysLeft - 1, 1), same as Budget.kt
+const cyc = { daysLeftIncluding: () => 13, dayIndex: () => 18, length: 30 };
+const bd = C.computeBudget({ cycle: cyc, today: 1, incomeReceived: 12000, salaryExpected: 0, setAside: 0, spentBeforeToday: 6000, spentToday: 100, commitments: 1300, everydaySpent: 5000 });
+eq(bd.daysLeft, 13);
+assert.ok(Math.abs(bd.dailyAllowance - 4700 / 12) < 1e-9);
+assert.ok(Math.abs(bd.leftToday - (4700 / 12 - 100)) < 1e-9);
+const last = C.computeBudget({ cycle: { ...cyc, daysLeftIncluding: () => 1 }, today: 1, incomeReceived: 1000, salaryExpected: 0, setAside: 0, spentBeforeToday: 400, spentToday: 0, commitments: 100, everydaySpent: 400 });
+eq(last.dailyAllowance, 500);                        // last day: divide by 1, not 0
 eq([X.forecastStatus(-1, 1000), X.forecastStatus(0, 1000), X.forecastStatus(99.99, 1000), X.forecastStatus(100, 1000)], ['over', 'tight', 'tight', 'ok']);
 
 // 3 auto post

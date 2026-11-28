@@ -142,7 +142,7 @@ export function computeBudget(i) {
   const spent = i.spentBeforeToday + i.spentToday;
   const daysLeft = i.cycle.daysLeftIncluding(i.today);
   const available = budget - i.spentBeforeToday - i.commitments;
-  const daily = available / daysLeft;
+  const daily = available / Math.max(daysLeft - 1, 1);
   const dayIndex = Math.max(i.cycle.dayIndex(i.today), 1);
   const avg = i.everydaySpent / dayIndex;
   const forecast = spent + i.commitments + avg * (daysLeft - 1);

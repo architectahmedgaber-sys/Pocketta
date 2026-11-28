@@ -84,7 +84,7 @@ const EXTRA = {
   "Remaining": "المتبقي",
   "Last transactions": "آخر المعاملات",
   "All ›": "الكل ›",
-  "Coming soon": "جاي قريب",
+  "Coming up": "اللي جاي",
   "More: insights, converter, goals, details": "المزيد: تحليلات ومحوّل وأهداف وتفاصيل",
   "Hide extras": "إخفاء الزيادات",
   "Planned for this month": "المخطط لهذا الشهر",

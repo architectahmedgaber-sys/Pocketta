@@ -50,12 +50,12 @@ export function budgetsSummary(items) {
 
 // ---- 2. Month-end forecast ----
 // left = budget - spent - unpaid commitments. avg = everyday spending per elapsed day. daysLeft counts today.
-// Returns days from today until the money runs out, or null when it lasts to the end of the cycle.
+// Returns days from today until the money runs out, or null when it lasts to the end of the cycle (floor(left / avg) >= daysLeft - 1: today's spending is already in left).
 export function runOutIn(left, avg, daysLeft) {
   if (!(avg > 0)) return null;
   if (left <= 0) return 0;
   const d = Math.floor(left / avg);
-  return d >= daysLeft ? null : d;
+  return d >= daysLeft - 1 ? null : d;
 }
 // forecastDiff = budget - forecastSpend (computeBudget). Tight = under by less than 10% of the budget.
 export function forecastStatus(forecastDiff, budget) {

@@ -257,7 +257,7 @@ function home() {
   if (s.upcoming.length) {
     const list = s.upcoming.slice(0, 3);
     ui.homeUpcoming = list;
-    html += card(label('Coming soon') + list.map((u, i) => {
+    html += card(label('Coming up') + list.map((u, i) => {
       const late = u.due < s.today;
       const can = u.due <= s.today + 3;
       return `<div class="row-flex line"><div class="grow"><div class="ellipsis">${esc(u.title)}</div><div class="small ${late ? 'bad-t' : ''}">${late ? 'Late · ' : ''}${C.fmtDay(u.due)}</div></div>
