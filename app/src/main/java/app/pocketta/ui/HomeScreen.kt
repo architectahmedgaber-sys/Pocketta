@@ -26,7 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -213,13 +212,6 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
             }
             Gap(24)
         }
-        // Miqrish, the assistant: a small button instead of a tab.
-        SmallFloatingActionButton(
-            onClick = { nav.open(Route.Assistant) },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            contentColor = MaterialTheme.colorScheme.primary,
-        ) { androidx.compose.material3.Text("🪙", fontSize = 20.sp) }
     }
 }
 

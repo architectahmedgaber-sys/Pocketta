@@ -84,6 +84,13 @@ fun BackBar(title: String, onBack: () -> Unit, actions: @Composable RowScope.() 
     )
 }
 
+/** Title bar for a screen that is a bottom-bar tab: no back arrow, and the status bar space is already left by the Scaffold above. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun TabBar(title: String, actions: @Composable RowScope.() -> Unit = {}) {
+    TopAppBar(title = { Text(title) }, actions = actions, windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0))
+}
+
 @Composable
 fun SectionCard(
     modifier: Modifier = Modifier,

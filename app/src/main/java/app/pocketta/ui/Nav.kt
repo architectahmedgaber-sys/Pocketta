@@ -42,8 +42,8 @@ sealed interface Route {
     data object Search : Route
 }
 
-/** Four tabs; the add button sits in the middle of the bar. Miqrish (Assistant) is a screen opened from Today. */
-val tabs = listOf(Route.Home, Route.Month, Route.Commit, Route.More)
+/** Five equal tabs; Miqrish (Assistant) is the centre one. Adding a transaction is the "+ Add" button on Today and Month. */
+val tabs = listOf(Route.Home, Route.Month, Route.Assistant, Route.Commit, Route.More)
 
 /** A tiny back stack: one tab at the bottom, screens opened on top of it. */
 class Nav {
@@ -54,6 +54,6 @@ class Nav {
     val canGoBack: Boolean get() = stack.size > 1 || stack.first() != Route.Home
 
     fun tab(r: Route) { stack = listOf(if (r == Route.Spend) Route.Month else r) }
-    fun open(r: Route) { stack = if (stack.last() is Route.Add && r is Route.Add) stack.dropLast(1) + r else stack + r }
+    fun open(r: Route) { if (r in tabs) { tab(r); return }; stack = if (stack.last() is Route.Add && r is Route.Add) stack.dropLast(1) + r else stack + r }
     fun back() { stack = if (stack.size > 1) stack.dropLast(1) else listOf(Route.Home) }
 }

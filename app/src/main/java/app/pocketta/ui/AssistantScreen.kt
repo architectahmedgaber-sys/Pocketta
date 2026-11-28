@@ -50,7 +50,7 @@ private class Bubble(val role: String, val text: String)
 
 /** Miqrish: a chat with the user's own AI key. It reads and changes Pocketta through tools, always asking before saving. */
 @Composable
-fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs, bottomBar: @Composable () -> Unit = {}) {
+fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     val cfg = remember { AiConfig(ctx) }
     val scope = rememberCoroutineScope()
@@ -62,6 +62,7 @@ fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs, bottomBar: @Composable (
     var provider by remember { mutableStateOf(cfg.provider) }
     val listState = rememberLazyListState()
 
+    var mode by remember { mutableStateOf("chat") }
     var chatId by remember { mutableStateOf(0) }
     var confirmNew by remember { mutableStateOf(false) }
     val session = remember(chatId) {
@@ -98,16 +99,22 @@ fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs, bottomBar: @Composable (
         }
     }
 
-    Scaffold(bottomBar = bottomBar, topBar = {
-        BackBar("Miqrish", { nav.back() }) {
-            if (!settings && bubbles.isNotEmpty()) TextButton(onClick = { confirmNew = true }, enabled = !busy) { Text("＋ New chat") }
-            TextButton(onClick = { settings = !settings }) { Text(if (settings) "Chat" else "Settings") }
+    Scaffold(modifier = modifier, contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0), topBar = {
+        TabBar("Miqrish") {
+            if (mode == "chat" && !settings && bubbles.isNotEmpty()) TextButton(onClick = { confirmNew = true }, enabled = !busy) { Text("＋ New chat") }
+            if (mode == "chat") TextButton(onClick = { settings = !settings }) { Text(if (settings) "Chat" else "Settings") }
         }
     }) { pad ->
-        if (settings) {
-            AssistantSettings(cfg, repo, prefs.weeklyAiOn, provider, { provider = it }, Modifier.padding(pad)) { settings = false }
-        } else {
-            Column(Modifier.padding(pad).fillMaxSize().imePadding()) {
+        Column(Modifier.padding(pad).fillMaxSize()) {
+            Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Choices(listOf("chat", "quick"), mode, { if (it == "chat") "Chat" else "AI quick entry" }, { mode = it })
+            }
+            if (mode == "quick") {
+                QuickAiScreen(repo, nav, prefs, embedded = true, modifier = Modifier.weight(1f))
+            } else if (settings) {
+                AssistantSettings(cfg, repo, prefs.weeklyAiOn, provider, { provider = it }, Modifier.weight(1f)) { settings = false }
+            } else {
+                Column(Modifier.weight(1f).fillMaxSize().imePadding()) {
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (bubbles.isEmpty()) item {
                         SectionCard {
@@ -126,6 +133,7 @@ fun AssistantScreen(repo: Repo, nav: Nav, prefs: Prefs, bottomBar: @Composable (
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     )
                     Button(onClick = { send() }, enabled = input.isNotBlank() && !busy) { Text("Send") }
+                }
                 }
             }
         }

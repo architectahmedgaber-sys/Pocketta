@@ -23,12 +23,35 @@ object Tr {
     private val days = Regex("""\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|AM|PM)\b""")
 
     fun t(s: String, lang: String): String {
-        if (lang != AR || s.isBlank() || !hasLetters.containsMatchIn(s)) return s
+        if (lang != AR) return if (arabic.containsMatchIn(s)) toEnglish(s) else s
+        if (s.isBlank() || !hasLetters.containsMatchIn(s)) return s
         cache[s]?.let { return it }
         val r = translate(s)
         if (cache.size > 3000) cache.clear()
         cache[s] = r
         return r
+    }
+
+    private val arabic = Regex("[\u0600-\u06FF]")
+
+    /** English mode: the quick-entry texts are written in Arabic, so look them up in [EnWords]. Anything unknown stays as it is. */
+    private fun toEnglish(s: String): String {
+        EnWords.dict[s]?.let { return it }
+        val nums = number.findAll(s).map { it.value }.toList()
+        if (nums.isNotEmpty()) {
+            val en = EnWords.dict[number.replace(s, "#")]
+            if (en != null) {
+                var i = 0
+                return hash.replace(en) { nums.getOrElse(i++) { "#" } }
+            }
+        }
+        for ((re, to) in EnWords.rules) {
+            val m = re.matchEntire(s) ?: continue
+            var out = to
+            for (i in 1 until m.groupValues.size) out = out.replace("@" + i, t(m.groupValues[i], EN))
+            return out
+        }
+        return s
     }
 
     private fun translate(s: String): String {
