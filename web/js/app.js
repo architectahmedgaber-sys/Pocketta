@@ -247,12 +247,15 @@ function home() {
     html += card(`<b>Add your salary to see how much you can spend</b><div class="small">Tap here to set it</div>`, 'tap', 'data-act="open" data-r="income"');
   }
   // The one big thing: how much can I spend today?
-  html += card(`<div class="hero-t">${over ? "Over today's amount" : 'Spend today'}</div>
-    <div class="hero-n"><span id="hero-amt" data-v="${Math.abs(b.leftToday)}">${money(Math.abs(b.leftToday))}</span><span class="hero-c"> ${esc(cur)}</span></div>
+  html += card(`<div class="hero-t">Spent today</div>
+    <div class="hero-n ${over ? 'over' : ''}"><span id="hero-amt" data-v="${spentToday}">${money(spentToday)}</span><span class="hero-c"> ${esc(cur)}</span></div>
     <div class="bar hero-bar"><i style="width:${usedPct}%"></i></div>
-    <div class="hero-s">${b.daysLeft} days left · commitments already deducted</div>`, `hero ${over ? 'red' : 'green'}`);
+    <div class="hero-stats">
+      <div class="hero-stat"><span>${over ? "Over today's amount" : 'Left for today'}</span><b class="${over ? 'warn' : ''}">${money(Math.abs(b.leftToday))} ${esc(cur)}</b></div>
+      <div class="hero-stat"><span>Available balance</span><b class="${b.left < 0 ? 'warn' : ''}">${money(b.left)} ${esc(cur)}</b></div>
+    </div>`, 'hero green');
   html += forecastCard(s);
-  html += `<div class="mini3">${card(`<span class="small">Income</span><b>${money(s.income + s.salaryExpected)}</b>`)}${card(`<span class="small">Commitments</span><b>${money(b.committed)}</b>`)}${card(`<span class="small">Remaining</span><b class="${b.left < 0 ? 'bad-t' : ''}">${money(b.left)}</b>`)}</div>`;
+  html += `<div class="mini3 two">${card(`<span class="small">Income</span><b>${money(s.income + s.salaryExpected)}</b>`)}${card(`<span class="small">Commitments</span><b>${money(b.committed)}</b>`)}</div>`;
   html += startGuide(s);
   if (s.upcoming.length) {
     const list = s.upcoming.slice(0, 3);
@@ -482,16 +485,36 @@ function forecastCard(s) {
   if (!(b.budget > 0)) return '';
   const st = X.forecastStatus(b.forecastDiff, b.budget), cur = base(), warn = st !== 'ok';
   const d = warn ? X.runOutIn(b.left, b.avgPerDay, b.daysLeft) : null;
+  const tone = st === 'over' ? 'var(--error)' : st === 'tight' ? 'var(--warn)' : 'var(--good, #2e8b57)';
   const head = st === 'over' ? `You will go over the budget by ${money(-b.forecastDiff)} ${cur}`
     : st === 'tight' ? `Small margin left: ${money(b.forecastDiff)} ${cur}` : `You will finish ${money(b.forecastDiff)} ${cur} under budget`;
   const pl = st === 'over' ? pill('Over budget', 'bad') : st === 'tight' ? pill('Close', 'warn') : pill('On track', 'good');
-  let lines = '';
+  let lines = `<div class="small fc-line">${esc(b.forecastDiff >= 0 ? `Daily average ${money(b.avgPerDay)} ${cur}. Expected left at month end: ${money(b.forecastDiff)} ${cur}` : `Daily average ${money(b.avgPerDay)} ${cur}. Expected over budget at month end: ${money(-b.forecastDiff)} ${cur}`)}</div>`;
   if (d != null) {
     lines += `<div class="fc-line">${d === 0 ? "At today's pace your money has run out" : `At today's pace your money runs out in ${d} days`}</div>`;
     if (d > 0) lines += `<div class="small fc-line"><span>Money runs out on</span> <b>${esc(C.fmtDay(C.todayEpoch() + d))}</b></div>`;
   }
+  lines += forecastChart(s, tone);
   if (warn && b.dailyAllowance >= 1) lines += `<div class="small fc-line">Spend up to ${money(Math.floor(b.dailyAllowance))} ${esc(cur)} a day to stay within budget</div>`;
   return card(label('Month-end forecast') + `<div class="row-flex"><div class="grow mid">${esc(head)}</div>${pl}</div>${lines}`, st === 'over' ? 'tonal' : '');
+}
+/** Solid line: spending so far. Dashed: the budget. Dotted in the state colour: where today's pace ends. Dot: today. */
+function forecastChart(s, tone) {
+  const b = s.budget, n = Math.max(s.cycle.length, 2);
+  let run = 0;
+  const cum = s.days.map((d) => (run += d[1]));
+  if (!cum.length) return '';
+  const endY = cum[cum.length - 1] + Math.max(b.forecastSpend - b.spent, 0);
+  const top = Math.max(b.budget, endY, cum[cum.length - 1], 1) * 1.08;
+  const W = 300, H = 110, pad = 6, w = W - pad * 2, h = H - pad * 2;
+  const x = (i) => (pad + i / (n - 1) * w).toFixed(1), y = (v) => (pad + h - v / top * h).toFixed(1);
+  const pts = cum.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+  const tx = x(cum.length - 1), ty = y(cum[cum.length - 1]);
+  return `<svg class="fc-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Month-end forecast" style="direction:ltr">
+    <line x1="${pad}" y1="${y(b.budget)}" x2="${W - pad}" y2="${y(b.budget)}" stroke="var(--outline)" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <polyline points="${pts}" fill="none" stroke="var(--good, #2e8b57)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="${tx}" y1="${ty}" x2="${x(n - 1)}" y2="${y(endY)}" stroke="${tone}" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 8"/>
+    <circle cx="${tx}" cy="${ty}" r="7" fill="#fff"/><circle cx="${tx}" cy="${ty}" r="5" fill="${tone}"/></svg>`;
 }
 let autoPostBusy = false;
 /** Records the fixed bills that are due and set to record themselves. One toast says what happened. */
