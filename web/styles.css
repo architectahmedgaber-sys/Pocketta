@@ -489,3 +489,13 @@ p { margin: 0; }
 .sr-chips .chip, .sr-chips .btn { min-height: 44px; }
 .chip-x { flex: none; min-width: 44px; min-height: 44px; border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; margin-inline-start: -10px; }
 .check input:disabled + span { opacity: .55; }
+
+/* Today hero like the Android Home */
+.hero-n.over { color: #f2b8a8; }
+.hero-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.hero-stat { background: rgba(244, 239, 227, .10); border-radius: 14px; padding: 10px; display: flex; flex-direction: column; gap: 2px; }
+.hero-stat span { font-size: 12px; opacity: .85; }
+.hero-stat b { font-size: 17px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.hero-stat b.warn { color: #f2b8a8; }
+.mini3.two { grid-template-columns: repeat(2, 1fr); }
+.fc-chart { width: 100%; height: auto; margin-top: 6px; }
