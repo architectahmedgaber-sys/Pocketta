@@ -9,6 +9,10 @@ object Forecast {
         return if (d >= daysLeft) null else d
     }
 
+    /** The most that can be spent per day to stay within budget: available balance ÷ max(daysLeft − 1, 1). 0 when nothing is left. [daysLeft] counts today. */
+    fun dailyCap(available: Double, daysLeft: Int): Double =
+        if (available <= 0) 0.0 else Math.floor(available / maxOf(daysLeft - 1, 1))
+
     enum class Status { OK, TIGHT, OVER }
 
     fun status(forecastDiff: Double, budget: Double): Status = when {
