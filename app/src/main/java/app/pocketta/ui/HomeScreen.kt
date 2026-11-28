@@ -143,11 +143,10 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
 
             if (b.budget > 0) ForecastCard(s, cur)
 
-            // Three small numbers.
+            // Two small numbers (the balance is already in the green card).
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MiniNumber("Income", Money.short(s.income + s.salaryExpected), Modifier.weight(1f))
                 MiniNumber("Commitments", Money.short(b.committed), Modifier.weight(1f))
-                MiniNumber("Remaining", Money.short(b.left), Modifier.weight(1f), if (b.left < 0) MaterialTheme.colorScheme.error else Color.Unspecified)
             }
 
             SyncChip()
@@ -263,7 +262,7 @@ private fun UpcomingCard(repo: Repo, items: List<Upcoming>, s: HomeState, cur: S
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     SectionCard {
-        Label("Coming soon")
+        Label("Coming up")
         for (u in items) {
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -439,7 +438,7 @@ private fun ForecastCard(s: HomeState, cur: String) {
     }
     // "Money runs out" is only said when it really runs out before the cycle ends.
     val runOut = Forecast.runOutIn(b.left, b.avgPerDay, b.daysLeft)
-    val tip = Forecast.dailyCap(b.left, b.daysLeft)
+    val tip = Math.floor(b.dailyAllowance)
     val headline = when (status) {
         Forecast.Status.OVER -> "You will go over the budget by ${Money.short(-b.forecastDiff)} $cur"
         Forecast.Status.TIGHT -> "You will finish the month with only ${Money.short(b.forecastDiff)} $cur"

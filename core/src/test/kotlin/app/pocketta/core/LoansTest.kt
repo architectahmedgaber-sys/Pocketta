@@ -107,7 +107,7 @@ class LoansTest {
         assertEquals(3000.0, novWith.budget - novWithout.budget, 0.0)
         val decWithout = allowance(dec, d(2026, 12, 1), 6000.0, 0.0)
         val decWith = allowance(dec, d(2026, 12, 1), 6000.0, 1000.0)
-        assertEquals(1000.0, decWithout.dailyAllowance * 31 - decWith.dailyAllowance * 31, 0.001)
+        assertEquals(1000.0, decWithout.dailyAllowance * 30 - decWith.dailyAllowance * 30, 0.001)
     }
 
     @Test fun payingEarlyReducesTheCommitment() {

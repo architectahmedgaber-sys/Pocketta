@@ -7,7 +7,7 @@ import java.time.LocalDate
  *
  * Budget for the cycle = income received + salary still expected − money set aside
  * (monthly share of quarterly/yearly bills and the savings amount).
- * Today's allowance = (budget − spent before today − unpaid commitments still due this cycle) ÷ days left, today included.
+ * Today's allowance = (budget − spent before today − unpaid commitments still due this cycle) ÷ max(days left − 1, 1), where days left counts today. It is also the daily tip, so the two always agree.
  */
 data class BudgetInput(
     val cycle: Cycle,
@@ -59,7 +59,7 @@ object Budget {
         val spent = i.spentBeforeToday + i.spentToday
         val daysLeft = i.cycle.daysLeftIncluding(i.today)
         val available = budget - i.spentBeforeToday - i.commitments
-        val daily = available / daysLeft
+        val daily = available / maxOf(daysLeft - 1, 1)
         val dayIndex = i.cycle.dayIndex(i.today).coerceAtLeast(1)
         val avg = i.everydaySpent / dayIndex
         val forecast = spent + i.commitments + avg * (daysLeft - 1)

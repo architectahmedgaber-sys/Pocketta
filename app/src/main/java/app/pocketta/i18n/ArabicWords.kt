@@ -946,6 +946,7 @@ object ArabicWords {
         "Last transactions" to "آخر المعاملات",
         "All ›" to "الكل ›",
         "Coming soon" to "جاي قريب",
+        "Coming up" to "اللي جاي",
         "More: insights, converter, goals, details" to "المزيد: تحليلات ومحوّل وأهداف وتفاصيل",
         "Hide extras" to "إخفاء الزيادات",
         "Planned for this month" to "المخطط لهذا الشهر",
