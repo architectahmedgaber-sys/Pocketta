@@ -32,6 +32,7 @@ class QuickAiStore(context: Context) {
             val (iv, ct) = stored.split(":").let { Base64.decode(it[0], Base64.NO_WRAP) to Base64.decode(it[1], Base64.NO_WRAP) }
             val c = Cipher.getInstance("AES/GCM/NoPadding")
             c.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, iv))
+            c.updateAAD(AAD)
             String(c.doFinal(ct), Charsets.UTF_8).takeIf { it.isNotBlank() }
         } catch (e: Exception) {
             sp.edit().remove("key_enc").apply()
@@ -42,13 +43,22 @@ class QuickAiStore(context: Context) {
     fun setKey(k: String) {
         val clean = k.trim()
         if (clean.isEmpty()) { removeKey(); return }
+        sp.edit().remove("key_enc").commit()
         val c = Cipher.getInstance("AES/GCM/NoPadding")
         c.init(Cipher.ENCRYPT_MODE, secretKey())
+        c.updateAAD(AAD)
         val ct = c.doFinal(clean.toByteArray(Charsets.UTF_8))
         sp.edit().putString("key_enc", Base64.encodeToString(c.iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(ct, Base64.NO_WRAP)).apply()
     }
 
-    fun removeKey() { sp.edit().remove("key_enc").apply() }
+    /** Delete: the encrypted text and the Keystore key are both wiped at once (commit, not apply, so it is on disk before this returns). */
+    fun removeKey() {
+        sp.edit().remove("key_enc").commit()
+        try { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(ALIAS) } catch (e: Exception) { /* nothing to delete */ }
+    }
+
+    /** What the screen shows for a saved key: only the last 4 characters. */
+    fun masked(): String? = key()?.let { QuickAi.maskKey(it) }
 
     private fun secretKey(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -97,6 +107,7 @@ class QuickAiStore(context: Context) {
     companion object {
         const val FILE = "pocketta_quickai"
         private const val ALIAS = "pocketta_quickai_key"
+        private val AAD = "pocketta.quickai.key.v1".toByteArray(Charsets.UTF_8)
         private const val MAX_ENTRIES = 600
     }
 }

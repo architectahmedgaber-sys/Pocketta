@@ -1,6 +1,6 @@
 // Offline support: keep the app's files on the phone, update them in the background.
-const CACHE = 'pocketta-v1.25.0';
-const FILES = ['./', './index.html', './styles.css', './fonts/Cairo.woff2', './manifest.webmanifest', './js/app.js', './js/core.js', './js/store.js', './js/share.js', './js/i18n.js', './js/ar-dict.js', './js/plan.js', './js/ai.js', './js/quickai.js', './js/countries.js', './js/sync.js', './js/crypto.js', './js/privacy.js', './js/extras.js',
+const CACHE = 'pocketta-v1.25.1';
+const FILES = ['./', './index.html', './styles.css', './fonts/Cairo.woff2', './manifest.webmanifest', './js/app.js', './js/core.js', './js/store.js', './js/share.js', './js/i18n.js', './js/ar-dict.js', './js/plan.js', './js/ai.js', './js/countries.js', './js/sync.js', './js/crypto.js', './js/privacy.js', './js/extras.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {

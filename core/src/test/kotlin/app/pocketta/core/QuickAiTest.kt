@@ -193,32 +193,133 @@ class QuickAiTest {
         assertEquals(listOf(QuickAi.Usage(700, 90) to true), rec.usage)
     }
 
-    // ---------- nothing is saved without confirmation ----------
+    // ---------- nothing is saved without confirmation; editing ----------
+
+    private val two = """{"transactions":[
+      {"type":"expense","amount_egp":10,"category":"أكل","person":null,"due_date":null,"date":"2026-11-28","note":"a"},
+      {"type":"expense","amount_egp":20,"category":"أكل","person":null,"due_date":null,"date":"2026-11-28","note":"b"}]}"""
 
     @Test fun nothingIsSavedUntilConfirm() {
         val sink = FakeSink()
-        val s = session(api(coffee), sink)
-        val r = run { s.propose("كشري ٦٠", today) } as QuickAi.Proposed.Ready
+        val r = run { session(api(coffee), sink).propose("كشري ٦٠", today) } as QuickAi.Proposed.Ready
         assertEquals(1, r.pending.proposals.size)
         assertTrue("proposing must not save", sink.saved.isEmpty())
         assertFalse(r.pending.confirmed)
-        // Walking away (never calling confirm) leaves the database untouched.
+        // Walking away (never confirming) leaves the database untouched.
         assertTrue(sink.saved.isEmpty())
-        assertEquals(1, run { r.pending.confirm() })
+        assertEquals(1, run { r.pending.confirmAll(r.pending.proposals) })
         assertEquals(60.0, sink.saved.single().amountEgp, 0.0)
         assertEquals("expense", sink.saved.single().type)
     }
 
-    @Test fun confirmSavesOnlyTheChosenOnesAndOnlyOnce() {
-        val text = """{"transactions":[
-          {"type":"expense","amount_egp":10,"category":"أكل","person":null,"due_date":null,"date":"2026-11-28","note":"a"},
-          {"type":"expense","amount_egp":20,"category":"أكل","person":null,"due_date":null,"date":"2026-11-28","note":"b"}]}"""
+    @Test fun anEditedAmountIsWhatGetsSaved() {
         val sink = FakeSink()
-        val p = (run { session(api(text), sink).propose("x", today) } as QuickAi.Proposed.Ready).pending
-        assertEquals(1, run { p.confirm(setOf(1)) })
+        val p = (run { session(api(coffee), sink).propose("كشري ٦٠", today) } as QuickAi.Proposed.Ready).pending
+        val edited = p.proposals.map { it.copy(amountEgp = 75.5, category = "مواصلات", note = "تاكسي", date = today.minusDays(1)) }
+        run { p.confirmAll(edited) }
+        val saved = sink.saved.single()
+        assertEquals(75.5, saved.amountEgp, 0.0)          // not the model's 60
+        assertEquals("مواصلات", saved.category)
+        assertEquals(today.minusDays(1), saved.date)
+        assertEquals("تاكسي", saved.note)
+    }
+
+    @Test fun editingTypePersonAndDueDateIsSavedToo() {
+        val sink = FakeSink()
+        val p = (run { session(api(coffee), sink).propose("x", today) } as QuickAi.Proposed.Ready).pending
+        run { p.confirmAll(listOf(p.proposals[0].copy(type = "loan_given", person = "باسم", dueDate = today.plusDays(10)))) }
+        val s = sink.saved.single()
+        assertEquals("loan_given", s.type); assertEquals("باسم", s.person); assertEquals(today.plusDays(10), s.dueDate)
+    }
+
+    @Test fun aDeletedCardIsNotSaved() {
+        val sink = FakeSink()
+        val p = (run { session(api(two), sink).propose("x", today) } as QuickAi.Proposed.Ready).pending
+        assertEquals(2, p.proposals.size)
+        val afterDelete = p.proposals.filterIndexed { i, _ -> i != 0 }       // the user deleted the first card
+        assertEquals(1, run { p.confirmAll(afterDelete) })
         assertEquals(listOf(20.0), sink.saved.map { it.amountEgp })
-        try { run { p.confirm() }; throw AssertionError("second confirm must fail") } catch (e: IllegalStateException) { /* expected */ }
-        assertEquals(1, sink.saved.size)
+    }
+
+    @Test fun anAddedCardIsSaved() {
+        val sink = FakeSink()
+        val p = (run { session(api(coffee), sink).propose("x", today) } as QuickAi.Proposed.Ready).pending
+        val added = QuickAi.blankProposal(today).copy(amountEgp = 15.0, note = "عصير")
+        run { p.confirmAll(p.proposals + added) }
+        assertEquals(listOf(60.0, 15.0), sink.saved.map { it.amountEgp })
+    }
+
+    @Test fun invalidCardsBlockEverythingAndNothingIsSaved() {
+        val sink = FakeSink()
+        val p = (run { session(api(two), sink).propose("x", today) } as QuickAi.Proposed.Ready).pending
+        val bad = listOf(p.proposals[0], p.proposals[1].copy(amountEgp = 0.0))
+        try { run { p.confirmAll(bad) }; throw AssertionError("must fail") } catch (e: IllegalArgumentException) { /* expected */ }
+        try { run { p.confirmAll(emptyList()) }; throw AssertionError("must fail") } catch (e: IllegalArgumentException) { /* expected */ }
+        assertTrue(sink.saved.isEmpty())
+        assertFalse("a refused confirm can be retried after fixing", p.confirmed)
+        assertEquals(2, run { p.confirmAll(p.proposals) })
+    }
+
+    @Test fun confirmWorksOnlyOnce() {
+        val sink = FakeSink()
+        val p = (run { session(api(two), sink).propose("x", today) } as QuickAi.Proposed.Ready).pending
+        run { p.confirmAll(p.proposals) }
+        try { run { p.confirmAll(p.proposals) }; throw AssertionError("second confirm must fail") } catch (e: IllegalStateException) { /* expected */ }
+        assertEquals(2, sink.saved.size)
+    }
+
+    @Test fun validationFollowsTheAddSheetRules() {
+        val ok = QuickAi.Proposal("expense", 5.0, "أكل", null, null, today, "x")
+        assertNull(QuickAi.validate(ok))
+        assertNull(QuickAi.validate(ok.copy(type = "income")))
+        assertTrue(QuickAi.validate(ok.copy(amountEgp = 0.0)) != null)
+        assertTrue(QuickAi.validate(ok.copy(amountEgp = -1.0)) != null)
+        assertTrue(QuickAi.validate(ok.copy(amountEgp = Double.NaN)) != null)
+        for (t in listOf("loan_received", "loan_given", "loan_repaid_given", "loan_repaid_received")) {
+            assertTrue("$t needs a person", QuickAi.validate(ok.copy(type = t, person = null)) != null)
+            assertTrue(QuickAi.validate(ok.copy(type = t, person = "  ")) != null)
+            assertNull(QuickAi.validate(ok.copy(type = t, person = "باسم")))
+        }
+        assertTrue("due date only for loans", QuickAi.validate(ok.copy(dueDate = today.plusDays(3))) != null)
+        assertNull(QuickAi.validate(ok.copy(type = "loan_given", person = "باسم", dueDate = today.plusDays(3))))
+        assertTrue("due date before the loan date", QuickAi.validate(ok.copy(type = "loan_given", person = "باسم", dueDate = today.minusDays(1))) != null)
+        assertTrue(QuickAi.validate(QuickAi.blankProposal(today)) != null)   // a new blank card needs an amount
+    }
+
+    // ---------- what is sent, and where ----------
+
+    @Test fun onlyTheSentenceAndTodayAreSent() {
+        val root = Json.parse(QuickAi.requestBody(today, "كشري ٦٠")) as Map<*, *>
+        assertEquals(setOf("model", "max_tokens", "system", "messages"), root.keys)
+        val msgs = root["messages"] as List<*>
+        assertEquals(1, msgs.size)
+        assertEquals(mapOf("role" to "user", "content" to "today=2026-11-28\nكشري ٦٠"), msgs[0])
+    }
+
+    @Test fun theKeyGoesOnlyToAnthropic() {
+        assertTrue(QuickAi.isAnthropicUrl(QuickAi.API_URL))
+        assertEquals("api.anthropic.com", QuickAi.API_HOST)
+        assertFalse(QuickAi.isAnthropicUrl("https://api.anthropic.com.evil.example/v1/messages"))
+        assertFalse(QuickAi.isAnthropicUrl("http://api.anthropic.com/v1/messages"))
+        assertFalse(QuickAi.isAnthropicUrl("https://example.com/api.anthropic.com/"))
+    }
+
+    @Test fun keyIsShownMaskedWithLastFourOnly() {
+        val key = "sk-ant-api03-SECRETSECRETSECRET-wxyz"
+        val shown = QuickAi.maskKey(key)
+        assertTrue(shown.endsWith("wxyz"))
+        assertFalse(shown.contains("SECRET")); assertFalse(shown.contains("sk-ant"))
+        assertEquals("••••", QuickAi.maskKey("abc"))
+    }
+
+    @Test fun theTestRequestIsTinyAndPinned() {
+        val root = Json.parse(QuickAi.testBody()) as Map<*, *>
+        assertEquals("claude-haiku-5-5", root["model"]); assertEquals(1.0, root["max_tokens"])
+        assertEquals(setOf("model", "max_tokens", "messages"), root.keys)
+        assertTrue(QuickAi.readTest(api("x")) is QuickAi.TestOutcome.Ok)
+        assertEquals(QuickAi.Usage(500, 80), (QuickAi.readTest(api("x")) as QuickAi.TestOutcome.Ok).usage)
+        assertTrue(QuickAi.readTest(api("x", model = "claude-sonnet-5-5")) is QuickAi.TestOutcome.WrongModel)
+        assertTrue(QuickAi.readTest("<html>") is QuickAi.TestOutcome.Unreadable)
     }
 
     @Test fun rejectedAnswersNeverReachTheSink() {
