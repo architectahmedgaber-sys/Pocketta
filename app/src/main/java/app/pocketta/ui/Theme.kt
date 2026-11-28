@@ -57,6 +57,7 @@ private val Shapes24 = Shapes(
     large = RoundedCornerShape(24.dp), extraLarge = RoundedCornerShape(28.dp),
 )
 
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
 /** Cairo (SIL Open Font License), bundled as a variable font: one file, every weight, Arabic and Latin. */
 @OptIn(ExperimentalTextApi::class)
 val CairoFamily = FontFamily(
