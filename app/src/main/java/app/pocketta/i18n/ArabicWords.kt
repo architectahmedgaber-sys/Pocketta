@@ -341,6 +341,7 @@ object ArabicWords {
         "Month" to "الشهر",
         "Salary" to "المرتب",
         "Chat" to "الشات",
+        "AI quick entry" to "إدخال بالذكاء الاصطناعي",
         "Write to Miqrish" to "اكتب لمِقرِش",
         "Send" to "ابعت",
         "Save this?" to "أحفظ ده؟",

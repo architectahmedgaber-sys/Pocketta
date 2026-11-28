@@ -28,6 +28,11 @@ The release key is stored encrypted (`signing/release.jks.enc`). CI unlocks it w
 ## Releasing
 Open a pull request, merge it to `main`. If `version.txt` holds a version without a release yet, the build publishes it as a GitHub release (the in-app updater reads that). Raise `version.txt` in the PR to ship a new version; otherwise main only builds a test APK.
 
+## 1.25.2 (bottom bar and Miqrish back in the middle)
+- The bottom bar has five equal, symmetric tabs again: Today, Month, **Miqrish** (centre), Commitments, More. The gold + is gone from the bar; adding is the clear "+ Add" button on Today and Month (same add sheet as before).
+- Quick AI entry now lives inside Miqrish (a Chat / AI quick entry switch at the top) and its card is gone from More. Its screen follows the app language; it still understands Arabic and English input.
+- The bar hides while the keyboard is open.
+
 ## 1.25.1 (Quick AI entry, safer key + editable cards)
 - More > Quick AI entry (Android): type a sentence in Egyptian Arabic ("كشري ٦٠ وسلفت باسم ٥٠٠"). Each proposed transaction is an editable card (type, amount, category, person, date, due date, note); delete a card or add a missing one; **Confirm all** saves the cards exactly as shown. Nothing is saved before that tap. A "needs review" answer shows its reason and lets you retype or open the manual add screen.
 - One setup screen ("إعداد مساعد الذكاء الاصطناعي"): explanation, "get a key" button (console.anthropic.com), one field, **Test** (one tiny request; the key is saved only if it works). A saved key is shown masked (last 4 only) with Replace and Delete. Delete wipes the encrypted text and the Keystore key at once.

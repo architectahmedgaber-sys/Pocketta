@@ -21,6 +21,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -46,18 +50,20 @@ fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Uni
     UpdateDialog(prefs)
     Box(Modifier.fillMaxSize()) {
         if (current in tabs) {
-            Scaffold(bottomBar = { FloatingBar(nav, current) }) { pad ->
+            // The bar is hidden while the keyboard is open (chat, typing), so it never sits on top of the keyboard.
+            val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+            Scaffold(bottomBar = { if (!keyboardOpen) FloatingBar(nav, current) }) { pad ->
                 val m = Modifier.padding(pad)
                 when (current) {
-                    Route.Home -> HomeScreen(repo, nav, prefs, m)
-                    Route.Month -> MonthScreen(repo, nav, prefs, m)
+                    Route.Home -> Box(m) { HomeScreen(repo, nav, prefs, Modifier); AddFab(nav, Modifier.align(Alignment.BottomEnd)) }
+                    Route.Month -> Box(m) { MonthScreen(repo, nav, prefs, Modifier); AddFab(nav, Modifier.align(Alignment.BottomEnd)) }
+                    Route.Assistant -> AssistantScreen(repo, nav, prefs, m)
                     Route.More -> MoreScreen(repo, nav, prefs, m)
                     else -> CommitmentsScreen(repo, nav, prefs, m)
                 }
             }
         } else {
             when (current) {
-                Route.Assistant -> AssistantScreen(repo, nav, prefs)
                 Route.QuickAi -> QuickAiScreen(repo, nav, prefs)
                 is Route.Add -> AddScreen(repo, nav, prefs, current)
                 Route.Income -> IncomeScreen(repo, nav, prefs)
@@ -83,7 +89,7 @@ fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Uni
 }
 
 /**
- * Floating pill: two tabs, the gold add button in the middle, two tabs. The selected tab is a filled green pill.
+ * Floating pill: five equal tabs, Miqrish in the middle. The selected tab is a filled green pill.
  * The bar sits in the Scaffold's bottom slot, so screens end above it instead of scrolling underneath.
  */
 @Composable
@@ -97,38 +103,38 @@ private fun FloatingBar(nav: Nav, current: Route) {
             border = BorderStroke(1.dp, hairline),
         ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
-                BarTab(Route.Home, current, nav)
-                BarTab(Route.Month, current, nav)
-                AddButton(nav)
-                BarTab(Route.Commit, current, nav)
-                BarTab(Route.More, current, nav)
+                for (r in tabs) BarTab(r, current, nav, Modifier.weight(1f))
             }
         }
     }
 }
 
+/** The clear "+ Add" button on Today and Month: opens the same add sheet the gold + used to open. */
 @Composable
-private fun AddButton(nav: Nav) {
-    Box(
-        Modifier.size(52.dp).clip(CircleShape).background(GoldAccent)
-            .semantics { role = Role.Button; contentDescription = "Add" }
-            .clickable { nav.open(Route.Add()) },
-        contentAlignment = Alignment.Center,
-    ) { Icon(Icons.Filled.Add, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(28.dp)) }
+private fun AddFab(nav: Nav, modifier: Modifier) {
+    androidx.compose.material3.ExtendedFloatingActionButton(
+        onClick = { nav.open(Route.Add()) },
+        modifier = modifier.padding(16.dp),
+        containerColor = GoldAccent,
+        contentColor = androidx.compose.ui.graphics.Color.White,
+        icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+        text = { Text("Add") },
+    )
 }
 
 @Composable
-private fun BarTab(r: Route, current: Route, nav: Nav) {
+private fun BarTab(r: Route, current: Route, nav: Nav, modifier: Modifier) {
     val selected = current == r
     val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
-        Modifier.height(52.dp).clip(RoundedCornerShape(26.dp))
+        modifier.padding(horizontal = 2.dp).height(52.dp).clip(RoundedCornerShape(26.dp))
             .background(if (selected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent)
-            .clickable { nav.tab(r) }.padding(horizontal = 14.dp),
+            .clickable { nav.tab(r) },
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
     ) {
-        Icon(iconOf(r), contentDescription = null, tint = fg, modifier = Modifier.size(22.dp))
-        Text(nameOf(r), color = fg, fontSize = 10.sp, maxLines = 1)
+        if (r == Route.Assistant) Text("🪙", fontSize = 20.sp, modifier = Modifier.height(22.dp))
+        else Icon(iconOf(r), contentDescription = null, tint = fg, modifier = Modifier.size(22.dp))
+        Text(nameOf(r), color = fg, fontSize = 10.sp, maxLines = 1, softWrap = false)
     }
 }
 
@@ -136,6 +142,7 @@ private fun nameOf(r: Route) = when (r) {
     Route.Home -> "Today"
     Route.Month -> "Month"
     Route.More -> "More"
+    Route.Assistant -> "Miqrish"
     else -> "Commitments"
 }
 
@@ -143,5 +150,6 @@ private fun iconOf(r: Route): ImageVector = when (r) {
     Route.Home -> Icons.Filled.Home
     Route.Month -> Icons.Filled.DateRange
     Route.More -> Icons.Filled.Menu
+    Route.Assistant -> Icons.Filled.Star // not drawn: the centre tab shows the coin emoji
     else -> Icons.AutoMirrored.Filled.List
 }

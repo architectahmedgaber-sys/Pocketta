@@ -77,7 +77,7 @@ fun quickAiCostLine(store: QuickAiStore): String =
  * saves the cards exactly as they are on screen. Nothing is saved before that tap.
  */
 @Composable
-fun QuickAiScreen(repo: Repo, nav: Nav, prefs: Prefs) {
+fun QuickAiScreen(repo: Repo, nav: Nav, prefs: Prefs, embedded: Boolean = false, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     val store = remember { QuickAiStore(ctx) }
     val sink = remember { QuickAiSink(repo) }
@@ -133,12 +133,20 @@ fun QuickAiScreen(repo: Repo, nav: Nav, prefs: Prefs) {
         }
     }
 
-    Scaffold(topBar = {
-        BackBar("إدخال بالذكاء الاصطناعي", { nav.back() }) {
-            if (hasKey) TextButton(onClick = { showSetup = !showSetup }) { Text(if (showSetup) "رجوع" else "المفتاح") }
-        }
-    }) { pad ->
+    Scaffold(
+        modifier = modifier,
+        contentWindowInsets = if (embedded) androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0) else androidx.compose.material3.ScaffoldDefaults.contentWindowInsets,
+        topBar = {
+            // Inside Miqrish the tab already has the title bar, so only the "key" button is shown, inside the page.
+            if (!embedded) BackBar("إدخال بالذكاء الاصطناعي", { nav.back() }) {
+                if (hasKey) TextButton(onClick = { showSetup = !showSetup }) { Text(if (showSetup) "رجوع" else "المفتاح") }
+            }
+        },
+    ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (embedded && hasKey) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = { showSetup = !showSetup }) { Text(if (showSetup) "رجوع" else "المفتاح") }
+            }
             if (!hasKey || showSetup) {
                 QuickAiSetup(store) { hasKey = store.hasKey(); if (!hasKey) clearResult() }
                 return@Column
