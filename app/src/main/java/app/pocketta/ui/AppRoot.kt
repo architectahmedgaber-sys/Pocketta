@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -43,35 +44,38 @@ import app.pocketta.data.Repo
 fun AppRoot(repo: Repo, nav: Nav, prefs: Prefs, authenticate: (String, () -> Unit) -> Unit) {
     val current = if (nav.current == Route.Spend) Route.Month else nav.current
     UpdateDialog(prefs)
-    if (current in tabs) {
-        Scaffold(bottomBar = { FloatingBar(nav, current) }) { pad ->
-            val m = Modifier.padding(pad)
+    Box(Modifier.fillMaxSize()) {
+        if (current in tabs) {
+            Scaffold(bottomBar = { FloatingBar(nav, current) }) { pad ->
+                val m = Modifier.padding(pad)
+                when (current) {
+                    Route.Home -> HomeScreen(repo, nav, prefs, m)
+                    Route.Month -> MonthScreen(repo, nav, prefs, m)
+                    Route.More -> MoreScreen(repo, nav, prefs, m)
+                    else -> CommitmentsScreen(repo, nav, prefs, m)
+                }
+            }
+        } else {
             when (current) {
-                Route.Home -> HomeScreen(repo, nav, prefs, m)
-                Route.Month -> MonthScreen(repo, nav, prefs, m)
-                Route.More -> MoreScreen(repo, nav, prefs, m)
-                else -> CommitmentsScreen(repo, nav, prefs, m)
+                Route.Assistant -> AssistantScreen(repo, nav, prefs)
+                is Route.Add -> AddScreen(repo, nav, prefs, current)
+                Route.Income -> IncomeScreen(repo, nav, prefs)
+                Route.Tags -> TagsScreen(repo, nav, prefs)
+                is Route.TagDetail -> TagDetailScreen(repo, nav, prefs, current.name)
+                is Route.CategoryMonth -> CategoryMonthScreen(repo, nav, prefs, current)
+                Route.Categories -> CategoriesScreen(repo, nav)
+                Route.Currencies -> CurrenciesScreen(repo, nav, prefs)
+                Route.Settings -> SettingsScreen(repo, nav, prefs, authenticate)
+                Route.Plan -> PlanScreen(repo, nav, prefs)
+                Route.Wealth -> WealthScreen(repo, nav, prefs)
+                Route.Notifications -> NotificationsScreen(repo, nav, prefs)
+                Route.Piggy -> PiggyScreen(repo, nav, prefs)
+                Route.Goals -> GoalsScreen(repo, nav, prefs)
+                Route.MonthPlan -> MonthPlanScreen(repo, nav, prefs)
+                else -> {}
             }
         }
-    } else {
-        when (current) {
-            Route.Assistant -> AssistantScreen(repo, nav, prefs)
-            is Route.Add -> AddScreen(repo, nav, prefs, current)
-            Route.Income -> IncomeScreen(repo, nav, prefs)
-            Route.Tags -> TagsScreen(repo, nav, prefs)
-            is Route.TagDetail -> TagDetailScreen(repo, nav, prefs, current.name)
-            is Route.CategoryMonth -> CategoryMonthScreen(repo, nav, prefs, current)
-            Route.Categories -> CategoriesScreen(repo, nav)
-            Route.Currencies -> CurrenciesScreen(repo, nav, prefs)
-            Route.Settings -> SettingsScreen(repo, nav, prefs, authenticate)
-            Route.Plan -> PlanScreen(repo, nav, prefs)
-            Route.Wealth -> WealthScreen(repo, nav, prefs)
-            Route.Notifications -> NotificationsScreen(repo, nav, prefs)
-            Route.Piggy -> PiggyScreen(repo, nav, prefs)
-            Route.Goals -> GoalsScreen(repo, nav, prefs)
-            Route.MonthPlan -> MonthPlanScreen(repo, nav, prefs)
-            else -> {}
-        }
+        UndoHost(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (current in tabs) 92.dp else 20.dp))
     }
 }
 

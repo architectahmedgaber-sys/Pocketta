@@ -18,6 +18,8 @@ sealed interface Route {
         val amount: Double = 0.0, val note: String = "", val currency: String = "",
         /** Epoch day to record it on (0 = today). Used when a calendar day is tapped. */
         val day: Long = 0L,
+        /** The bank-message card this came from (0 = none): it is cleared once the entry is saved. */
+        val smsId: Int = 0,
     ) : Route
     data object Income : Route
     data object Tags : Route

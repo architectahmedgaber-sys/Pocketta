@@ -126,7 +126,7 @@ private fun SideText(x: SyncSide, extra: String) {
 fun SyncDialog() {
     val ch by CloudSync.choice.collectAsState()
     val c = ch ?: return
-    var pick by remember(c) { mutableStateOf("local") }
+    var pick by remember(c) { mutableStateOf(c.newest) }
     AlertDialog(
         onDismissRequest = { c.answer.complete(null) },
         title = { Text(if (c.firstUpload) "First sync" else "Your data is different") },
@@ -137,7 +137,7 @@ fun SyncDialog() {
                     SideText(c.local, "")
                     Text("It is uploaded to your own private space.", style = MaterialTheme.typography.bodySmall)
                 } else {
-                    Text("This account already has data in the cloud, and this device has different data. Pick the one you want to keep. Nothing is merged.")
+                    Text("This account already has data in the cloud, and this device has different data. The newest copy is selected. Nothing is merged, and your answer is remembered for these two copies.")
                     Row(Modifier.fillMaxWidth().clickable { pick = "local" }.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = pick == "local", onClick = { pick = "local" })
                         Column {

@@ -57,6 +57,7 @@ import app.pocketta.BuildConfig
 import app.pocketta.data.HomeState
 import app.pocketta.data.Online
 import app.pocketta.data.Prefs
+import app.pocketta.data.PayUndo
 import app.pocketta.data.Repo
 import app.pocketta.data.Upcoming
 import kotlinx.coroutines.launch
@@ -143,9 +144,14 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                 MiniNumber("Remaining", Money.short(b.left), Modifier.weight(1f), if (b.left < 0) MaterialTheme.colorScheme.error else Color.Unspecified)
             }
 
+            SyncChip()
+
             StartGuide(s, nav)
 
             if (s.upcoming.isNotEmpty()) UpcomingCard(repo, s.upcoming.take(3), s, cur)
+
+            ReadyToAddCard(repo, version, cur)
+            if (!prefs.smsSuggest && !prefs.smsOffered && s.days.any { it.second > 0 }) SmsOfferCard(repo)
 
             if (recent.isNotEmpty()) {
                 SectionCard {
@@ -280,13 +286,82 @@ private fun UpcomingCard(repo: Repo, items: List<Upcoming>, s: HomeState, cur: S
     }
 }
 
+/** Runs a payment and offers Undo for it (the money record and what it changed are reversed together). */
+suspend fun withPayUndo(repo: Repo, text: String, billDue: List<Pair<Long, Long>> = emptyList(), block: suspend () -> Unit) {
+    val before = repo.dao.allTxns().map { x -> x.id }.toSet()
+    block()
+    val made = repo.dao.allTxns().filter { x -> x.id !in before }.map { x -> x.id }
+    if (made.isNotEmpty() || billDue.isNotEmpty()) UndoBus.show(text) { repo.undoPayGroup(PayUndo(made, billDue)) }
+}
+
 suspend fun payUpcoming(repo: Repo, u: Upcoming) {
     val dao = repo.dao
+    val before = dao.allTxns().map { it.id }.toSet()
+    val billDue = ArrayList<Pair<Long, Long>>()
     when (u.kind) {
-        "BILL" -> dao.bill(u.id)?.let { repo.payBill(it) }
+        "BILL" -> dao.bill(u.id)?.let { billDue += it.id to it.nextDue; repo.payBill(it) }
         "INSTALLMENT" -> dao.installment(u.id)?.let { repo.payInstallment(it) }
         "CIRCLE" -> dao.circle(u.id)?.let { repo.payCircle(it) }
         "LOAN" -> dao.loan(u.id)?.let { repo.payNextInstalment(it) }
+    }
+    val made = dao.allTxns().filter { it.id !in before }.map { it.id }
+    // Undo reverses the money record and what it changed (bill date, instalment, loan balance).
+    if (made.isNotEmpty() || billDue.isNotEmpty()) UndoBus.show(if (u.incoming) "Marked received" else "Marked paid") { repo.undoPayGroup(PayUndo(made, billDue)) }
+}
+
+/** A quiet line under the numbers: when the cloud copy was last updated (only for people who signed in). */
+@Composable
+private fun SyncChip() {
+    val sync by app.pocketta.data.CloudSync.ui.collectAsState()
+    if (!sync.signedIn || sync.lastSyncAt <= 0L) return
+    val whenText = java.time.Instant.ofEpochMilli(sync.lastSyncAt).atZone(java.time.ZoneId.systemDefault())
+        .format(java.time.format.DateTimeFormatter.ofPattern("MMM d, HH:mm", java.util.Locale.ENGLISH))
+    val text = if (sync.status == "error" || sync.status == "paused") "Not synced · last time $whenText" else "Synced · $whenText"
+    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/** Offered once, in context (after the first expenses), instead of in the first-run questions. */
+@Composable
+private fun SmsOfferCard(repo: Repo) {
+    val scope = rememberCoroutineScope()
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        scope.launch { repo.set("smsSuggest", granted); repo.set("smsOffered", true) }
+    }
+    SectionCard {
+        Text("Add expenses from your bank messages?", fontWeight = FontWeight.Medium)
+        Text("Messages that look like spending show up here as cards. They are read on this phone only and never sent anywhere. Nothing is saved until you tap Add.", style = MaterialTheme.typography.bodySmall)
+        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.Button(onClick = { ask.launch(android.Manifest.permission.RECEIVE_SMS) }) { Text("Turn on") }
+            TextButton(onClick = { scope.launch { repo.set("smsOffered", true) } }) { Text("Not now") }
+        }
+    }
+}
+
+/** Bank messages that look like spending, waiting for one tap. Nothing is saved until the person taps Add. */
+@Composable
+private fun ReadyToAddCard(repo: Repo, version: Int, cur: String) {
+    var cards by remember { mutableStateOf(emptyList<app.pocketta.core.SmsCard>()) }
+    LaunchedEffect(version) { cards = repo.smsCards() }
+    if (cards.isEmpty()) return
+    val scope = rememberCoroutineScope()
+    SectionCard {
+        Label("Ready to add")
+        Text("From your bank messages. Nothing is saved until you tap Add.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        for (c in cards) {
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(c.merchant.ifBlank { "Bank message" }, fontWeight = FontWeight.Medium, maxLines = 1)
+                    Text(Money.fmt(c.amount) + " " + c.currency.ifBlank { cur }, style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = { scope.launch { repo.dismissSmsCard(c.id) } }) { Text("Dismiss") }
+                androidx.compose.material3.Button(onClick = {
+                    scope.launch {
+                        val t = repo.acceptSmsCard(c)
+                        UndoBus.show("Saved") { repo.dao.txn(t.id)?.let { repo.deleteTxn(it) }; repo.addSmsCard(c) }
+                    }
+                }) { Text("Add") }
+            }
+        }
     }
 }
 

@@ -31,6 +31,8 @@ class SmsReceiver : BroadcastReceiver() {
                 val seen = p.smsSeen.split(',').filter { it.isNotEmpty() }
                 if (key.toString() in seen) return@launch
                 repo.set("smsSeen", (seen + key.toString()).takeLast(20).joinToString(","))
+                // A "ready to add" card on Today (saved only when tapped) and the same offer as a notification.
+                repo.addSmsCard(app.pocketta.core.SmsCard(key, e.amount, e.currency, e.merchant, java.time.LocalDate.now().toEpochDay()))
                 Notifier.smsExpense(context, key, e.amount, e.currency, e.merchant, p.lang)
             } finally {
                 job.finish()

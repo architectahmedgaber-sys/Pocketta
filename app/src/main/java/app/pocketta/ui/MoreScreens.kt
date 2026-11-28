@@ -407,15 +407,12 @@ fun OnboardingScreen(repo: Repo, onDone: () -> Unit) {
         ) {
             Text("Pocketta", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
             Choices(listOf("EN", "AR"), LocalLang.current, { if (it == "AR") "العربية" else "English" }, { v -> scope.launch { repo.set("lang", v) } })
-            Text("Your money for the month: what you can spend today, your bills, installments, gam'eya and loans. Everything stays on your phone.")
-            Text("Your country", fontWeight = FontWeight.Medium)
-            Text("We set your currency from it. You can change it later in Settings.", style = MaterialTheme.typography.bodySmall)
+            Text("Four answers and you are in. Everything else (bank messages, cloud backup, categories, widgets) is offered later, when it is useful. Your data stays on your phone.")
+            Text("Your country and currency", fontWeight = FontWeight.Medium)
             CountryPicker(picked.code) { picked = it }
             NumberField("Monthly salary (optional)", salary, { salary = it }, suffix = picked.currency)
             NumberField("Salary day of the month", salaryDay, { salaryDay = it }, decimal = false)
-            Text("Your month starts on the salary day. You can change this later in Settings.", style = MaterialTheme.typography.bodySmall)
-            NumberField("How much money do I have now? (optional)", balance, { balance = it }, suffix = picked.currency)
-            Text("Cash, bank and mobile wallet together.", style = MaterialTheme.typography.bodySmall)
+            Text("Your month starts on the salary day. You can change all of this later in Settings.", style = MaterialTheme.typography.bodySmall)
             Button(onClick = {
                 scope.launch {
                     repo.setCurrency(picked.currency, if (picked.code.startsWith("CUR:")) "" else picked.code)

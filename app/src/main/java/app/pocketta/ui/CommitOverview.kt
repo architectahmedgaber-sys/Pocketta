@@ -377,14 +377,18 @@ fun CommitOverview(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier = Modi
         }
     }
 
-    fun pay(it: CItem) {
+    fun pay(item: CItem) {
         scope.launch {
-            when (it.kind) {
-                CKind.BILL, CKind.SUB -> bills.firstOrNull { b -> b.id == it.refId }?.let { b -> if (b.variable) payVariable = b else repo.payBill(b) }
-                CKind.INSTALLMENT, CKind.CARD -> insts.firstOrNull { i -> i.id == it.refId }?.let { i -> repo.payInstallment(i) }
-                CKind.CIRCLE -> circles.firstOrNull { c -> c.id == it.refId }?.let { c -> repo.payCircle(c) }
+            val before = repo.dao.allTxns().map { x -> x.id }.toSet()
+            val billDue = ArrayList<Pair<Long, Long>>()
+            when (item.kind) {
+                CKind.BILL, CKind.SUB -> bills.firstOrNull { b -> b.id == item.refId }?.let { b -> if (b.variable) payVariable = b else { billDue += b.id to b.nextDue; repo.payBill(b) } }
+                CKind.INSTALLMENT, CKind.CARD -> insts.firstOrNull { i -> i.id == item.refId }?.let { i -> repo.payInstallment(i) }
+                CKind.CIRCLE -> circles.firstOrNull { c -> c.id == item.refId }?.let { c -> repo.payCircle(c) }
                 else -> {}
             }
+            val made = repo.dao.allTxns().filter { x -> x.id !in before }.map { x -> x.id }
+            if (made.isNotEmpty() || billDue.isNotEmpty()) UndoBus.show("Marked paid") { repo.undoPayGroup(app.pocketta.data.PayUndo(made, billDue)) }
         }
     }
 

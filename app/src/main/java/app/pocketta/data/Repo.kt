@@ -4,6 +4,13 @@ import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
 import app.pocketta.core.Budget
+import app.pocketta.core.FavEntry
+import app.pocketta.core.Favourite
+import app.pocketta.core.Favourites
+import app.pocketta.core.SmartDefaults
+import app.pocketta.core.SmsCard
+import app.pocketta.core.SmsCards
+import app.pocketta.core.TextKey
 import app.pocketta.core.Money
 import app.pocketta.core.BudgetInput
 import app.pocketta.core.BudgetResult
@@ -270,9 +277,18 @@ class Repo private constructor(private val app: Context) {
         changed()
     }
 
-    /** Guesses the category for a quick note like "koshary": same note as before, or a category with that name. */
+    /**
+     * Guesses the category for a quick note like "koshary". It learns: the category you used most often for the same
+     * word wins (a tie goes to the latest), so after two "koshary" entries under Food the third needs no tap.
+     * Falls back to a category with that name. Everything is worked out on the phone from your own entries.
+     */
     suspend fun guessCategory(note: String, type: String): Long? {
         if (note.isBlank()) return null
+        val key = TextKey.normalize(note)
+        val history = dao.allTxns()
+            .filter { it.type == type && it.categoryId != null && it.source == Source.NONE && TextKey.normalize(it.note) == key }
+            .map { it.categoryId!! to it.epochDay }
+        SmartDefaults.mostFrequent(history)?.let { return it }
         dao.lastWithNote(type, note.trim())?.categoryId?.let { return it }
         val words = note.lowercase().split(' ').filter { it.length >= 3 }
         return dao.categories().filter { it.kind == type && !it.archived }.firstOrNull { c ->
@@ -1000,6 +1016,84 @@ class Repo private constructor(private val app: Context) {
             val t = l.first()
             RecentItem(t.note.trim(), if (t.currency == p.baseCurrency) t.amount else t.base, t.categoryId)
         }
+    }
+
+    // ---------- Favourites (add sheet chips) ----------
+
+    private suspend fun setting(key: String): String = dao.settings().firstOrNull { it.key == key }?.value.orEmpty()
+
+    /** Up to 6 chips: what you add most often in the last 60 days. Chips you removed stay removed. */
+    suspend fun favourites(today: LocalDate = LocalDate.now()): List<Favourite> {
+        val p = prefs()
+        val hidden = setting("favHidden").split('\n').filter { it.isNotEmpty() }.toSet()
+        val entries = dao.allTxns()
+            .filter { it.type == TxType.EXPENSE && it.source == Source.NONE && it.currency == p.baseCurrency }
+            .map { FavEntry(it.note, it.categoryId, it.amount, it.epochDay) }
+        return Favourites.top(entries, today.toEpochDay(), hidden)
+    }
+
+    suspend fun hideFavourite(f: Favourite) {
+        val hidden = (setting("favHidden").split('\n').filter { it.isNotEmpty() } + f.key).distinct().takeLast(100)
+        set("favHidden", hidden.joinToString("\n"))
+    }
+
+    /** One tap on a chip: a new expense dated today. Returns it so the screen can offer Undo. */
+    suspend fun addFavourite(f: Favourite, today: LocalDate = LocalDate.now()): Txn {
+        val p = prefs()
+        val t = Txn(
+            type = TxType.EXPENSE, amount = f.amount, currency = p.baseCurrency, rate = 1.0, walletId = defaultWallet(p),
+            categoryId = f.categoryId, note = f.note, epochDay = today.toEpochDay(),
+        )
+        return t.copy(id = saveTxn(t))
+    }
+
+    /** Puts back a transaction that was just deleted (same id) and redoes what deleting it reversed. For Undo. */
+    suspend fun restoreTxn(t: Txn) {
+        if (dao.txn(t.id) != null) return
+        dao.insertTxn(t)
+        when (t.source) {
+            Source.INSTALLMENT -> dao.installment(t.sourceId)?.let { dao.updateInstallment(it.copy(paid = it.paid + 1)) }
+            Source.CIRCLE -> dao.circle(t.sourceId)?.let {
+                if (t.type == TxType.INCOME) dao.updateCircle(it.copy(payoutReceived = true)) else dao.updateCircle(it.copy(paid = it.paid + 1))
+            }
+            Source.PIGGY -> piggyApply(t.sourceId, t.base)
+            Source.PIGGYOUT -> piggyApply(t.sourceId, -t.base)
+            Source.LOAN -> dao.loan(t.sourceId)?.let { l ->
+                val isRepayment = (l.lent && t.type == TxType.INCOME) || (!l.lent && t.type == TxType.EXPENSE)
+                if (isRepayment) {
+                    val repaid = l.repaid + t.amount
+                    dao.updateLoan(l.copy(repaid = repaid, closed = repaid >= l.amount - 0.001))
+                    applyToInstalments(l.id, t.amount, LocalDate.ofEpochDay(t.epochDay), t.walletId)
+                }
+            }
+        }
+        changed()
+    }
+
+    // ---------- Bank messages waiting as "ready to add" cards ----------
+
+    suspend fun smsCards(): List<SmsCard> = SmsCards.decode(setting("smsPending"))
+
+    suspend fun addSmsCard(c: SmsCard) {
+        set("smsPending", SmsCards.encode(SmsCards.add(smsCards(), c)))
+    }
+
+    suspend fun dismissSmsCard(id: Int) {
+        set("smsPending", SmsCards.encode(SmsCards.remove(smsCards(), id)))
+    }
+
+    /** The one tap that saves a card as an expense. Never called without a tap. */
+    suspend fun acceptSmsCard(c: SmsCard): Txn {
+        val p = prefs()
+        val cur = if (c.currency in p.currencies) c.currency else p.baseCurrency
+        val cat = (if (c.merchant.isNotBlank()) guessCategory(c.merchant, TxType.EXPENSE) else null) ?: p.lastCategory.takeIf { it != 0L }
+        val t = Txn(
+            type = TxType.EXPENSE, amount = c.amount, currency = cur, rate = p.rateOf(cur), walletId = defaultWallet(p),
+            categoryId = cat, note = c.merchant.trim(), epochDay = c.epochDay,
+        )
+        val saved = t.copy(id = saveTxn(t))
+        dismissSmsCard(c.id)
+        return saved
     }
 
     /** One month of one category (or tag): its spending, last month's total, and the top-level categories to pick from. */

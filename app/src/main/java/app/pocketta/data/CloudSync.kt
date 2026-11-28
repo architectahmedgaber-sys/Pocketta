@@ -8,6 +8,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import app.pocketta.core.Side
+import app.pocketta.core.SyncAction
+import app.pocketta.core.SyncDecision
+import app.pocketta.core.SyncFacts
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
@@ -27,7 +31,7 @@ import java.security.MessageDigest
 data class SyncSide(val records: Int, val commitments: Int, val at: Long, val device: String)
 
 /** A question for the person: first upload, or two different copies. The answer is "local", "cloud" or null (cancel). */
-class SyncChoice(val firstUpload: Boolean, val local: SyncSide, val cloud: SyncSide?, val answer: CompletableDeferred<String?>)
+class SyncChoice(val firstUpload: Boolean, val local: SyncSide, val cloud: SyncSide?, val answer: CompletableDeferred<String?>, val newest: String = "local")
 
 data class SyncUi(val signedIn: Boolean = false, val email: String = "", val lastSyncAt: Long = 0L, val status: String = "", val error: String = "", val busy: Boolean = false, val encrypted: Boolean = false)
 
@@ -50,7 +54,7 @@ object CloudSync {
     private const val KEY = "sb_publishable_rjOgzmPudvrnCbc5nkBevg_xq_jPPFt"
     const val REDIRECT = "app.pocketta://auth"
     /** Things that belong to one device (or change by themselves): not synced, not compared, kept when cloud data is applied. */
-    private val DEVICE_KEYS = listOf("theme", "lang", "onlineRates", "prevOnlineRates", "gold", "prevGold", "ratesUpdated", "ratesFetchedAt")
+    private val DEVICE_KEYS = listOf("theme", "lang", "onlineRates", "prevOnlineRates", "gold", "prevGold", "ratesUpdated", "ratesFetchedAt", "smsPending")
 
     private lateinit var sp: SharedPreferences
     private lateinit var files: File
@@ -264,9 +268,9 @@ object CloudSync {
         sp.edit().putString("lastHash", hash(strip(fullJson(repo)))).putString("cloudAt", cloud.updatedAt).putLong("localAt", System.currentTimeMillis()).apply()
     }
 
-    private suspend fun ask(first: Boolean, local: SyncSide, cloud: SyncSide?): String? {
+    private suspend fun ask(first: Boolean, local: SyncSide, cloud: SyncSide?, newest: String = "local"): String? {
         val d = CompletableDeferred<String?>()
-        _choice.value = SyncChoice(first, local, cloud, d)
+        _choice.value = SyncChoice(first, local, cloud, d, newest)
         return try { d.await() } finally { _choice.value = null }
     }
 
@@ -301,28 +305,36 @@ object CloudSync {
                         else { val r = upload(cl, snap); if (r) uploaded = true; r }
                     }
                     if (cloud == null) {
-                        if (!isEmpty(snap)) {
-                            val pick = if (lastHash.isNotEmpty()) "local" else ask(true, side(snap, localAt), null)
-                            if (pick == null) paused = true else ok = up(null)
-                        }
-                    } else if (cloudAt.isEmpty()) {
-                        // This phone never synced with this account.
-                        if (isEmpty(snap)) applyCloud(repo, cloud)
-                        else if (hash(strip(JSONObject(cloud.data.toString()))) == lh) sp.edit().putString("lastHash", lh).putString("cloudAt", cloud.updatedAt).apply()
-                        else {
-                            val pick = ask(false, side(snap, localAt), side(cloud.data, parseTime(cloud.updatedAt), cloud.device))
-                            if (pick == null) paused = true
-                            else if (pick == "cloud") applyCloud(repo, cloud) else ok = up(cloud)
-                        }
+                        // First upload: no question (it is the only thing that can happen). The encryption key is made once, on its own screen.
+                        if (!isEmpty(snap)) ok = up(null)
                     } else {
-                        val localChanged = lh != lastHash
-                        val cloudChanged = cloud.updatedAt != cloudAt
-                        if (localChanged && cloudChanged) {
-                            val pick = ask(false, side(snap, localAt), side(cloud.data, parseTime(cloud.updatedAt), cloud.device))
-                            if (pick == null) paused = true
-                            else if (pick == "cloud") applyCloud(repo, cloud) else ok = up(cloud)
-                        } else if (localChanged) ok = up(cloud)
-                        else if (cloudChanged) applyCloud(repo, cloud)
+                        val cloudHash = hash(strip(JSONObject(cloud.data.toString())))
+                        val cloudTime = parseTime(cloud.updatedAt)
+                        // A question that was already answered for exactly these two copies is never asked again.
+                        val remembered = (sp.getString("answer", "") ?: "").let { a ->
+                            if (a.substringBefore('=') != SyncDecision.pairKey(lh, cloudHash)) null
+                            else if (a.substringAfter('=') == "cloud") Side.CLOUD else Side.LOCAL
+                        }
+                        val facts = SyncFacts(
+                            cloudExists = true, localEmpty = isEmpty(snap), syncedBefore = cloudAt.isNotEmpty(), sameContent = cloudHash == lh,
+                            localChanged = lh != lastHash, cloudChanged = cloud.updatedAt != cloudAt,
+                            localAt = localAt, cloudAt = cloudTime, rememberedAnswer = remembered,
+                        )
+                        when (val act = SyncDecision.decide(facts)) {
+                            SyncAction.Nothing -> {}
+                            SyncAction.Upload -> ok = up(cloud)
+                            SyncAction.Download -> applyCloud(repo, cloud)
+                            SyncAction.MarkSynced -> sp.edit().putString("lastHash", lh).putString("cloudAt", cloud.updatedAt).apply()
+                            // The only case that still asks: both sides differ, nothing is merged, and a wrong silent choice would lose data.
+                            is SyncAction.Ask -> {
+                                val pick = ask(false, side(snap, localAt), side(cloud.data, cloudTime, cloud.device), if (act.newest == Side.CLOUD) "cloud" else "local")
+                                if (pick == null) paused = true
+                                else {
+                                    sp.edit().putString("answer", SyncDecision.pairKey(lh, cloudHash) + "=" + pick).apply()
+                                    if (pick == "cloud") applyCloud(repo, cloud) else ok = up(cloud)
+                                }
+                            }
+                        }
                     }
                     // An old copy in the cloud that is not sealed yet (or a new password after using the recovery key): seal and upload it now.
                     if (ok && !paused && !uploaded && cloud != null && (!cloud.wasEnc || sp.getBoolean("forceUpload", false))) {

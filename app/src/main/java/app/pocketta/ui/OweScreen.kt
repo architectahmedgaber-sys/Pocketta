@@ -459,7 +459,7 @@ private fun LoansTab(repo: Repo, prefs: Prefs) {
                         if (!l.closed && next != null) {
                             Gap(8)
                             androidx.compose.material3.Button(
-                                onClick = { scope.launch { repo.payNextInstalment(l) } }, modifier = Modifier.fillMaxWidth(),
+                                onClick = { scope.launch { withPayUndo(repo, if (l.lent) "Marked received" else "Marked paid") { repo.payNextInstalment(l) } } }, modifier = Modifier.fillMaxWidth(),
                             ) { Text(if (l.lent) "Got the instalment" else "I paid the instalment") }
                         }
                     }
@@ -500,14 +500,16 @@ internal fun SetRepaymentDialog(repo: Repo, loan: Loan, onClose: () -> Unit) {
 }
 
 @Composable
-internal fun NewLoanDialog(repo: Repo, prefs: Prefs, onClose: () -> Unit) {
+internal fun NewLoanDialog(
+    repo: Repo, prefs: Prefs, initLent: Boolean? = null, initPerson: String = "", initAmount: String = "", onSaved: () -> Unit = {}, onClose: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     val walletsFlow = remember { repo.dao.walletsFlow() }
     val wallets by walletsFlow.collectAsState(initial = emptyList())
-    var lentSel by remember { mutableStateOf<Boolean?>(null) }
+    var lentSel by remember { mutableStateOf(initLent) }
     val lent = lentSel == true
-    var person by remember { mutableStateOf("") }
-    var amount by remember { mutableStateOf("") }
+    var person by remember { mutableStateOf(initPerson) }
+    var amount by remember { mutableStateOf(initAmount) }
     var date by remember { mutableStateOf(LocalDate.now()) }
     var mode by remember { mutableStateOf("LUMP") }
     var due by remember { mutableStateOf<LocalDate?>(null) }
@@ -529,6 +531,7 @@ internal fun NewLoanDialog(repo: Repo, prefs: Prefs, onClose: () -> Unit) {
         saveEnabled = lentSel != null && person.isNotBlank() && a != null && a > 0,
         onSave = {
             scope.launch { repo.addLoan(person.trim(), lent, a ?: 0.0, walletId, date, null, note.trim(), record, schedule, countInBudget) }
+            onSaved()
             onClose()
         },
     ) {
@@ -608,7 +611,7 @@ internal fun LoanDialog(repo: Repo, prefs: Prefs, loan: Loan, onClose: () -> Uni
                 }
                 if (!loan.closed && a != null && a > 0) {
                     val fresh = repo.dao.loan(loan.id) ?: loan
-                    repo.loanPayment(fresh, a)
+                    withPayUndo(repo, if (loan.lent) "Marked received" else "Marked paid") { repo.loanPayment(fresh, a) }
                 }
             }
             onClose()
