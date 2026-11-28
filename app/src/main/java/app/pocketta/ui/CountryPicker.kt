@@ -44,7 +44,7 @@ fun CountryPicker(selected: String, onPick: (Countries.Country) -> Unit) {
                 androidx.compose.material3.Text(c.flag, style = MaterialTheme.typography.titleLarge)
                 androidx.compose.material3.Text(
                     if (ar) c.ar else c.en, Modifier.weight(1f).padding(horizontal = 12.dp),
-                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                    fontWeight = if (on) FontWeight.Medium else FontWeight.Normal,
                 )
                 androidx.compose.material3.Text(
                     c.currency + if (c.decimals == 3) " · 3" else if (c.decimals == 0) " · 0" else "",

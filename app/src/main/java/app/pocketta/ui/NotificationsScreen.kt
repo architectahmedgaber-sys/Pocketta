@@ -61,9 +61,9 @@ fun NotificationsScreen(repo: Repo, nav: Nav, prefs: Prefs) {
         ) {
             SectionCard(container = if (allowed) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.errorContainer) {
                 if (allowed) {
-                    Text("Notifications are allowed on this phone", color = Good, fontWeight = FontWeight.SemiBold)
+                    Text("Notifications are allowed on this phone", color = Good, fontWeight = FontWeight.Medium)
                 } else {
-                    Text("Notifications are blocked, so nothing below can reach you", fontWeight = FontWeight.Bold)
+                    Text("Notifications are blocked, so nothing below can reach you", fontWeight = FontWeight.Medium)
                     Gap(6)
                     Button(onClick = {
                         if (Build.VERSION.SDK_INT >= 33) ask.launch(Manifest.permission.POST_NOTIFICATIONS) else openAppNotificationSettings()
@@ -124,7 +124,7 @@ fun NotificationsScreen(repo: Repo, nav: Nav, prefs: Prefs) {
 private fun SwitchRow(title: String, sub: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(title, fontWeight = FontWeight.Medium)
             Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(checked = checked, onCheckedChange = onChange)

@@ -1,5 +1,6 @@
 package app.pocketta.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -91,13 +92,17 @@ fun SectionCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val m = modifier.fillMaxWidth()
+    val shape = RoundedCornerShape(24.dp)
+    val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    val colors = CardDefaults.cardColors(containerColor = container)
+    val elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     if (onClick != null) {
-        Card(onClick = onClick, modifier = m, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = container)) {
-            Column(Modifier.padding(16.dp), content = content)
+        Card(onClick = onClick, modifier = m, shape = shape, colors = colors, border = border, elevation = elevation) {
+            Column(Modifier.padding(20.dp), content = content)
         }
     } else {
-        Card(modifier = m, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = container)) {
-            Column(Modifier.padding(16.dp), content = content)
+        Card(modifier = m, shape = shape, colors = colors, border = border, elevation = elevation) {
+            Column(Modifier.padding(20.dp), content = content)
         }
     }
 }
@@ -110,7 +115,7 @@ fun Label(text: String, modifier: Modifier = Modifier) = Text(
 
 @Composable
 fun Big(text: String, color: Color = Color.Unspecified, size: Int = 28) =
-    Text(text, fontSize = size.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
+    Text(text, fontSize = size.sp, fontWeight = FontWeight.Medium, color = color, maxLines = 1, style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"))
 
 @Composable
 fun Pill(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
@@ -129,7 +134,7 @@ fun Initial(text: String, color: Color = MaterialTheme.colorScheme.primary, size
         val raw = text.trim()
         if (emoji != null) Text(emoji, fontSize = (size * 0.48f).sp)
         else if (raw.isNotEmpty() && !raw[0].isLetterOrDigit() && raw.length <= 8) Text(raw, fontSize = (size * 0.48f).sp)
-        else Text(text.trim().take(1).uppercase().ifEmpty { "•" }, color = color, fontWeight = FontWeight.Bold, fontSize = (size * 0.4f).sp)
+        else Text(text.trim().take(1).uppercase().ifEmpty { "•" }, color = color, fontWeight = FontWeight.Medium, fontSize = (size * 0.4f).sp)
     }
 }
 
@@ -160,7 +165,7 @@ fun ListRow(
 fun Progress(fraction: Float, color: Color = MaterialTheme.colorScheme.primary, modifier: Modifier = Modifier, track: Color = MaterialTheme.colorScheme.surfaceVariant) {
     LinearProgressIndicator(
         progress = { fraction.coerceIn(0f, 1f) },
-        modifier = modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(8.dp)),
+        modifier = modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(6.dp)),
         color = color,
         trackColor = track,
         strokeCap = StrokeCap.Round,

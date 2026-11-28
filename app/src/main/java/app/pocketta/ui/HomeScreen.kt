@@ -26,7 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
@@ -65,150 +66,158 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     val version by repo.version.collectAsState()
     var state by remember { mutableStateOf<HomeState?>(null) }
     var details by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val dark = LocalDark.current
+    var more by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(version, prefs) { state = repo.home() }
     val s = state ?: return
     val cur = prefs.baseCurrency
     val b = s.budget
-    val over = b.flexLeft < 0
-    // Green while you spend slower than the month passes, amber when you are ahead of it, red when the flexible money is gone.
-    val heroColor = when {
-        over -> HeroRed
-        b.flexSpentFraction > b.elapsedFraction + 0.1f -> HeroAmber
-        else -> HeroGreen
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    // The count-up is skipped when the phone has animations turned off.
+    val animationsOn = remember {
+        runCatching { android.provider.Settings.Global.getFloat(ctx.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f }.getOrDefault(true)
     }
-    val heroText = Color.White
-    val target = kotlin.math.abs(b.flexLeft).toFloat()
-    val shownAmount = remember { Animatable(0f) }
-    LaunchedEffect(target) { shownAmount.animateTo(target, tween(700)) }
+    val spentToday = s.days.lastOrNull { it.first == s.today }?.second ?: 0.0
+    val over = b.leftToday < 0
+    val target = kotlin.math.abs(b.leftToday).toFloat()
+    val shownAmount = remember { Animatable(if (animationsOn) 0f else target) }
+    LaunchedEffect(target) { if (animationsOn) shownAmount.animateTo(target, tween(600)) else shownAmount.snapTo(target) }
+    val usedToday = if (b.dailyAllowance > 0) (spentToday / b.dailyAllowance).toFloat().coerceIn(0f, 1f) else 0f
+
+    val cycleFlow = remember(s.cycle.start) { repo.dao.txnsFlow(s.cycle.start.toEpochDay(), s.cycle.nextStart.toEpochDay()) }
+    val cycleTxns by cycleFlow.collectAsState(initial = emptyList())
+    val categories by remember { repo.dao.categoriesFlow() }.collectAsState(initial = emptyList())
+    val recent = cycleTxns.sortedWith(compareByDescending<app.pocketta.data.Txn> { it.epochDay }.thenByDescending { it.id }).take(5)
+
     Box(modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(s.cycle.end.format(monthFmt), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(s.cycle.end.format(monthFmt), style = MaterialTheme.typography.headlineMedium)
                     Text("${b.daysLeft} days left in this month", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                IconButton(onClick = { nav.open(Route.Settings) }) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
             }
             if (prefs.updateVersion.isNotEmpty() && prefs.updateUrl.isNotEmpty() && Online.isNewer(prefs.updateVersion, BuildConfig.VERSION_NAME)) {
                 SectionCard(container = MaterialTheme.colorScheme.tertiaryContainer, onClick = { nav.open(Route.Settings) }) {
-                    Text("Pocketta ${prefs.updateVersion} is ready", fontWeight = FontWeight.SemiBold)
+                    Text("Pocketta ${prefs.updateVersion} is ready", fontWeight = FontWeight.Medium)
                     Text("Tap to update. Your data stays as it is.", style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (b.budget <= 0 && s.salaryExpected <= 0) {
                 SectionCard(onClick = { nav.open(Route.Income) }) {
-                    Text("Add your salary to see how much you can spend", fontWeight = FontWeight.SemiBold)
+                    Text("Add your salary to see how much you can spend", fontWeight = FontWeight.Medium)
                     Text("Tap here to set it", style = MaterialTheme.typography.bodySmall)
                 }
             }
 
-            // The one question: how much is left for everyday spending after the commitments?
-            SectionCard(container = heroColor) {
-                Text(if (over) "Over the flexible amount" else "Left for flexible spending", color = heroText, fontWeight = FontWeight.SemiBold)
+            // The one big thing: how much can I spend today?
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
+                    .background(Brush.linearGradient(HeroGradient))
+                    .padding(20.dp)
+            ) {
+                Text(if (over) "Over today's amount" else "Spend today", color = HeroText.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyMedium)
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text(Money.short(shownAmount.value.toDouble()), fontSize = 52.sp, fontWeight = FontWeight.ExtraBold, color = heroText, maxLines = 1)
-                    Text(" $cur", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = heroText, modifier = Modifier.padding(bottom = 10.dp))
+                    Text(
+                        Money.short(shownAmount.value.toDouble()), fontSize = 54.sp, fontWeight = FontWeight.Light,
+                        color = if (over) Color(0xFFF2B8A8) else GoldLight, maxLines = 1,
+                        style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
+                    )
+                    Text(" $cur", fontSize = 16.sp, fontWeight = FontWeight.Normal, color = HeroText, modifier = Modifier.padding(bottom = 10.dp))
                 }
-                Text(
-                    "of ${Money.short(b.flexTotal.coerceAtLeast(0.0))} left after commitments" + if (b.household > 0) " and household shopping" else "",
-                    color = heroText, style = MaterialTheme.typography.bodySmall,
-                )
+                Gap(10)
+                Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(HeroText.copy(alpha = 0.2f))) {
+                    Box(Modifier.fillMaxWidth(usedToday).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Brush.horizontalGradient(listOf(GoldAccent, GoldLight))))
+                }
                 Gap(8)
-                Row(Modifier.fillMaxWidth()) {
-                    Text("Month passed", color = heroText, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    Text("${(b.elapsedFraction * 100).toInt()}%", color = heroText, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                }
-                Progress(b.elapsedFraction, color = heroText, track = heroText.copy(alpha = 0.25f))
-                Gap(6)
-                Row(Modifier.fillMaxWidth()) {
-                    Text("Flexible money spent", color = heroText, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    Text("${(b.flexSpentFraction * 100).toInt()}%", color = heroText, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                }
-                Progress(b.flexSpentFraction, color = heroText, track = heroText.copy(alpha = 0.25f))
+                Text("${b.daysLeft} days left · commitments already deducted", color = HeroText.copy(alpha = 0.85f), style = MaterialTheme.typography.bodySmall)
             }
 
-            StreakCard(s)
-
-            QuickAddCard(repo, prefs)
-
-            // The converter lives on the first page so there is a reason to open the app every day.
-            ConverterCard(prefs)
-
-            PlanEntryCard(repo, nav, prefs)
-            WealthCard(repo, nav, prefs)
-            GameyaCard(repo, prefs)
-            WeekCard(repo, s)
-            PiggyAutoCard(repo, prefs)
-            GoalCard(repo, prefs)
-
-            SectionCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("This month", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Text("${Money.short(b.left)} left of ${Money.short(b.budget)} $cur", style = MaterialTheme.typography.bodySmall)
-                }
-                Gap(8)
-                val spentF = b.spentFraction
-                val commF = b.committedFraction
-                val restF = (1f - spentF - commF).coerceAtLeast(0f)
-                Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))) {
-                    if (spentF > 0f) Box(Modifier.weight(spentF).fillMaxHeight().background(if (b.left < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary))
-                    if (commF > 0f) Box(Modifier.weight(commF).fillMaxHeight().background(Warn))
-                    if (restF > 0f) Box(Modifier.weight(restF).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceVariant))
-                }
-                Gap(8)
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    LegendDot(MaterialTheme.colorScheme.primary, "Spent")
-                    LegendDot(Warn, "Still to pay")
-                    LegendDot(MaterialTheme.colorScheme.outline, "Free")
-                }
+            // Three small numbers.
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MiniNumber("Income", Money.short(s.income + s.salaryExpected), Modifier.weight(1f))
+                MiniNumber("Commitments", Money.short(b.committed), Modifier.weight(1f))
+                MiniNumber("Remaining", Money.short(b.left), Modifier.weight(1f), if (b.left < 0) MaterialTheme.colorScheme.error else Color.Unspecified)
             }
 
             StartGuide(s, nav)
 
             if (s.upcoming.isNotEmpty()) UpcomingCard(repo, s.upcoming.take(3), s, cur)
 
-            TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Show details (forecast, days, how it is calculated)") }
-            if (details) {
+            if (recent.isNotEmpty()) {
                 SectionCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Label("Month-end forecast")
-                            Text("${Money.short(b.forecastSpend)} $cur", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                        }
-                        if (b.forecastDiff >= 0) Pill("${Money.short(b.forecastDiff)} under", Good)
-                        else Pill("${Money.short(-b.forecastDiff)} over", MaterialTheme.colorScheme.error)
+                        Label("Last transactions", Modifier.weight(1f))
+                        TextButton(onClick = { nav.tab(Route.Month) }) { Text("All ›") }
                     }
-                }
-                if (s.days.isNotEmpty()) {
-                    SectionCard {
-                        Label("This month, day by day")
-                        Gap(8)
-                        DayBars(s)
-                    }
-                }
-                SectionCard {
-                    Label("How the budget is made")
-                    Gap(6)
-                    Line("Income received", Money.short(s.income))
-                    if (s.salaryExpected > 0) Line("Salary still coming", Money.short(s.salaryExpected))
-                    if (s.setAside > 0) Line("Set aside (yearly bills, savings)", "−" + Money.short(s.setAside))
-                    Line("Spent so far", "−" + Money.short(b.spent))
-                    Line("Still to pay this month", "−" + Money.short(b.committed))
-                    Line("Left", Money.short(b.left), bold = true)
+                    for (t in recent) TxnRow(t, categories) { nav.open(Route.Add(txnId = t.id)) }
                 }
             }
-            Gap(64)
+
+            // Everything else lives below the fold.
+            TextButton(onClick = { more = !more }) { Text(if (more) "Hide extras" else "More: insights, converter, goals, details") }
+            if (more) {
+                StreakCard(s)
+                QuickAddCard(repo, prefs)
+                ConverterCard(prefs)
+                PlanEntryCard(repo, nav, prefs)
+                WealthCard(repo, nav, prefs)
+                GameyaCard(repo, prefs)
+                WeekCard(repo, s)
+                PiggyAutoCard(repo, prefs)
+                GoalCard(repo, prefs)
+
+                TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Show details (forecast, days, how it is calculated)") }
+                if (details) {
+                    SectionCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Label("Month-end forecast")
+                                Text("${Money.short(b.forecastSpend)} $cur", fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium)
+                            }
+                            if (b.forecastDiff >= 0) Pill("${Money.short(b.forecastDiff)} under", Good)
+                            else Pill("${Money.short(-b.forecastDiff)} over", MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    if (s.days.isNotEmpty()) {
+                        SectionCard {
+                            Label("This month, day by day")
+                            Gap(8)
+                            DayBars(s)
+                        }
+                    }
+                    SectionCard {
+                        Label("How the budget is made")
+                        Gap(6)
+                        Line("Income received", Money.short(s.income))
+                        if (s.salaryExpected > 0) Line("Salary still coming", Money.short(s.salaryExpected))
+                        if (s.setAside > 0) Line("Set aside (yearly bills, savings)", "−" + Money.short(s.setAside))
+                        Line("Spent so far", "−" + Money.short(b.spent))
+                        Line("Still to pay this month", "−" + Money.short(b.committed))
+                        Line("Left", Money.short(b.left), bold = true)
+                    }
+                }
+            }
+            Gap(24)
         }
-        ExtendedFloatingActionButton(
-            onClick = { nav.open(Route.Add()) },
-            icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-            text = { Text("Add expense") },
+        // Miqrish, the assistant: a small button instead of a tab.
+        SmallFloatingActionButton(
+            onClick = { nav.open(Route.Assistant) },
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-        )
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.primary,
+        ) { androidx.compose.material3.Text("🪙", fontSize = 20.sp) }
+    }
+}
+
+@Composable
+private fun MiniNumber(label: String, value: String, modifier: Modifier, color: Color = Color.Unspecified) {
+    SectionCard(modifier) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        Text(value, fontSize = 18.sp, fontWeight = FontWeight.Medium, color = color, maxLines = 1, style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"))
     }
 }
 
@@ -216,7 +225,7 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
 private fun Line(label: String, value: String, bold: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Text(value, fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal)
+        Text(value, fontWeight = if (bold) FontWeight.Medium else FontWeight.Normal)
     }
 }
 
@@ -249,7 +258,7 @@ private fun UpcomingCard(repo: Repo, items: List<Upcoming>, s: HomeState, cur: S
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     SectionCard {
-        Label("Coming up")
+        Label("Coming soon")
         for (u in items) {
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -261,7 +270,7 @@ private fun UpcomingCard(repo: Repo, items: List<Upcoming>, s: HomeState, cur: S
                         color = if (late) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Text((if (u.incoming) "+" else "") + Money.short(u.amount), fontWeight = FontWeight.Bold, color = if (u.incoming) Good else MaterialTheme.colorScheme.onSurface)
+                Text((if (u.incoming) "+" else "") + Money.short(u.amount), fontWeight = FontWeight.Medium, color = if (u.incoming) Good else MaterialTheme.colorScheme.onSurface)
                 if (!u.due.isAfter(s.today.plusDays(3))) {
                     TextButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); scope.launch { payUpcoming(repo, u) } }) { Text(if (u.incoming) "Got it" else "Paid") }
                 }
@@ -299,7 +308,7 @@ private fun StartGuide(s: HomeState, nav: Nav) {
     if (hidden || (hasIncome && hasExpense && hasCommit)) return
     SectionCard(container = MaterialTheme.colorScheme.primaryContainer) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Start here", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text("Start here", fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = { hidden = true }) { Text("Hide") }
         }
         Text("Three quick steps and Pocketta works for you.", style = MaterialTheme.typography.bodySmall)
@@ -321,10 +330,10 @@ private fun GuideStep(n: Int, title: String, hint: String, done: Boolean, onClic
             Modifier.size(30.dp).clip(CircleShape).background(if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface),
             contentAlignment = Alignment.Center,
         ) {
-            Text(if (done) "✓" else n.toString(), fontWeight = FontWeight.Bold, color = if (done) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary)
+            Text(if (done) "✓" else n.toString(), fontWeight = FontWeight.Medium, color = if (done) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary)
         }
         Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(title, fontWeight = FontWeight.Medium)
             Text(hint, style = MaterialTheme.typography.bodySmall)
         }
     }

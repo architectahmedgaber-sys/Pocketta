@@ -63,8 +63,8 @@ fun TagsScreen(repo: Repo, nav: Nav, prefs: Prefs) {
             for (t in stats) {
                 SectionCard(onClick = { nav.open(Route.TagDetail(t.name)) }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("#" + t.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        Text(Money.short(t.spent) + " " + prefs.baseCurrency, fontWeight = FontWeight.Bold)
+                        Text("#" + t.name, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                        Text(Money.short(t.spent) + " " + prefs.baseCurrency, fontWeight = FontWeight.Medium)
                     }
                     Gap(6)
                     Progress((t.spent / max).toFloat())
@@ -127,7 +127,7 @@ fun TagDetailScreen(repo: Repo, nav: Nav, prefs: Prefs, name: String) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 3.dp)) {
                                 Box(Modifier.size(10.dp).clip(CircleShape).background(chartPalette[i % chartPalette.size]))
                                 Text(k, Modifier.weight(1f), maxLines = 1)
-                                Text(Money.short(v), fontWeight = FontWeight.SemiBold)
+                                Text(Money.short(v), fontWeight = FontWeight.Medium)
                                 Text((if (t.spent > 0) (v / t.spent * 100).toInt() else 0).toString() + "%", style = MaterialTheme.typography.bodySmall)
                             }
                         }

@@ -146,7 +146,7 @@ private fun MonthCard(m: PlanMonth, cur: String, isNow: Boolean, expanded: Boole
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(title, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium)
                 Text(
                     (if (m.actual) "Actual" else if (isNow) "This month" else "Expected") +
                         " · In " + Money.short(m.income) + " · Out " + Money.short(m.committed + m.living),
@@ -154,7 +154,7 @@ private fun MonthCard(m: PlanMonth, cur: String, isNow: Boolean, expanded: Boole
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(Money.short(m.remaining), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge, color = if (bad) MaterialTheme.colorScheme.error else Good)
+                Text(Money.short(m.remaining), fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleLarge, color = if (bad) MaterialTheme.colorScheme.error else Good)
                 Text("Total " + Money.short(m.cumulative), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

@@ -30,7 +30,7 @@ import app.pocketta.core.Budget
 import app.pocketta.core.Money
 
 val chartPalette = listOf(
-    Color(0xFF1F6B4F), Color(0xFFC2571A), Color(0xFF2B5FB0), Color(0xFF8E3B8C),
+    Color(0xFF17493A), Color(0xFFC2571A), Color(0xFF2B5FB0), Color(0xFF8E3B8C),
     Color(0xFFE8A33D), Color(0xFF00687A), Color(0xFFB3261E), Color(0xFF6D7B74),
 )
 
@@ -67,7 +67,7 @@ fun DonutCard(items: List<DonutItem>, total: Double, modifier: Modifier = Modifi
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Box(Modifier.size(10.dp).clip(CircleShape).background(chartPalette[i % chartPalette.size]))
                             Text(item.name, Modifier.weight(1f), maxLines = 1, style = MaterialTheme.typography.bodyMedium)
-                            Text("${(item.value / total * 100).toInt()}%", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                            Text("${(item.value / total * 100).toInt()}%", fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodyMedium)
                         }
                         if (item.limit > 0) {
                             val level = Budget.level(item.value, item.limit)
@@ -133,7 +133,7 @@ fun CompareCard(items: List<Triple<String, Double, Double>>, modifier: Modifier 
         }
         for ((name, now, before) in items) {
             Gap(10)
-            Text(name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+            Text(name, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodyMedium)
             Gap(4)
             Progress((now / max).toFloat(), color = if (before > 0 && now > before * 1.2) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
             Gap(3)

@@ -280,7 +280,7 @@ fun AddScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Add) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             amount?.let { Money.fmt(it) } ?: "0",
-                            fontSize = 46.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                            fontSize = 46.sp, fontWeight = FontWeight.Medium, maxLines = 1,
                             color = if (amount == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                         Text(" $currency", fontSize = 18.sp, modifier = Modifier.padding(bottom = 8.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -440,7 +440,7 @@ private fun CategoryGrid(items: List<Category>, selected: Long?, onPick: (Catego
                     Text(Emoji.of(c.name) ?: c.name.take(1).uppercase(), fontSize = 24.sp)
                     Text(
                         c.name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        fontWeight = if (on) FontWeight.Medium else FontWeight.Normal,
                         color = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                     )
                 }

@@ -63,7 +63,7 @@ private fun circle(c: CircleEntity) = Circle(c.share, c.months, c.myTurn, c.paid
 fun CommitmentsScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     var tab by remember { mutableIntStateOf(0) }
     Column(modifier.fillMaxSize()) {
-        Text("Commitments", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 8.dp))
+        Text("Commitments", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 8.dp))
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp, containerColor = androidx.compose.ui.graphics.Color.Transparent) {
             listOf("This month", "Bills", "Installments", "Gam'eya", "Loans").forEachIndexed { i, t ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t, maxLines = 1) })
@@ -108,7 +108,7 @@ private fun InstallmentsTab(repo: Repo, prefs: Prefs, openCircles: () -> Unit) {
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text("still owed in total", style = MaterialTheme.typography.bodySmall)
-                            Text(Money.short(owed), fontWeight = FontWeight.Bold)
+                            Text(Money.short(owed), fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -159,7 +159,7 @@ private fun InstallmentRow(
     Column {
     ListRow(title, sub, icon = title, onClick = onClick) {
         Column(horizontalAlignment = Alignment.End) {
-            Text(Money.fmt(amount), fontWeight = FontWeight.SemiBold)
+            Text(Money.fmt(amount), fontWeight = FontWeight.Medium)
             if (next != null) {
                 val late = next.isBefore(today)
                 Text(
@@ -249,7 +249,7 @@ private fun CirclesTab(repo: Repo, prefs: Prefs) {
                 val cc = circle(c)
                 SectionCard(onClick = { editing = c }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(c.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        Text(c.name, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                         if (c.paid >= c.months) Pill("finished", Good) else Pill("Month ${cc.currentMonth} of ${c.months}")
                     }
                     Text(
@@ -313,7 +313,7 @@ private fun Turns(c: CircleEntity) {
                 Text(
                     "$m", fontSize = 10.sp,
                     color = if (mine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (mine) FontWeight.Bold else FontWeight.Normal,
+                    fontWeight = if (mine) FontWeight.Medium else FontWeight.Normal,
                 )
             }
         }

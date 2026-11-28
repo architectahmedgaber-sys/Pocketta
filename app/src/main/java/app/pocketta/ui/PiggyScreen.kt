@@ -65,7 +65,7 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                 val on = MaterialTheme.colorScheme.onPrimary
                 Text(tr("In your piggy bank").uppercase(), color = on.copy(alpha = 0.85f), style = MaterialTheme.typography.labelSmall)
                 Gap(4)
-                Text(Money.short(total) + " " + cur, color = on, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.displaySmall)
+                Text(Money.short(total) + " " + cur, color = on, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.displaySmall)
                 if (avg != null) Text(
                     "Saved over " + months.size + " months, about " + Money.short(avg) + " a month",
                     color = on.copy(alpha = 0.9f), style = MaterialTheme.typography.bodyMedium,
@@ -86,7 +86,7 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                 SectionCard {
                     Label("How long it lasts")
                     Gap(4)
-                    Text("Your piggy bank covers " + cover + " months of your spending", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                    Text("Your piggy bank covers " + cover + " months of your spending", fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium)
                     Text("You spend about " + Money.short(spend) + " a month", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -116,7 +116,7 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                     val got = Piggy.thisMonth(months, today)
                     val streak = Piggy.streak(months, target, today)
                     val hit = got >= target
-                    Text("This month: " + Money.short(got) + " of " + Money.short(target) + " " + cur, fontWeight = FontWeight.SemiBold)
+                    Text("This month: " + Money.short(got) + " of " + Money.short(target) + " " + cur, fontWeight = FontWeight.Medium)
                     Gap(6)
                     androidx.compose.material3.LinearProgressIndicator(
                         progress = { (got / target).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)),
@@ -134,7 +134,7 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                             run == 1 -> "1 month in a row"
                             else -> "$run months in a row"
                         },
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                     )
                     TextButton(onClick = { targetText = numText(target); editTarget = true }) { Text("Change target") }
                 }
@@ -153,7 +153,7 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                         shown.forEachIndexed { i, m ->
                             val last = i == shown.lastIndex
                             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
-                                Text(Money.short(m.saved), style = MaterialTheme.typography.labelSmall, fontWeight = if (last) FontWeight.Bold else FontWeight.Normal)
+                                Text(Money.short(m.saved), style = MaterialTheme.typography.labelSmall, fontWeight = if (last) FontWeight.Medium else FontWeight.Normal)
                                 val h = (96 * (m.saved.coerceAtLeast(0.0) / top)).toInt().coerceAtLeast(3)
                                 Column(
                                     Modifier.fillMaxWidth().padding(top = 4.dp).height(h.dp).clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
@@ -170,11 +170,11 @@ fun PiggyScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                     months.reversed().forEachIndexed { i, m ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(m.month.format(monthFmt), fontWeight = FontWeight.SemiBold)
+                                Text(m.month.format(monthFmt), fontWeight = FontWeight.Medium)
                                 if (i == 0) Text("so far", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text(Money.signed(m.saved), fontWeight = FontWeight.SemiBold, color = if (m.saved < 0) MaterialTheme.colorScheme.error else Good)
+                                Text(Money.signed(m.saved), fontWeight = FontWeight.Medium, color = if (m.saved < 0) MaterialTheme.colorScheme.error else Good)
                                 Text("Total " + Money.short(m.total), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }

@@ -48,35 +48,35 @@ fun GameyaCard(repo: Repo, prefs: Prefs) {
         val c = r.entity
         SectionCard(container = if (s.collectNow) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
             Label("Gam'eya")
-            Text(c.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+            Text(c.name, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium, maxLines = 1)
             Gap(4)
             if (s.payoutReceived) {
-                Text("You collected your turn", color = Good, fontWeight = FontWeight.SemiBold)
+                Text("You collected your turn", color = Good, fontWeight = FontWeight.Medium)
             } else if (s.collectNow) {
-                Text("It's your turn! Collect " + Money.short(s.payout) + " " + cur, color = Good, fontWeight = FontWeight.Bold)
+                Text("It's your turn! Collect " + Money.short(s.payout) + " " + cur, color = Good, fontWeight = FontWeight.Medium)
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Your turn", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    Text(s.payoutDate.format(dayYearFmt), fontWeight = FontWeight.Bold)
+                    Text(s.payoutDate.format(dayYearFmt), fontWeight = FontWeight.Medium)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Days to your turn", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    Text(s.daysToTurn.toString(), fontWeight = FontWeight.Bold)
+                    Text(s.daysToTurn.toString(), fontWeight = FontWeight.Medium)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("You collect", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    Text(Money.short(s.payout) + " " + cur, fontWeight = FontWeight.Bold, color = Good)
+                    Text(Money.short(s.payout) + " " + cur, fontWeight = FontWeight.Medium, color = Good)
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Installments left", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                Text(s.installmentsLeft.toString() + " / " + c.months, fontWeight = FontWeight.Bold)
+                Text(s.installmentsLeft.toString() + " / " + c.months, fontWeight = FontWeight.Medium)
             }
             val next = s.nextDue
             if (next != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Next installment", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    Text(Money.short(c.share) + " " + cur + " · " + next.format(dayFmt), fontWeight = FontWeight.Bold)
+                    Text(Money.short(c.share) + " " + cur + " · " + next.format(dayFmt), fontWeight = FontWeight.Medium)
                 }
             }
             Progress(if (c.months > 0) c.paid.toFloat() / c.months else 0f)

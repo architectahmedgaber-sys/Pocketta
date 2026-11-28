@@ -46,8 +46,8 @@ fun RisesCard(d: PlanData) {
         Gap(4)
         for (r in rises) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(r.name, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                Text("▲ " + r.percent + "% vs your usual", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                Text(r.name, Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                Text("▲ " + r.percent + "% vs your usual", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Medium)
             }
         }
         Gap(2)
@@ -130,7 +130,7 @@ fun WealthScreen(repo: Repo, nav: Nav, prefs: Prefs) {
 private fun WLine(label: String, value: String, color: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified) {
     Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Text(value, color = color, fontWeight = FontWeight.Bold)
+        Text(value, color = color, fontWeight = FontWeight.Medium)
     }
 }
 

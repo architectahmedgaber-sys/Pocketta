@@ -85,7 +85,7 @@ private fun MoreCard(emoji: String, title: String, sub: String, onClick: () -> U
                 contentAlignment = Alignment.Center,
             ) { Text(emoji, fontSize = 28.sp) }
             Column(Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(title, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium)
                 Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text("›", fontSize = 28.sp, color = MaterialTheme.colorScheme.outline)
@@ -260,7 +260,7 @@ fun CurrenciesScreen(repo: Repo, nav: Nav, prefs: Prefs) {
             SectionCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Today's rates from the internet", fontWeight = FontWeight.SemiBold)
+                        Text("Today's rates from the internet", fontWeight = FontWeight.Medium)
                         Text(
                             if (prefs.ratesUpdated.isNotEmpty()) "Updated ${prefs.ratesUpdated.take(10)}" else "Not downloaded yet",
                             style = MaterialTheme.typography.bodySmall,
@@ -291,7 +291,7 @@ fun CurrenciesScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                                 Text("1 $c", Modifier.weight(1f))
                                 Text(
                                     "${Money.fmt(r)} ${prefs.baseCurrency}" + if (prefs.isManual(c)) " (you set ${Money.fmt(prefs.rates[c] ?: 0.0)})" else "",
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontWeight = FontWeight.Medium,
                                 )
                             }
                         }
@@ -303,7 +303,7 @@ fun CurrenciesScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                             prefs.gold[k]?.let { g ->
                                 Row {
                                     Text("Karat $k", Modifier.weight(1f))
-                                    Text("${Money.short(g)} ${prefs.baseCurrency}", fontWeight = FontWeight.SemiBold)
+                                    Text("${Money.short(g)} ${prefs.baseCurrency}", fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
@@ -347,7 +347,7 @@ fun CurrenciesScreen(repo: Repo, nav: Nav, prefs: Prefs) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         (country?.let { it.flag + " " + (if (ar) it.ar else it.en) + " · " } ?: "") + prefs.baseCurrency,
-                        Modifier.weight(1f), fontWeight = FontWeight.SemiBold,
+                        Modifier.weight(1f), fontWeight = FontWeight.Medium,
                     )
                     TextButton(onClick = { pickCountry = true }) { Text("Change") }
                 }
@@ -405,10 +405,10 @@ fun OnboardingScreen(repo: Repo, onDone: () -> Unit) {
             Modifier.fillMaxSize().padding(pad).padding(24.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Pocketta", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text("Pocketta", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
             Choices(listOf("EN", "AR"), LocalLang.current, { if (it == "AR") "العربية" else "English" }, { v -> scope.launch { repo.set("lang", v) } })
             Text("Your money for the month: what you can spend today, your bills, installments, gam'eya and loans. Everything stays on your phone.")
-            Text("Your country", fontWeight = FontWeight.SemiBold)
+            Text("Your country", fontWeight = FontWeight.Medium)
             Text("We set your currency from it. You can change it later in Settings.", style = MaterialTheme.typography.bodySmall)
             CountryPicker(picked.code) { picked = it }
             NumberField("Monthly salary (optional)", salary, { salary = it }, suffix = picked.currency)
@@ -454,7 +454,7 @@ private fun GoldSection(repo: Repo, prefs: Prefs) {
             val color = if (up) androidx.compose.ui.graphics.Color(0xFF1F8A4C) else androidx.compose.ui.graphics.Color(0xFFC62828)
             Text(
                 (if (up) "Profit " else "Loss ") + Money.short(kotlin.math.abs(summary.profit)) + " " + prefs.baseCurrency,
-                fontWeight = FontWeight.Bold, color = color, style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium, color = color, style = MaterialTheme.typography.titleMedium,
             )
             Text((if (up) "+" else "−") + Money.fmt(kotlin.math.abs(summary.percent)) + "%", color = color, style = MaterialTheme.typography.bodySmall)
             Text(
@@ -468,7 +468,7 @@ private fun GoldSection(repo: Repo, prefs: Prefs) {
             Divider()
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Karat ${b.karat} · ${Money.fmt(b.grams)} g", fontWeight = FontWeight.SemiBold)
+                    Text("Karat ${b.karat} · ${Money.fmt(b.grams)} g", fontWeight = FontWeight.Medium)
                     Text("Bought at ${Money.fmt(b.pricePerGram)} per gram", style = MaterialTheme.typography.bodySmall)
                     app.pocketta.core.Gold.profit(b, prefs.gold)?.let { pr ->
                         Text(

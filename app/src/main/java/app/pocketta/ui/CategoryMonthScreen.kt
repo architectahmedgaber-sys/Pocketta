@@ -86,7 +86,7 @@ fun CategoryMonthScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Categor
             } else {
                 SectionCard(container = MaterialTheme.colorScheme.primaryContainer) {
                     Label("Spent")
-                    Text(name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(name, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium)
                     Big(Money.short(d.total) + " " + prefs.baseCurrency, size = 30)
                     Text(
                         if (d.previousTotal > 0) "Last month " + Money.short(d.previousTotal) else "Nothing last month",
@@ -96,7 +96,7 @@ fun CategoryMonthScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Categor
                         val pct = Math.round((d.total - d.previousTotal) / d.previousTotal * 100).toInt()
                         Text(
                             if (pct > 0) "▲ $pct% vs last month" else if (pct < 0) "▼ ${-pct}% vs last month" else "＝ same as last month",
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Medium,
                             color = if (pct > 0) MaterialTheme.colorScheme.error else Good,
                         )
                     }
@@ -120,7 +120,7 @@ fun CategoryMonthScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Categor
                     DaysCard((d.cycle.start.toEpochDay() until d.cycle.nextStart.toEpochDay()).map { day -> perDay[day] ?: 0.0 })
                     perDay.entries.maxByOrNull { it.value }?.let { top ->
                         Text("Most expensive day", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(LocalDate.ofEpochDay(top.key).format(dayFmt) + " · " + Money.short(top.value) + " " + prefs.baseCurrency, fontWeight = FontWeight.SemiBold)
+                        Text(LocalDate.ofEpochDay(top.key).format(dayFmt) + " · " + Money.short(top.value) + " " + prefs.baseCurrency, fontWeight = FontWeight.Medium)
                     }
                     if (tag.isEmpty()) {
                         val subs = d.txns.groupBy { t -> byId[t.categoryId]?.let { c -> if (c.parentId != null) c.name else "Other" } ?: "Other" }
@@ -132,7 +132,7 @@ fun CategoryMonthScreen(repo: Repo, nav: Nav, prefs: Prefs, route: Route.Categor
                                 for ((k, v) in subs) {
                                     Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Text(k, Modifier.weight(1f), maxLines = 1)
-                                        Text(Money.short(v) + " · " + (if (d.total > 0) (v / d.total * 100).toInt() else 0) + "%", fontWeight = FontWeight.SemiBold)
+                                        Text(Money.short(v) + " · " + (if (d.total > 0) (v / d.total * 100).toInt() else 0) + "%", fontWeight = FontWeight.Medium)
                                     }
                                     Progress((if (d.total > 0) v / d.total else 0.0).toFloat())
                                 }

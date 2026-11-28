@@ -62,7 +62,7 @@ fun ResetAllCard(repo: Repo, prefs: Prefs) {
         Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Box(Modifier.size(60.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) { Text("🗑️", fontSize = 28.sp) }
             Column(Modifier.weight(1f)) {
-                Text("Start over", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
+                Text("Start over", fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
                 Text("Delete all my data and begin from zero", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
             }
             Text("›", fontSize = 28.sp, color = MaterialTheme.colorScheme.outline)
@@ -79,7 +79,7 @@ fun ResetAllCard(repo: Repo, prefs: Prefs) {
                     for (line in listOf("Spending, income and wallets", "Bills, installments, gam'eya and loans", "Goals, piggy bank and tags", "Miqrish notes")) Text("• " + line.let { Tr.t(it, prefs.lang) }, style = MaterialTheme.typography.bodyMedium)
                     if (CloudSync.signedIn()) Text("• " + Tr.t("Your cloud copy", prefs.lang), style = MaterialTheme.typography.bodyMedium)
                 }
-                Text("This cannot be undone.", fontWeight = FontWeight.Bold)
+                Text("This cannot be undone.", fontWeight = FontWeight.Medium)
                 Text("Your AI key and the look you chose stay.", style = MaterialTheme.typography.bodySmall)
                 Button(onClick = { backupLauncher.launch("pocketta-backup-${LocalDate.now()}.db") }, modifier = Modifier.padding(top = 12.dp)) { Text("💾 Save a backup first") }
             }
