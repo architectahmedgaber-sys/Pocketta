@@ -6,7 +6,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
@@ -59,7 +58,6 @@ private val Shapes24 = Shapes(
 
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
 /** Cairo (SIL Open Font License), bundled as a variable font: one file, every weight, Arabic and Latin. */
-@OptIn(ExperimentalTextApi::class)
 val CairoFamily = FontFamily(
     listOf(300, 400, 500, 600, 700).map { w ->
         Font(R.font.cairo, FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))
