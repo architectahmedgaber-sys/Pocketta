@@ -3,6 +3,65 @@
 import { DICT, MONTHS, DAYS, RULES } from './ar-dict.js';
 
 const EXTRA = {
+  // 1.24 (v3)
+  "You will go over the budget by #": "هتعدّي الميزانية بـ #",
+  "Small margin left: #": "فاضل هامش صغير: #",
+  "You will finish # under budget": "هتخلص بـ # زيادة",
+  "Over budget": "زيادة",
+  "Close": "قريب",
+  "On track": "تمام",
+  "At today's pace your money runs out in # days": "بالسرعة الحالية فلوسك هتخلص بعد # يوم",
+  "At today's pace your money has run out": "بالسرعة الحالية فلوسك خلصت",
+  "Money runs out on": "الفلوس هتخلص يوم",
+  "Spend up to # a day to stay within budget": "لو صرفت # في اليوم بس هتفضل في حدود الميزانية",
+  "Budgets": "الميزانيات",
+  "# categories": "# فئات",
+  "# on track": "# تمام",
+  "# close": "# قربت",
+  "Close to the limit": "قربت من الحد",
+  "Record it by itself": "سجّله لوحده",
+  "Recorded:": "اتسجّل:",
+  "Recorded # payments": "اتسجّل # مدفوعات",
+  "Target date (optional)": "الميعاد (اختياري)",
+  "You need # a month and you save #": "محتاج # في الشهر وانت بتحوّش #",
+  "You need # a month to finish by then (# months). You save # now.": "محتاج # في الشهر عشان تخلّص في الميعاد (# شهور). انت بتحوّش # دلوقتي.",
+  "Behind": "متأخر",
+  "Report ›": "التقرير ›",
+  "Net: # · # a day": "الفرق: # · # في اليوم",
+  "You spent # more than the month before": "صرفت أكتر بـ # من الشهر اللي فات",
+  "You spent # less than the month before": "صرفت أقل بـ # من الشهر اللي فات",
+  "No data for the month before": "مفيش بيانات للشهر اللي فات",
+  "Top 3 categories": "أكتر 3 فئات",
+  "Top 3 expenses": "أكبر 3 مصاريف",
+  "Share picture": "شارك الصورة",
+  "No spending recorded this month": "مفيش مصاريف مسجّلة الشهر ده",
+  "Export to Excel (CSV)": "تصدير للإكسل (CSV)",
+  "A CSV file with all your transactions. Opens in Excel and Google Sheets.": "ملف CSV بكل معاملاتك. يتفتح في إكسل وجوجل شيتس، والعربي بيطلع سليم.",
+  "Everything": "كله",
+  "Save file": "احفظ الملف",
+  "Lock after I leave": "اقفل بعد ما أخرج بـ",
+  "Right away": "فورًا",
+  "30 seconds": "30 ثانية",
+  "1 minute": "دقيقة",
+  "5 minutes": "5 دقايق",
+  "Hide the app in recent apps": "إخفاء التطبيق في الأخيرة",
+  "Search notes, categories, tags or amounts": "دوّر في الملاحظات والفئات والتاجز والمبالغ",
+  "Need/Want": "ضروري/رفاهية",
+  "Tag": "تاج",
+  "Clear all": "امسح الكل",
+  "# results": "# نتايج",
+  "Total spent #": "الإجمالي #",
+  "Showing the first 300": "بيعرض أول 300",
+  "Nothing found": "مفيش نتايج",
+  "Monthly report": "التقرير الشهري",
+  "Search": "بحث",
+  "Either": "الاتنين",
+  "Any": "أي واحد",
+  "Net: +# · # a day": "الفرق: +# · # في اليوم",
+  "Net: −# · # a day": "الفرق: −# · # في اليوم",
+  "On the due day the app records it as an expense by itself. You will get a notice when it does.": "يوم الاستحقاق التطبيق يسجّله مصروف من نفسه. هتشوف إشعار لما يتسجّل.",
+  "Not available when the amount changes every time (like electricity), because the app does not know the amount.": "مش متاح للفواتير اللي مبلغها بيتغيّر كل مرة (زي الكهربا)، لأن التطبيق مش عارف المبلغ.",
+  "Asked when you open the app or come back after the time you chose.": "بيتسأل لما تفتح التطبيق أو ترجع بعد المدة اللي اختارتها.",
   "Four answers and you are in. Everything else is offered later, when it is useful. Your data stays on your phone.": "أربع إجابات وتدخل. باقي الحاجات هتتعرض عليك بعدين وقت ما تفيد. بياناتك بتفضل على تليفونك.",
   "Your month starts on the salary day.": "شهرك بيبدأ يوم المرتب.",
   "Undo": "تراجع",
@@ -525,10 +584,14 @@ const EXTRA = {
 const hasLetters = /[A-Za-z]/;
 const number = /\d[\d,]*(?:\.\d+)?[kKM]?/g;
 const currencyTail = /^(.*\S) ([A-Z]{3})$/;
+const numberCur = /\d[\d,]*(?:\.\d+)?[kKM]?(?: [A-Z]{3}\b)?/g;
 const monthsRe = new RegExp('\\b(' + Object.keys(MONTHS).join('|') + ')\\b', 'g');
 const monthDay = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b/g;
 const daysRe = /\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|AM|PM)\b/g;
 const EXTRA_RULES = [
+  ["Target: (\\S+) ([A-Z]{3}) · by (.+)", "الهدف: @1 @2 · لحد @3"],
+  ["Report (.+)", "تقرير @1"],
+  ["Compared with (.+)", "مقارنة بـ @1"],
   ["(.+): \\+(\\S+) income", "@1: +@2 دخل"],
   ["(.+): \\+(\\S+) coming back", "@1: +@2 راجعلك"],
   ["(.+): −(\\S+) commitment", "@1: −@2 التزام"],
@@ -585,6 +648,14 @@ function translate(s) {
     const ar = lookup(s.replace(number, '#'));
     if (ar !== undefined) { let i = 0; return ar.replace(/#/g, () => nums[i++] ?? '#'); }
   }
+  // "You need 1,875 EGP a month": the currency code travels with its number, so the lookup text has none.
+  if (nums && numberCur.test(s)) {
+    numberCur.lastIndex = 0;
+    const toks = s.match(numberCur);
+    const ar = lookup(s.replace(numberCur, '#'));
+    if (ar !== undefined) { let i = 0; return ar.replace(/#/g, () => toks[i++] ?? '#'); }
+  }
+  numberCur.lastIndex = 0;
   for (const [re, to] of rules) {
     const m = re.exec(s);
     if (!m) continue;

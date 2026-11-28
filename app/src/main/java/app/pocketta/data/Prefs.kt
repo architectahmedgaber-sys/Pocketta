@@ -15,6 +15,10 @@ data class Prefs(
     val salaryWallet: Long = 0,
     val savingsPerMonth: Double = 0.0,
     val lock: Boolean = false,
+    /** Seconds the app stays unlocked after you leave it (0, 30, 60, 300). */
+    val lockGrace: Int = 0,
+    /** Hide the app in the recent-apps list and block screenshots (only while the lock is on). */
+    val secureScreen: Boolean = false,
     val remindHour: Int = 9,
     val budgetAlert: Boolean = true,
     /** Extra currencies with a manual rate to the base currency, e.g. USD -> 50.5 */
@@ -82,7 +86,7 @@ data class Prefs(
     val addWhere: Boolean = false,
     /** Tell me when a category passes its monthly limit. */
     val limitAlert: Boolean = true,
-    /** "cycleStartDay|id,id": the categories already announced this cycle. */
+    /** "cycleStartDay|id:level,id:level": the levels (80 near, 100 over) already announced this cycle. Old "day|id,id" counts as level 100. */
     val limitAlerted: String = "",
     /** Suggest an expense from bank text messages (off until you turn it on and allow it). */
     val smsSuggest: Boolean = false,
@@ -142,6 +146,8 @@ data class Prefs(
                 salaryWallet = l("salaryWallet", 0),
                 savingsPerMonth = d("savingsPerMonth", 0.0),
                 lock = b("lock", false),
+                lockGrace = i("lockGrace", 0),
+                secureScreen = b("secureScreen", false),
                 remindHour = i("remindHour", 9),
                 budgetAlert = b("budgetAlert", true),
                 rates = parseRates(m["rates"].orEmpty()),

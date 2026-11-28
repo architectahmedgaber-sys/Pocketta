@@ -26,6 +26,8 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         if (p.onboarded) {
             repo.ensureSalary()
             val today = LocalDate.now()
+            val auto = runCatching { repo.autoPostBills(today) }.getOrDefault(emptyList())
+            if (auto.isNotEmpty()) Notifier.autoPosted(applicationContext, auto, p.baseCurrency, p.lang)
             val items = repo.upcoming(p, today.plusDays(15))
             // Payments of the same company or type that are due together get one reminder (with "Pay all").
             val groups = LinkedHashMap<String, Pair<String, MutableList<app.pocketta.data.Upcoming>>>()

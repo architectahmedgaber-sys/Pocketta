@@ -477,3 +477,15 @@ p { margin: 0; }
 .loan-card .btn { width: 100%; margin-top: 10px; }
 .notice { background: #FBF5E8; border: 1px solid #E6D3A6; border-radius: 16px; padding: 12px 14px; display: grid; gap: 2px; color: #1B1F1D; }
 .sheet-body > * { flex-shrink: 0; }
+
+/* v3 */
+.month-nav { flex-wrap: wrap; row-gap: 2px; }
+.month-nav .center { flex: 1; min-width: 120px; text-align: center; }
+.fc-line { margin-top: 6px; }
+.rp-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.rp-inc { text-align: end; }
+.rp-n { font-size: 26px; font-weight: 300; font-feature-settings: "tnum"; }
+.sr-chips { align-items: center; }
+.sr-chips .chip, .sr-chips .btn { min-height: 44px; }
+.chip-x { flex: none; min-width: 44px; min-height: 44px; border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; margin-inline-start: -10px; }
+.check input:disabled + span { opacity: .55; }

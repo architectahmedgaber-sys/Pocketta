@@ -52,6 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.pocketta.core.Budget
+import app.pocketta.core.BudgetResult
+import app.pocketta.core.Forecast
 import app.pocketta.core.Money
 import app.pocketta.BuildConfig
 import app.pocketta.data.HomeState
@@ -136,6 +138,8 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                 Gap(8)
                 Text("${b.daysLeft} days left · commitments already deducted", color = HeroText.copy(alpha = 0.85f), style = MaterialTheme.typography.bodySmall)
             }
+
+            if (b.budget > 0) ForecastCard(b, cur)
 
             // Three small numbers.
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -410,6 +414,49 @@ private fun GuideStep(n: Int, title: String, hint: String, done: Boolean, onClic
         Column(Modifier.weight(1f)) {
             Text(title, fontWeight = FontWeight.Medium)
             Text(hint, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+/** Month-end forecast, visible on Today: three states (over, tight, ok), and when the money runs out at today's pace. */
+@Composable
+private fun ForecastCard(b: BudgetResult, cur: String) {
+    val status = Forecast.status(b.forecastDiff, b.budget)
+    val warn = status != Forecast.Status.OK
+    val runOut = if (warn) Forecast.runOutIn(b.left, b.avgPerDay, b.daysLeft) else null
+    val headline = when (status) {
+        Forecast.Status.OVER -> "You will go over the budget by ${Money.short(-b.forecastDiff)} $cur"
+        Forecast.Status.TIGHT -> "Small margin left: ${Money.short(b.forecastDiff)} $cur"
+        Forecast.Status.OK -> "You will finish ${Money.short(b.forecastDiff)} $cur under budget"
+    }
+    SectionCard(container = if (status == Forecast.Status.OVER) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
+        Label("Month-end forecast")
+        Gap(4)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(headline, Modifier.weight(1f), fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium)
+            when (status) {
+                Forecast.Status.OVER -> Pill("Over budget", MaterialTheme.colorScheme.error)
+                Forecast.Status.TIGHT -> Pill("Tight", Warn)
+                Forecast.Status.OK -> Pill("On track", Good)
+            }
+        }
+        if (runOut != null) {
+            Gap(6)
+            Text(
+                if (runOut == 0) "At today's pace your money has run out" else "At today's pace your money runs out in $runOut days",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (runOut > 0) {
+                Gap(2)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Money runs out on", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(java.time.LocalDate.now().plusDays(runOut.toLong()).format(dayFmt), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+        if (warn && b.dailyAllowance >= 1) {
+            Gap(6)
+            Text("Spend up to ${Money.short(Math.floor(b.dailyAllowance))} $cur a day to stay within budget", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

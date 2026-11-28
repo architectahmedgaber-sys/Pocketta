@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [Wallet::class, Category::class, Txn::class, Bill::class, Installment::class, CircleEntity::class, Loan::class, LoanInstallment::class, SettingRow::class],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDb : RoomDatabase() {
@@ -59,10 +59,17 @@ abstract class AppDb : RoomDatabase() {
             }
         }
 
+        /** 1.24: a bill can record itself on its due date. */
+        val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE bills ADD COLUMN autoPost INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile private var instance: AppDb? = null
 
         fun get(context: Context): AppDb = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, AppDb::class.java, NAME).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+            instance ?: Room.databaseBuilder(context.applicationContext, AppDb::class.java, NAME).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
         }
 
         /** Closes the database so its file can be replaced by a backup. */

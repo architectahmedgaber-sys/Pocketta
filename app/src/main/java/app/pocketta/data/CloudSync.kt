@@ -54,7 +54,7 @@ object CloudSync {
     private const val KEY = "sb_publishable_rjOgzmPudvrnCbc5nkBevg_xq_jPPFt"
     const val REDIRECT = "app.pocketta://auth"
     /** Things that belong to one device (or change by themselves): not synced, not compared, kept when cloud data is applied. */
-    private val DEVICE_KEYS = listOf("theme", "lang", "onlineRates", "prevOnlineRates", "gold", "prevGold", "ratesUpdated", "ratesFetchedAt", "smsPending")
+    private val DEVICE_KEYS = listOf("theme", "lang", "onlineRates", "prevOnlineRates", "gold", "prevGold", "ratesUpdated", "ratesFetchedAt", "smsPending", "limitAlerted", "lockGrace", "secureScreen")
 
     private lateinit var sp: SharedPreferences
     private lateinit var files: File

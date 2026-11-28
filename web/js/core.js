@@ -160,7 +160,7 @@ export function computeBudget(i) {
   return {
     flexTotal, flexSpent, flexLeft, flexSpentFraction, elapsedFraction, household,
     budget, spent, committed: i.commitments, left: budget - spent - i.commitments, daysLeft,
-    dailyAllowance: daily, leftToday: daily - i.spentToday, forecastSpend: forecast, forecastDiff: budget - forecast,
+    dailyAllowance: daily, leftToday: daily - i.spentToday, forecastSpend: forecast, forecastDiff: budget - forecast, avgPerDay: avg,
     spentFraction, committedFraction,
   };
 }

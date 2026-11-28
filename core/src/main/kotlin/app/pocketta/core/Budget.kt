@@ -45,6 +45,8 @@ data class BudgetResult(
     /** Share of the cycle that has passed, to compare with [flexSpentFraction]. */
     val elapsedFraction: Float = 0f,
     val household: Double = 0.0,
+    /** Everyday spending per elapsed day (used for the "money runs out" line). */
+    val avgPerDay: Double = 0.0,
 ) {
     /** Share of the budget already spent, for the ring. */
     val spentFraction: Float get() = if (budget <= 0) 0f else (spent / budget).toFloat().coerceIn(0f, 1f)
@@ -66,7 +68,7 @@ object Budget {
         val flexFrac = if (flexTotal > 0) (flexSpent / flexTotal).toFloat().coerceIn(0f, 1f) else if (flexSpent > 0) 1f else 0f
         return BudgetResult(
             flexTotal = flexTotal, flexSpent = flexSpent, flexLeft = flexTotal - flexSpent, flexSpentFraction = flexFrac,
-            elapsedFraction = (dayIndex.toFloat() / maxOf(i.cycle.lengthDays, 1)).coerceIn(0f, 1f), household = i.household,
+            elapsedFraction = (dayIndex.toFloat() / maxOf(i.cycle.lengthDays, 1)).coerceIn(0f, 1f), household = i.household, avgPerDay = avg,
             budget = budget,
             spent = spent,
             committed = i.commitments,

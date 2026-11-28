@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.view.WindowManager
+import app.pocketta.core.LockGrace
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
 import androidx.activity.compose.setContent
@@ -49,6 +52,9 @@ class MainActivity : FragmentActivity() {
     private var promptShowing = false
     /** Mirrors the lock setting so onResume can ask for the fingerprint. */
     private var lockOn = false
+    /** Mirrors "lock after I leave" (seconds) and the elapsed-realtime moment the app went to the background (0 = never left). */
+    private var lockGraceSec = 0
+    private var leftAt = 0L
 
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -74,6 +80,9 @@ class MainActivity : FragmentActivity() {
                 }
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
                     lockOn = p?.lock == true && p.onboarded
+                    lockGraceSec = p?.lockGrace ?: 0
+                    val hideInRecents = lockOn && p?.secureScreen == true
+                    SideEffect { applySecure(hideInRecents) }
                     when {
                         p == null -> Box(Modifier.fillMaxSize())
                         !p.onboarded -> OnboardingScreen(repo) { askForNotifications() }
@@ -110,6 +119,9 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Within the grace period the app stays open; after it (or on a cold start) it locks again.
+        if (lockOn && unlocked && leftAt != 0L && LockGrace.shouldRelock(leftAt, SystemClock.elapsedRealtime(), lockGraceSec)) unlocked = false
+        leftAt = 0L
         // Ask for the fingerprint every time the app comes back while locked.
         if (lockOn && !unlocked) window.decorView.post { if (!unlocked) unlock() }
         // Sync when the app comes to the front (does nothing while signed out).
@@ -129,7 +141,15 @@ class MainActivity : FragmentActivity() {
     override fun onStop() {
         super.onStop()
         // Lock again when the app goes to the background (not when a picker or the fingerprint prompt opens on top).
-        if (!isChangingConfigurations && !promptShowing) unlocked = false
+        if (!isChangingConfigurations && !promptShowing) {
+            if (lockGraceSec <= 0) unlocked = false else leftAt = SystemClock.elapsedRealtime()
+        }
+    }
+
+    /** Blank recent-apps thumbnail and no screenshots while the lock and "hide the app" are both on. */
+    private fun applySecure(on: Boolean) {
+        if (on) window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
     }
 
     private fun handleIntent(intent: Intent?) {

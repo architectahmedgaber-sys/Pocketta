@@ -65,7 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.FlowRow
 import app.pocketta.core.CycleMath
-import app.pocketta.core.LimitAlerts
+import app.pocketta.core.LimitLevels
 import app.pocketta.core.Money
 import app.pocketta.core.Favourite
 import app.pocketta.core.QuickIntentParser
@@ -573,18 +573,22 @@ fun DayPicker(date: LocalDate, onPick: (LocalDate) -> Unit, onDismiss: () -> Uni
     ) { DatePicker(state = state) }
 }
 
-/** After an expense: say so once per cycle when a category has gone over its monthly limit. Under the limit, nothing. */
+/** After an expense: say so once per level (80% = close, 100% = over) per cycle when a category reaches its monthly limit. */
 suspend fun checkCategoryLimits(context: Context, repo: Repo) {
     val p = repo.prefs()
     if (!p.limitAlert) return
-    val over = repo.categoriesOverLimit()
-    if (over.isEmpty()) return
+    val items = repo.limitedCategorySpend()
+    if (items.isEmpty()) return
     val day = CycleMath.cycleFor(LocalDate.now(), p.cycleStart).start.toEpochDay()
-    val fresh = LimitAlerts.fresh(day, p.limitAlerted, over.map { it.first.id })
-    if (fresh.isEmpty()) return
-    val known = LimitAlerts.parse(p.limitAlerted).let { (d, ids) -> if (d == day) ids else emptySet() }
-    repo.set("limitAlerted", LimitAlerts.format(day, known + fresh))
-    for ((c, spent) in over.filter { it.first.id in fresh }) Notifier.categoryLimit(context, c.id, c.name, spent, c.monthlyLimit, p.baseCurrency, p.lang)
+    val r = LimitLevels.fresh(day, p.limitAlerted, items)
+    if (r.fresh.isEmpty()) return
+    repo.set("limitAlerted", r.state)
+    val cats = repo.dao.categories().associateBy { it.id }
+    for (f in r.fresh) {
+        val c = cats[f.id] ?: continue
+        val spent = items.firstOrNull { it.id == f.id }?.spent ?: continue
+        Notifier.categoryLimit(context, c.id, c.name, spent, c.monthlyLimit, p.baseCurrency, p.lang, f.level)
+    }
 }
 
 suspend fun checkOverBudget(context: Context, repo: Repo, prefs: Prefs) {
