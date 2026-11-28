@@ -59,10 +59,10 @@ class CoreTest {
                 spentBeforeToday = 6000.0, spentToday = 100.0, commitments = 1300.0, everydaySpent = 5000.0,
             )
         )
-        // 13 days left incl. today: (12000 - 6000 - 1300) / 13
+        // 13 days left incl. today: (12000 - 6000 - 1300) / (13 - 1)
         assertEquals(13, r.daysLeft)
-        assertEquals(4700.0 / 13, r.dailyAllowance, 0.001)
-        assertEquals(4700.0 / 13 - 100, r.leftToday, 0.001)
+        assertEquals(4700.0 / 12, r.dailyAllowance, 0.001)
+        assertEquals(4700.0 / 12 - 100, r.leftToday, 0.001)
         assertEquals(12000.0 - 6100 - 1300, r.left, 0.001)
     }
 

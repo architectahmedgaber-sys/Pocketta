@@ -80,10 +80,10 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
     }
     val spentToday = s.days.lastOrNull { it.first == s.today }?.second ?: 0.0
     val over = b.leftToday < 0
-    val target = kotlin.math.abs(b.leftToday).toFloat()
+    val target = spentToday.toFloat()
     val shownAmount = remember { Animatable(if (animationsOn) 0f else target) }
     LaunchedEffect(target) { if (animationsOn) shownAmount.animateTo(target, tween(600)) else shownAmount.snapTo(target) }
-    val usedToday = if (b.dailyAllowance > 0) (spentToday / b.dailyAllowance).toFloat().coerceIn(0f, 1f) else 0f
+    val usedToday = if (b.dailyAllowance > 0) (spentToday / b.dailyAllowance).toFloat().coerceIn(0f, 1f) else if (spentToday > 0) 1f else 0f
 
     val cycleFlow = remember(s.cycle.start) { repo.dao.txnsFlow(s.cycle.start.toEpochDay(), s.cycle.nextStart.toEpochDay()) }
     val cycleTxns by cycleFlow.collectAsState(initial = emptyList())
@@ -121,7 +121,7 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                     .background(Brush.linearGradient(HeroGradient))
                     .padding(20.dp)
             ) {
-                Text(if (over) "Over today's amount" else "Spend today", color = HeroText.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyMedium)
+                Text("Spent today", color = HeroText.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyMedium)
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         Money.short(shownAmount.value.toDouble()), fontSize = 54.sp, fontWeight = FontWeight.Light,
@@ -134,17 +134,19 @@ fun HomeScreen(repo: Repo, nav: Nav, prefs: Prefs, modifier: Modifier) {
                 Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(HeroText.copy(alpha = 0.2f))) {
                     Box(Modifier.fillMaxWidth(usedToday).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Brush.horizontalGradient(listOf(GoldAccent, GoldLight))))
                 }
-                Gap(8)
-                Text("${b.daysLeft} days left · commitments already deducted", color = HeroText.copy(alpha = 0.85f), style = MaterialTheme.typography.bodySmall)
+                Gap(12)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HeroStat(if (over) "Over today's amount" else "Left for today", Money.short(kotlin.math.abs(b.leftToday)) + " " + cur, Modifier.weight(1f), warn = over)
+                    HeroStat("Available balance", Money.short(b.left) + " " + cur, Modifier.weight(1f), warn = b.left < 0)
+                }
             }
 
-            if (b.budget > 0) ForecastCard(b, cur)
+            if (b.budget > 0) ForecastCard(s, cur)
 
-            // Three small numbers.
+            // Two small numbers (the balance is already in the green card).
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MiniNumber("Income", Money.short(s.income + s.salaryExpected), Modifier.weight(1f))
                 MiniNumber("Commitments", Money.short(b.committed), Modifier.weight(1f))
-                MiniNumber("Remaining", Money.short(b.left), Modifier.weight(1f), if (b.left < 0) MaterialTheme.colorScheme.error else Color.Unspecified)
             }
 
             SyncChip()
@@ -260,7 +262,7 @@ private fun UpcomingCard(repo: Repo, items: List<Upcoming>, s: HomeState, cur: S
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     SectionCard {
-        Label("Coming soon")
+        Label("Coming up")
         for (u in items) {
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -410,45 +412,106 @@ private fun GuideStep(n: Int, title: String, hint: String, done: Boolean, onClic
     }
 }
 
-/** Month-end forecast, visible on Today: three states (over, tight, ok), and when the money runs out at today's pace. */
 @Composable
-private fun ForecastCard(b: BudgetResult, cur: String) {
+private fun HeroStat(label: String, value: String, modifier: Modifier, warn: Boolean = false) {
+    Column(modifier.clip(RoundedCornerShape(14.dp)).background(HeroText.copy(alpha = 0.10f)).padding(10.dp)) {
+        Text(label, color = HeroText.copy(alpha = 0.85f), style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        Text(
+            value, color = if (warn) Color(0xFFF2B8A8) else HeroText, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum"),
+        )
+    }
+}
+
+/**
+ * Month-end forecast on Today: a status chip, one verdict line, the chart and, under it, the text (daily average,
+ * expected leftover, when the money runs out) and the daily tip.
+ */
+@Composable
+private fun ForecastCard(s: HomeState, cur: String) {
+    val b = s.budget
     val status = Forecast.status(b.forecastDiff, b.budget)
-    val warn = status != Forecast.Status.OK
-    val runOut = if (warn) Forecast.runOutIn(b.left, b.avgPerDay, b.daysLeft) else null
+    val color = when (status) {
+        Forecast.Status.OVER -> MaterialTheme.colorScheme.error
+        Forecast.Status.TIGHT -> Warn
+        Forecast.Status.OK -> Good
+    }
+    // "Money runs out" is only said when it really runs out before the cycle ends.
+    val runOut = Forecast.runOutIn(b.left, b.avgPerDay, b.daysLeft)
+    val tip = Math.floor(b.dailyAllowance)
     val headline = when (status) {
         Forecast.Status.OVER -> "You will go over the budget by ${Money.short(-b.forecastDiff)} $cur"
-        Forecast.Status.TIGHT -> "Small margin left: ${Money.short(b.forecastDiff)} $cur"
+        Forecast.Status.TIGHT -> "You will finish the month with only ${Money.short(b.forecastDiff)} $cur"
         Forecast.Status.OK -> "You will finish ${Money.short(b.forecastDiff)} $cur under budget"
     }
-    SectionCard(container = if (status == Forecast.Status.OVER) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
-        Label("Month-end forecast")
-        Gap(4)
+    SectionCard(container = MaterialTheme.colorScheme.surfaceContainer) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(headline, Modifier.weight(1f), fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium)
+            Label("Month-end forecast", Modifier.weight(1f))
             when (status) {
-                Forecast.Status.OVER -> Pill("Over budget", MaterialTheme.colorScheme.error)
-                Forecast.Status.TIGHT -> Pill("Tight", Warn)
-                Forecast.Status.OK -> Pill("On track", Good)
+                Forecast.Status.OVER -> Pill("Over budget", color)
+                Forecast.Status.TIGHT -> Pill("Tight", color)
+                Forecast.Status.OK -> Pill("On track", color)
             }
         }
+        Gap(6)
+        Text(headline, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium, color = color)
+        Gap(4)
+        Text(
+            if (b.forecastDiff >= 0) "Daily average ${Money.short(b.avgPerDay)} $cur. Expected left at month end: ${Money.short(b.forecastDiff)} $cur"
+            else "Daily average ${Money.short(b.avgPerDay)} $cur. Expected over budget at month end: ${Money.short(-b.forecastDiff)} $cur",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         if (runOut != null) {
-            Gap(6)
+            Gap(4)
             Text(
                 if (runOut == 0) "At today's pace your money has run out" else "At today's pace your money runs out in $runOut days",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (runOut > 0) {
-                Gap(2)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Money runs out on", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(java.time.LocalDate.now().plusDays(runOut.toLong()).format(dayFmt), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                    Text(s.today.plusDays(runOut.toLong()).format(dayFmt), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
                 }
             }
         }
-        if (warn && b.dailyAllowance >= 1) {
-            Gap(6)
-            Text("Spend up to ${Money.short(Math.floor(b.dailyAllowance))} $cur a day to stay within budget", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Gap(8)
+        ForecastChart(s, color)
+        if (tip > 0) {
+            Gap(8)
+            Text("Spend up to ${Money.short(tip)} $cur a day to stay within budget", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
         }
+    }
+}
+
+/** Solid line: spending so far. Dashed: the budget. Dotted in the state colour: where today's pace ends. Dot: today. */
+@Composable
+private fun ForecastChart(s: HomeState, stateColor: Color) {
+    val b = s.budget
+    val solid = Good
+    val budgetColor = MaterialTheme.colorScheme.outline
+    val n = s.cycle.lengthDays.coerceAtLeast(2)
+    var run = 0.0
+    val cum = s.days.map { run += it.second; run }
+    if (cum.isEmpty()) return
+    val todayX = (cum.size - 1).toFloat()
+    val endY = cum.last() + (b.forecastSpend - b.spent).coerceAtLeast(0.0)
+    val top = maxOf(b.budget, endY, cum.last(), 1.0) * 1.08
+    Canvas(Modifier.fillMaxWidth().height(110.dp)) {
+        val pad = 6.dp.toPx()
+        val w = size.width - pad * 2
+        val h = size.height - pad * 2
+        fun x(d: Float) = pad + d / (n - 1) * w
+        fun y(v: Double) = pad + h - (v / top * h).toFloat()
+        val by = y(b.budget)
+        drawLine(budgetColor, Offset(pad, by), Offset(pad + w, by), strokeWidth = 1.5.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(14f, 10f)))
+        val line = androidx.compose.ui.graphics.Path().apply {
+            cum.forEachIndexed { i, v -> if (i == 0) moveTo(x(0f), y(v)) else lineTo(x(i.toFloat()), y(v)) }
+        }
+        drawPath(line, solid, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
+        val tx = x(todayX)
+        val proj = androidx.compose.ui.graphics.Path().apply { moveTo(tx, y(cum.last())); lineTo(x((n - 1).toFloat()), y(endY)) }
+        drawPath(proj, stateColor, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(0.1f, 9.dp.toPx()))))
+        drawCircle(Color.White, 7.dp.toPx(), Offset(tx, y(cum.last())))
+        drawCircle(stateColor, 5.dp.toPx(), Offset(tx, y(cum.last())))
     }
 }

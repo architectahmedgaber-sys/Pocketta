@@ -37,11 +37,22 @@ class V3VectorsTest {
         )
     }
 
+    @Test fun dailyCap() {
+        assertEquals(400.0, Forecast.dailyCap(4805.0, 13), 0.001)
+        assertEquals(500.0, Forecast.dailyCap(500.0, 1), 0.001)
+        assertEquals(500.0, Forecast.dailyCap(500.0, 2), 0.001)
+        assertEquals(0.0, Forecast.dailyCap(-5.0, 10), 0.001)
+    }
+
     @Test fun forecast() {
         assertEquals(9, Forecast.runOutIn(900.0, 100.0, 20))
         assertNull(Forecast.runOutIn(900.0, 100.0, 9))
         assertEquals(8, Forecast.runOutIn(899.0, 100.0, 20))
         assertEquals(0, Forecast.runOutIn(-5.0, 100.0, 20))
+        assertNull(Forecast.runOutIn(800.0, 100.0, 9))
+        assertEquals(7, Forecast.runOutIn(700.0, 100.0, 9))
+        assertNull(Forecast.runOutIn(700.0, 100.0, 8))
+        assertEquals(6, Forecast.runOutIn(600.0, 100.0, 8))
         assertNull(Forecast.runOutIn(500.0, 0.0, 20))
         assertEquals(
             listOf(Forecast.Status.OVER, Forecast.Status.TIGHT, Forecast.Status.TIGHT, Forecast.Status.OK),
