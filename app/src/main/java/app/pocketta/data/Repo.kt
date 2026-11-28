@@ -308,8 +308,8 @@ class Repo private constructor(private val app: Context) {
     suspend fun week(today: LocalDate, dayReference: Double): WeekData {
         val from = today.minusDays(6).toEpochDay()
         val to = today.toEpochDay() + 1
-        val now = dao.txns(from, to).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && t.source != Source.LOAN && it.source != Source.LOAN }
-        val before = dao.txns(from - 7, from).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && t.source != Source.LOAN && it.source != Source.LOAN }
+        val now = dao.txns(from, to).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && it.source != Source.LOAN }
+        val before = dao.txns(from - 7, from).filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && it.source != Source.LOAN }
         val cats = dao.categories().associateBy { it.id }
         fun topName(id: Long?): String? = id?.let { cats[it] }?.let { c -> (c.parentId?.let { cats[it] } ?: c).name }
         val top = now.groupBy { topName(it.categoryId) }.filterKeys { it != null }
@@ -1041,7 +1041,7 @@ class Repo private constructor(private val app: Context) {
         val p = prefs()
         var cycle = CycleMath.cycleFor(today, p.cycleStart)
         suspend fun total(c: Cycle) = dao.txns(c.start.toEpochDay(), c.nextStart.toEpochDay())
-            .filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && t.source != Source.LOAN && it.source != Source.LOAN }.sumOf { it.base }
+            .filter { it.type == TxType.EXPENSE && !it.spread && it.source != Source.PIGGY && it.source != Source.LOAN }.sumOf { it.base }
         val past = ArrayList<Double>()
         repeat(3) {
             cycle = cycle.previous(p.cycleStart)

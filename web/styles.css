@@ -456,3 +456,11 @@ main:has(+ .tabs) .chatpage { padding-bottom: 170px; }
 
 .dangercard { border: 2px solid color-mix(in srgb, var(--error) 35%, transparent); background: var(--error-c); margin-top: 28px; }
 .dangercard .bigicon { background: var(--surface); }
+
+/* Loans with a schedule */
+.loan-card { display: block; margin: 8px 16px; }
+.loan-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.inst-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.inst-row > span { flex: 1; }
+.loan-card .btn { width: 100%; margin-top: 10px; }
+.notice { background: #FBF5E8; border: 1px solid #E6D3A6; border-radius: 16px; padding: 12px 14px; display: grid; gap: 2px; color: #1B1F1D; }

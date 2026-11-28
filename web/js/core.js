@@ -474,3 +474,51 @@ export function badgeFor(name, kind) {
   const t = TOPICS.find(([keys]) => keys.some(hit));
   return { letter: null, color: null, emoji: t ? t[1] : KIND_EMOJI[kind] };
 }
+
+
+// ---------- Loan schedule (port of core/Loans.kt) ----------
+const cents = (x) => Math.round(x * 100) / 100;
+/** [count] monthly instalments adding up to exactly [total], on the day of [first] (clamped to month end); the rounding remainder goes on the last. */
+export function loanGenerate(total, count, first) {
+  const n = Math.max(1, Math.floor(count) || 1);
+  const each = cents(total / n);
+  const anchor = ymd(first).d;
+  return Array.from({ length: n }, (_, k) => ({ due: addMonths(first, k, anchor), amount: k === n - 1 ? cents(total - each * (n - 1)) : each }));
+}
+/** What a loan does to each month: borrowed money is income in the month it came, each instalment a commitment in its month (lent is the mirror). */
+export function loanPreview(lent, total, day, schedule, recorded = true) {
+  const ymOf = (ed) => { const { y, m } = ymd(ed); return y * 12 + m - 1; };
+  const rows = new Map();
+  const at = (ym) => { if (!rows.has(ym)) rows.set(ym, { ym, income: 0, commitment: 0 }); return rows.get(ym); };
+  if (!lent && recorded) at(ymOf(day)).income += total;
+  for (const s of schedule) { if (lent) at(ymOf(s.due)).income += s.amount; else at(ymOf(s.due)).commitment += s.amount; }
+  return [...rows.values()].sort((a, b) => a.ym - b.ym);
+}
+const instRem = (r) => Math.max(r.amount - (r.paidAmount || 0), 0);
+export const instIsPaid = (r) => instRem(r) < 0.005;
+/** Splits a payment over the oldest unpaid instalments first: { parts: [[id, amount]], left }. */
+export function loanAllocate(rows, payment) {
+  let left = payment;
+  const parts = [];
+  for (const r of rows.filter((x) => !instIsPaid(x)).sort((a, b) => a.dueDay - b.dueDay)) {
+    if (left < 0.005) break;
+    const use = Math.min(left, instRem(r));
+    parts.push([r.id, use]);
+    left -= use;
+  }
+  return { parts, left: left < 0.005 ? 0 : left };
+}
+/** Takes an amount back off the instalments, the most recently paid first (undo). */
+export function loanUnallocate(rows, amount) {
+  let left = amount;
+  const out = [];
+  for (const r of rows.filter((x) => (x.paidAmount || 0) > 0.004).sort((a, b) => b.dueDay - a.dueDay)) {
+    if (left < 0.005) break;
+    const take = Math.min(left, r.paidAmount);
+    out.push([r.id, take]);
+    left -= take;
+  }
+  return out;
+}
+export const loanNext = (rows) => rows.filter((x) => !instIsPaid(x)).sort((a, b) => a.dueDay - b.dueDay)[0] || null;
+export const instRemaining = instRem;

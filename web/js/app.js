@@ -94,7 +94,7 @@ function toast(msg, ms = 3200) {
 
 // ---------- Sheets (dialogs) ----------
 
-function sheet({ title, body, saveLabel = 'Save', onSave, onDelete, deleteLabel = 'Delete', extra = '', onClose }) {
+function sheet({ title, body, saveLabel = 'Save', onSave, onDelete, deleteLabel = 'Delete', extra = '', onClose, onOpen }) {
   const el = document.createElement('div');
   el.className = 'scrim';
   el.innerHTML = `<div class="sheet" role="dialog" aria-label="${esc(title)}">
@@ -109,6 +109,7 @@ function sheet({ title, body, saveLabel = 'Save', onSave, onDelete, deleteLabel 
   document.body.appendChild(el);
   document.body.classList.add('noscroll');
   requestAnimationFrame(() => el.classList.add('open'));
+  if (onOpen) onOpen(el);
   const close = () => { el.classList.remove('open'); document.body.classList.remove('noscroll'); setTimeout(() => el.remove(), 200); if (onClose) onClose(); };
   el.addEventListener('click', (e) => {
     if (e.target === el) return close();
@@ -1124,9 +1125,14 @@ function commitItems(off = 0) {
       push({ kind: 'CIRCLE', refId: c.id, name: c.name, sub: `Gam'eya · ${c.paid + idx + 1} of ${c.months}`, amount: c.share, date: d, payable: idx === 0 && off === 0 }));
   }
   for (const l of off < 0 ? [] : R.data.loans) {
-    if (l.closed || l.dueDay == null || l.dueDay >= cycle.nextStart || l.dueDay < lo) continue;
+    if (l.closed) continue;
     const lent = l.direction === 'LENT';
-    push({ kind: 'LOAN', refId: l.id, name: l.person, sub: lent ? 'They owe you' : 'You owe', amount: R.remaining(l), date: l.dueDay, incoming: lent });
+    if (!lent && !R.loanRecorded(l) && l.countInBudget === false) continue;
+    const rows = R.loanRows(l.id), done = rows.filter(C.instIsPaid).length;
+    rows.filter((r) => !C.instIsPaid(r)).forEach((r, k) => {
+      if (r.dueDay >= cycle.nextStart || r.dueDay < lo) return;
+      push({ kind: 'LOAN', refId: l.id, name: l.person, sub: rows.length > 1 ? `${done + k + 1} of ${rows.length}` : lent ? 'They owe you' : 'You owe', amount: C.instRemaining(r), date: r.dueDay, incoming: lent });
+    });
   }
   const inCycle = R.data.txns.filter((t) => cycle.contains(t.epochDay));
   for (const t of inCycle) {
@@ -1548,29 +1554,65 @@ function circleEditor(c) {
 
 function loansTab() {
   const today = C.todayEpoch();
+  const cycle = C.cycleFor(today, R.S().cycleStart || 1);
+  const iOweTab = ui.loanTab !== 'owed';
   const loans = [...R.data.loans].sort((a, b) => (a.closed - b.closed) || b.epochDay - a.epochDay);
   const owedToMe = loans.filter((l) => l.direction === 'LENT' && !l.closed).reduce((a, l) => a + R.remaining(l), 0);
   const iOwe = loans.filter((l) => l.direction !== 'LENT' && !l.closed).reduce((a, l) => a + R.remaining(l), 0);
-  let html = `<div class="two">${card(label('They owe you') + `<div class="big good-t">${money(owedToMe)}</div>`)}${card(label('You owe') + `<div class="big bad-t">${money(iOwe)}</div>`)}</div>`;
-  if (!loans.length) html += `<p class="empty">No loans. Money you lend or borrow shows up here.</p>`;
-  html += loans.map((l) => {
+  const shown = loans.filter((l) => (l.direction !== 'LENT') === iOweTab);
+  const thisMonth = shown.filter((l) => !l.closed).reduce((a, l) => a + R.loanRows(l.id).filter((r) => !C.instIsPaid(r) && r.dueDay < cycle.nextStart).reduce((x, r) => x + C.instRemaining(r), 0), 0);
+  let html = `<div class="chips seg">${[['owe', 'I owe'], ['owed', 'Owed to me']].map(([v, l]) => `<button type="button" class="chip ${(iOweTab ? 'owe' : 'owed') === v ? 'on' : ''}" data-act="loan-tab" data-v="${v}">${esc(l)}</button>`).join('')}</div>` +
+    `<div class="two">${card(label(iOweTab ? 'Total I owe' : 'Total owed to me') + `<div class="big ${iOweTab ? 'bad-t' : 'good-t'}">${money(iOweTab ? iOwe : owedToMe)}</div>`)}${card(label('This month') + `<div class="big">${money(thisMonth)}</div>`)}</div>`;
+  if (!shown.length) html += `<p class="empty">No loans. Money you lend or borrow shows up here.</p>`;
+  html += shown.map((l) => {
     const lent = l.direction === 'LENT';
-    let sub = `${lent ? 'Lent' : 'Borrowed'} ${C.fmtDay(l.epochDay)}`;
-    if (l.repaid > 0) sub += ` · paid ${C.fmt(l.repaid)} of ${C.fmt(l.amount)}`;
-    if (l.dueDay != null && !l.closed) sub += ` · by ${C.fmtDay(l.dueDay)}`;
-    if (l.note) sub += ` · ${l.note}`;
-    const p = l.closed ? pill('settled', 'good') : l.dueDay != null && l.dueDay < today ? pill('late', 'bad') : '';
-    const cls = l.closed ? 'muted' : lent ? 'good-t' : 'bad-t';
-    return row(l.person, sub, { icon: l.person, act: 'open-loan', data: `data-id="${l.id}"`, trailing: `${p}<b class="${cls}">${lent ? '+' : '−'}${C.fmt(l.closed ? l.amount : R.remaining(l))}</b>` });
+    const rows = R.loanRows(l.id), next = C.loanNext(rows);
+    const frac = l.amount > 0 ? Math.min(l.repaid / l.amount, 1) : 0;
+    const list = l.closed ? '' : rows.map((r) => {
+      const paid = C.instIsPaid(r);
+      const p = paid ? pill('paid', 'good') : r.dueDay < today ? pill('late', 'bad') : r.dueDay < cycle.nextStart ? pill('This month', 'good') : '';
+      return `<div class="inst-row"><span>${esc(C.fmtDay(r.dueDay))}</span>${p}<b class="${paid ? 'muted' : lent ? 'good-t' : 'bad-t'}">${lent ? '+' : '−'}${C.fmt(paid ? r.amount : C.instRemaining(r))}</b></div>`;
+    }).join('');
+    return `<div class="card loan-card" data-act="open-loan" data-id="${l.id}"><div class="loan-head"><div><b>${esc(l.person)}</b><div class="small muted">${esc(`${lent ? 'Lent' : 'Borrowed'} ${C.fmtDay(l.epochDay)} · ${C.fmt(l.amount)}${l.note ? ' · ' + l.note : ''}`)}</div></div>${l.closed ? pill('settled', 'good') : rows.length > 1 ? pill(`Instalment ${rows.filter(C.instIsPaid).length + 1} of ${rows.length}`, 'good') : ''}</div>
+      <div class="bar"><i style="width:${Math.round(frac * 100)}%"></i></div>
+      <div class="small muted">${esc(`Repaid ${C.fmt(l.repaid)} · ${C.fmt(R.remaining(l))} left`)}</div>${list}
+      ${!l.closed && !rows.length ? `<p class="small">${esc('No repayment date yet. Set one so it counts in your budget.')}</p><button class="btn outline" data-act="set-repay" data-id="${l.id}">${esc('Set repayment date')}</button>` : ''}
+      ${!l.closed && next ? `<button class="btn" data-act="pay-inst" data-id="${l.id}">${esc(lent ? 'Got the instalment' : 'I paid the instalment')}</button>` : ''}</div>`;
   }).join('');
   return html + '<div class="spacer"></div>' + fab('Loan', 'new-loan');
 }
 
+/** The "What will happen" box: what the loan does to each month, shown before anything is saved. */
+function loanPreviewHtml(lent, total, day, schedule, recorded) {
+  const lines = C.loanPreview(lent, total, day, schedule, recorded);
+  const name = (ym) => C.fmtMonth(P.ymStart(ym));
+  let h = `<div class="notice"><b>${esc('What will happen')}</b>`;
+  if (lent && recorded) h += `<div class="bad-t">${esc(name(P.ymOf(day)) + ': −' + C.fmt(total))}</div>`;
+  for (const l of lines) {
+    if (l.income > 0) h += `<div class="good-t">${esc(`${name(l.ym)}: +${C.fmt(l.income)} ${lent ? 'coming back' : 'income'}`)}</div>`;
+    if (l.commitment > 0) h += `<div class="bad-t">${esc(`${name(l.ym)}: −${C.fmt(l.commitment)} commitment`)}</div>`;
+  }
+  if (!schedule.length) h += `<div class="small muted">${esc('No repayment date yet. You will be asked to set one.')}</div>`;
+  return h + '</div>';
+}
+
 function newLoan() {
-  const body = label('Pick one first') + chips('dir', [['BORROWED', 'I borrowed money (I owe)'], ['LENT', 'I lent money (they owe me)']], '', 'seg') +
-    field('person', 'To / from whom', '') + numField('amount', 'Amount', null, { suffix: base() }) +
-    dateField('date', 'Date', C.todayEpoch()) + dateField('due', 'Pay back by (optional)', null) + field('note', 'Note (optional)', '') +
-    check('record', 'Add it to my balance too', true);
+  const body = chips('dir', [['BORROWED', 'I borrowed'], ['LENT', 'I lent']], '', 'seg') +
+    field('person', 'Who', '') + numField('amount', 'Amount', null, { suffix: base() }) +
+    label('Repay') + chips('mode', [['LUMP', 'One payment'], ['INST', 'Instalments']], 'LUMP', 'seg') +
+    `<div data-w="lump">${dateField('due', 'Pay back on (optional)', null)}</div>` +
+    `<div data-w="inst" hidden>${numField('count', 'Number of instalments', 3, { int: true })}${dateField('first', 'First instalment', C.addMonths(C.todayEpoch(), 1))}</div>` +
+    dateField('date', 'Date', C.todayEpoch()) + '<div data-w="preview"></div>' + field('note', 'Note (optional)', '') +
+    check('record', 'The money came to my wallet (counts as income)', true) +
+    `<div data-w="budget" hidden>${check('budget', 'Count the repayments in my budget', true)}</div>` +
+    `<p class="small muted">${esc('You can turn off recording as income if the money did not come into your wallet.')}</p>`;
+  const plan = (root) => {
+    const a = num(root, 'amount');
+    if (!(a > 0)) return [];
+    if (chipVal(root, 'mode') === 'INST') return C.loanGenerate(a, Math.max(1, Math.min(60, Math.floor(num(root, 'count')) || 1)), C.fromIso(val(root, 'first')) ?? C.todayEpoch());
+    const d = C.fromIso(val(root, 'due'));
+    return d != null ? [{ due: d, amount: a }] : [];
+  };
   sheet({
     title: 'New loan', body,
     onSave: (root) => {
@@ -1578,7 +1620,39 @@ function newLoan() {
       if (!chipVal(root, 'dir')) return 'Pick: I borrowed or I lent';
       if (!person) return 'Who is it?';
       if (!(a > 0)) return 'Type the amount';
-      R.addLoan({ person, lent: chipVal(root, 'dir') === 'LENT', amount: a, walletId: null, day: C.fromIso(val(root, 'date')) ?? C.todayEpoch(), due: C.fromIso(val(root, 'due')), note: val(root, 'note').trim(), record: checked(root, 'record') });
+      R.addLoan({ person, lent: chipVal(root, 'dir') === 'LENT', amount: a, walletId: null, day: C.fromIso(val(root, 'date')) ?? C.todayEpoch(), note: val(root, 'note').trim(), record: checked(root, 'record'), schedule: plan(root), countInBudget: checked(root, 'budget') || checked(root, 'record') });
+    },
+    onOpen: (root) => {
+      const upd = () => {
+        const lump = chipVal(root, 'mode') !== 'INST', lent = chipVal(root, 'dir') === 'LENT', rec = checked(root, 'record');
+        $('[data-w="lump"]', root).hidden = !lump; $('[data-w="inst"]', root).hidden = lump;
+        $('[data-w="budget"]', root).hidden = rec || lent;
+        const a = num(root, 'amount');
+        $('[data-w="preview"]', root).innerHTML = chipVal(root, 'dir') && a > 0 ? loanPreviewHtml(lent, a, C.fromIso(val(root, 'date')) ?? C.todayEpoch(), plan(root), rec) : '';
+      };
+      root.addEventListener('input', upd); root.addEventListener('click', () => setTimeout(upd, 0)); upd();
+    },
+  });
+}
+
+function setRepayment(l) {
+  const rem = R.remaining(l);
+  const body = chips('mode', [['LUMP', 'One payment'], ['INST', 'Instalments']], 'LUMP', 'seg') +
+    numField('count', 'Number of instalments', 3, { int: true }) + dateField('first', 'First instalment', C.addMonths(C.todayEpoch(), 1)) + '<div data-w="preview"></div>';
+  sheet({
+    title: 'Repayment date', body,
+    onSave: (root) => {
+      const first = C.fromIso(val(root, 'first'));
+      if (first == null) return 'Pick a date';
+      R.setRepayment(l, first, chipVal(root, 'mode') === 'INST' ? Math.max(1, Math.floor(num(root, 'count')) || 1) : 1);
+    },
+    onOpen: (root) => {
+      const upd = () => {
+        const first = C.fromIso(val(root, 'first'));
+        const n = chipVal(root, 'mode') === 'INST' ? Math.max(1, Math.floor(num(root, 'count')) || 1) : 1;
+        $('[data-w="preview"]', root).innerHTML = first != null ? loanPreviewHtml(l.direction === 'LENT', rem, C.todayEpoch(), C.loanGenerate(rem, n, first), false) : '';
+      };
+      root.addEventListener('input', upd); root.addEventListener('click', () => setTimeout(upd, 0)); upd();
     },
   });
 }
@@ -1588,8 +1662,8 @@ function loanDialog(l) {
   const rem = R.remaining(l);
   const msg = `Hi ${l.person}, just a friendly reminder about the ${C.fmt(rem)} ${base()}${l.dueDay != null ? ` (due ${C.fmtDay(l.dueDay)})` : ''}. Thanks!`;
   const body = `<p>${esc(lent ? `${l.person} owes you ` : `You owe ${l.person} `)}<b>${C.fmt(rem)} ${base()}</b>${l.repaid > 0 ? esc(` (paid ${C.fmt(l.repaid)} of ${C.fmt(l.amount)})`) : ''}</p>` +
-    (l.closed ? '' : numField('pay', lent ? 'Amount they paid back' : 'Amount you paid back', Math.round(rem * 100) / 100)) +
-    dateField('due', 'Pay back by', l.dueDay) +
+    (l.closed ? '' : numField('pay', lent ? 'Amount they paid back' : 'Amount you paid back', Math.round((C.loanNext(R.loanRows(l.id)) ? C.instRemaining(C.loanNext(R.loanRows(l.id))) : rem) * 100) / 100)) +
+    (R.loanRows(l.id).length ? R.loanRows(l.id).map((r) => `<p class="small">${esc(C.fmtDay(r.dueDay) + ' · ' + C.fmt(r.amount) + (C.instIsPaid(r) ? ' · paid' : ''))}</p>`).join('') : dateField('due', 'Pay back by', l.dueDay)) +
     `<details><summary class="small">Fix name or amount</summary>${field('person', 'To / from whom', l.person)}${numField('amount', 'Loan amount', l.amount, { suffix: base() })}</details>` +
     (lent && !l.closed ? `<a class="btn outline" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">Send a WhatsApp reminder</a>` : '');
   sheet({
@@ -1597,8 +1671,8 @@ function loanDialog(l) {
     onDelete: () => R.deleteLoan(l),
     onSave: (root) => {
       const due = C.fromIso(val(root, 'due'));
-      const x = R.byId(R.data.loans, l.id);
-      if (x && due !== x.dueDay) { x.dueDay = due; R.changed(); }
+      // Only a loan with no schedule gets its date here; scheduled loans change through their instalments.
+      if (!R.loanRows(l.id).length && due != null) R.setRepayment(l, due, 1);
       const person = val(root, 'person').trim(), amt = num(root, 'amount');
       if (!person) return 'Who is it?';
       if (person !== l.person || (amt > 0 && amt !== l.amount)) R.editLoan(l, { person, amount: amt > 0 ? amt : l.amount });
@@ -2408,6 +2482,9 @@ const actions = {
   'pay-circle': (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) { R.payCircle(c); toast('Share paid'); } },
   payout: (el) => { const c = R.byId(R.data.circles, +el.dataset.id); if (c) { R.receivePayout(c); toast('Payout recorded'); } },
   'new-loan': () => newLoan(),
+  'loan-tab': (el) => { ui.loanTab = el.dataset.v; render(); },
+  'pay-inst': (el) => { const l = R.byId(R.data.loans, +el.dataset.id); if (l) R.payNextInstalment(l); },
+  'set-repay': (el) => { const l = R.byId(R.data.loans, +el.dataset.id); if (l) setRepayment(l); },
   'open-loan': (el) => { const l = R.byId(R.data.loans, +el.dataset.id); if (l) loanDialog(l); },
   'save-income': () => {
     const root = $('#income');
