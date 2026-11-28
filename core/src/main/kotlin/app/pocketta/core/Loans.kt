@@ -73,6 +73,18 @@ object LoanSchedule {
     }
 
     /**
+     * Applies a change in the repaid amount to the instalments: [delta] > 0 settles the oldest unpaid first, < 0 takes back from the
+     * latest paid. Returns every instalment with its new paid amount. The sum of what is paid changes by exactly the delta that fitted
+     * (money beyond the total, or taken back beyond what was paid, is ignored), so it never exceeds the total and never goes negative.
+     */
+    fun applyDelta(instalments: List<Instalment>, delta: Double): List<Instalment> {
+        val change = HashMap<Long, Double>()
+        if (delta > 0.004) allocate(instalments, delta).first.forEach { (id, a) -> change[id] = a }
+        else if (delta < -0.004) unallocate(instalments, -delta).forEach { (id, a) -> change[id] = -a }
+        return instalments.map { i -> change[i.id]?.let { i.copy(paid = (i.paid + it).coerceIn(0.0, i.amount)) } ?: i }
+    }
+
+    /**
      * What is still to be paid, as items for the commitments list. Unpaid instalments only; the ones due before
      * [today] are late and are kept in the current cycle (they are not repeated in their old month).
      */

@@ -484,16 +484,15 @@ class Repo private constructor(private val app: Context) {
     private suspend fun applyToInstalments(loanId: Long, delta: Double, day: LocalDate, walletId: Long?) {
         val rows = dao.installmentsOfLoan(loanId)
         if (rows.isEmpty()) return
-        if (delta > 0.004) {
-            val (parts, _) = LoanSchedule.allocate(rows.map { it.toCore() }, delta)
-            for ((id, amt) in parts) rows.firstOrNull { it.id == id }?.let {
-                dao.updateLoanInstallment(it.copy(paidAmount = it.paidAmount + amt, paidDay = day.toEpochDay(), walletId = walletId ?: it.walletId))
-            }
-        } else if (delta < -0.004) {
-            for ((id, amt) in LoanSchedule.unallocate(rows.map { it.toCore() }, -delta)) rows.firstOrNull { it.id == id }?.let {
-                val left = (it.paidAmount - amt).coerceAtLeast(0.0)
-                dao.updateLoanInstallment(it.copy(paidAmount = left, paidDay = if (left < 0.005) null else it.paidDay))
-            }
+        val before = rows.map { it.toCore() }
+        val after = LoanSchedule.applyDelta(before, delta).associateBy { it.id }
+        for (r in rows) {
+            val n = after[r.id] ?: continue
+            if (LoanSchedule.same(n.paid, r.paidAmount)) continue
+            dao.updateLoanInstallment(
+                if (delta > 0) r.copy(paidAmount = n.paid, paidDay = day.toEpochDay(), walletId = walletId ?: r.walletId)
+                else r.copy(paidAmount = n.paid, paidDay = if (n.paid < 0.005) null else r.paidDay)
+            )
         }
     }
 
@@ -537,8 +536,11 @@ class Repo private constructor(private val app: Context) {
         loanPayment(l, next?.remaining ?: l.remaining, walletId, day)
     }
 
-    suspend fun loanPayment(l: Loan, amount: Double, walletId: Long? = null, day: LocalDate = LocalDate.now()) {
+    suspend fun loanPayment(l: Loan, amount0: Double, walletId: Long? = null, day: LocalDate = LocalDate.now()) {
         val p = prefs()
+        // Paying more than is left counts only what is left, so "repaid" and the instalments always agree.
+        val amount = minOf(amount0, l.remaining)
+        if (amount < 0.005) return
         // If the loan never touched the balance, paying it back must not touch it either.
         if (loanRecorded(l)) dao.insertTxn(
             Txn(

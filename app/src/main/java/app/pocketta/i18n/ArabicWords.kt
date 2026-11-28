@@ -538,6 +538,8 @@ object ArabicWords {
         "Optional. Pocketta works exactly the same without an account. Sign in to keep your phone and laptop in sync and to have an automatic backup." to "اختياري. التطبيق شغّال زي ما هو من غير حساب. سجّل الدخول عشان الموبايل واللابتوب يتزامنوا وتبقى عندك نسخة احتياطية تلقائية.",
         "Sign in with Google" to "سجّل الدخول بجوجل",
         "Sync is on" to "المزامنة شغّالة",
+        "Use cloud always" to "استخدم السحابة دايمًا",
+        "On: it syncs by itself and asks only when your phone and the cloud hold different data. Off: it also asks before the first upload." to "شغّال: بيزامن لوحده ومبيسألش غير لما موبايلك والسحابة فيهم بيانات مختلفة. مقفول: بيسأل كمان قبل أول رفع.",
         "Syncing..." to "بيزامن...",
         "No internet. It will sync when you are back online." to "مفيش نت. هيزامن لما النت يرجع.",
         "Paused. Tap Sync now to choose." to "واقفة. دوس زامن دلوقتي عشان تختار.",

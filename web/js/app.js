@@ -10,7 +10,7 @@ import * as Sync from './sync.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const VERSION = '1.22.1';
+const VERSION = '1.23.0';
 
 const ICON = {
   home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
@@ -2157,7 +2157,8 @@ function syncCard() {
     ${i.encrypted ? '<div class="small">Encrypted on this device</div>' : ''}
     <div class="small">Last sync: ${esc(when)}</div>
     <div class="btns"><button class="btn filled" data-act="sync-now">Sync now</button><button class="btn outline" data-act="sync-out">Sign out</button></div>
-    <div class="small">If you sign out, your data stays on this device and sync stops.</div>${note}
+    <div class="small">If you sign out, your data stays on this device and sync stops.</div>
+    <label class="row-flex"><span class="grow"><b>Use cloud always</b><div class="small">On: it syncs by itself and asks only when this device and the cloud hold different data. Off: it also asks before the first upload.</div></span><input type="checkbox" data-act="cloud-always" ${i.cloudAlways ? 'checked' : ''}></label>${note}
     ${Sync.hasKeys() ? `<div class="label">Encryption</div><div class="btns"><button class="btn outline" data-act="enc-newkey">New encryption key</button></div>` : ''}
     <button class="btn text danger" data-act="sync-delete">Delete my data from the cloud</button>`;
 }
@@ -2221,7 +2222,7 @@ function syncUnlock({ bad }) {
 }
 
 /** Asked only when it is really needed: first upload, or two different copies of the same account. */
-function syncChoose({ kind, local, cloud }) {
+function syncChoose({ kind, local, cloud, newest }) {
   return new Promise((resolve) => {
     let done = false;
     const fin = (v) => { if (!done) { done = true; resolve(v); } };
@@ -2234,8 +2235,8 @@ function syncChoose({ kind, local, cloud }) {
       return el;
     }
     body = `<p>This account already has data in the cloud, and this device has different data. Pick the one you want to keep. Nothing is merged.</p>
-      <label class="pick"><input type="radio" name="keep" value="local" checked><div><b>Keep this device</b><div class="small">${esc(line(local))}${local.at ? ' · changed ' + esc(fmtAt(local.at)) : ''}<br>Replaces what is in the cloud</div></div></label>
-      <label class="pick"><input type="radio" name="keep" value="cloud"><div><b>Keep the cloud copy</b><div class="small">${esc(line(cloud))} · saved ${esc(fmtAt(cloud.at))}${cloud.device ? ' from ' + esc(cloud.device) : ''}<br>Replaces what is on this device</div></div></label>
+      <label class="pick"><input type="radio" name="keep" value="local" ${newest === 'cloud' ? '' : 'checked'}><div><b>Keep this device</b><div class="small">${esc(line(local))}${local.at ? ' · changed ' + esc(fmtAt(local.at)) : ''}<br>Replaces what is in the cloud</div></div></label>
+      <label class="pick"><input type="radio" name="keep" value="cloud" ${newest === 'cloud' ? 'checked' : ''}><div><b>Keep the cloud copy</b><div class="small">${esc(line(cloud))} · saved ${esc(fmtAt(cloud.at))}${cloud.device ? ' from ' + esc(cloud.device) : ''}<br>Replaces what is on this device</div></div></label>
       <p class="small">Before anything is replaced, a safety copy of that side is kept.</p>`;
     sheet({ title: 'Your data is different', body, saveLabel: 'Continue', onSave: (el) => { fin($('input[name=keep]:checked', el).value); }, onClose: () => fin(null) });
   });
@@ -2720,6 +2721,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', (e) => {
   const a = e.target.dataset?.act;
   if (a === 'toggle-alert' || a === 'toggle-weekly' || a === 'toggle-auto' || a === 'toggle-monthend' || a === 'toggle-addfield') actions[a](e.target);
+  if (a === 'cloud-always') Sync.setCloudAlways(e.target.checked);
   if (e.target.id === 'conv-from') { ui.conv.from = e.target.value; convRefresh(); }
   if (e.target.id === 'conv-to') { ui.conv.to = e.target.value; convRefresh(); }
 });

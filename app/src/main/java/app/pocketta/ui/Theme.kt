@@ -6,7 +6,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import app.pocketta.R
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -52,10 +56,17 @@ private val Shapes24 = Shapes(
     large = RoundedCornerShape(24.dp), extraLarge = RoundedCornerShape(28.dp),
 )
 
+/** Cairo (SIL Open Font License), bundled as a variable font: one file, every weight, Arabic and Latin. */
+val CairoFamily = FontFamily(
+    listOf(300, 400, 500, 600, 700).map { w ->
+        Font(R.font.cairo, FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))
+    }
+)
+
 /** Lighter weights (300 for the hero number, 400 body, 500 emphasis) and tabular figures so numbers line up. */
 private fun calmTypography(): Typography {
     val base = Typography()
-    fun TextStyle.calm(w: FontWeight) = copy(fontWeight = w, fontFeatureSettings = "tnum")
+    fun TextStyle.calm(w: FontWeight) = copy(fontFamily = CairoFamily, fontWeight = w, fontFeatureSettings = "tnum")
     return base.copy(
         displayLarge = base.displayLarge.calm(FontWeight.Light), displayMedium = base.displayMedium.calm(FontWeight.Light),
         displaySmall = base.displaySmall.calm(FontWeight.Light),

@@ -77,6 +77,11 @@ object CloudSync {
         publish()
     }
 
+    /** "Use cloud always" (default on): sync silently, asking only when two different copies meet. Off: the first upload and every conflict ask. */
+    var cloudAlways: Boolean
+        get() = !::sp.isInitialized || sp.getBoolean("cloudAlways", true)
+        set(v) { if (::sp.isInitialized) sp.edit().putBoolean("cloudAlways", v).apply() }
+
     fun signedIn(): Boolean = ::sp.isInitialized && sp.contains("access")
 
     private fun publish(status: String = _ui.value.status, error: String = "", busy: Boolean = false) {
@@ -306,13 +311,16 @@ object CloudSync {
                     }
                     if (cloud == null) {
                         // First upload: no question (it is the only thing that can happen). The encryption key is made once, on its own screen.
-                        if (!isEmpty(snap)) ok = up(null)
+                        // With "Use cloud always" switched off, the old question comes back.
+                        if (!isEmpty(snap)) {
+                            if (cloudAlways || ask(true, side(snap, localAt), null) != null) ok = up(null) else paused = true
+                        }
                     } else {
                         val cloudHash = hash(strip(JSONObject(cloud.data.toString())))
                         val cloudTime = parseTime(cloud.updatedAt)
                         // A question that was already answered for exactly these two copies is never asked again.
                         val remembered = (sp.getString("answer", "") ?: "").let { a ->
-                            if (a.substringBefore('=') != SyncDecision.pairKey(lh, cloudHash)) null
+                            if (!cloudAlways || a.substringBefore('=') != SyncDecision.pairKey(lh, cloudHash)) null
                             else if (a.substringAfter('=') == "cloud") Side.CLOUD else Side.LOCAL
                         }
                         val facts = SyncFacts(

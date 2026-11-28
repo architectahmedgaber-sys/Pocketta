@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -85,6 +86,14 @@ fun SyncCard(repo: Repo) {
                 OutlinedButton(onClick = { confirmOut = true }, modifier = Modifier.padding(start = 8.dp)) { Text("Sign out") }
             }
             Text("If you sign out, your data stays on this device and sync stops.", style = MaterialTheme.typography.bodySmall)
+            var always by remember { mutableStateOf(CloudSync.cloudAlways) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Use cloud always", fontWeight = FontWeight.Medium)
+                    Text("On: it syncs by itself and asks only when your phone and the cloud hold different data. Off: it also asks before the first upload.", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = always, onCheckedChange = { always = it; CloudSync.cloudAlways = it })
+            }
             if (s.encrypted) {
                 Gap(4)
                 Text("Encryption", fontWeight = FontWeight.Medium)

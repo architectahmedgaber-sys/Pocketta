@@ -216,6 +216,8 @@ const EXTRA = {
   "Sign in with Google": "سجّل الدخول بجوجل",
   "🔒 Your money data is private. It is saved only on your own account and nobody else can open it.": "🔒 فلوسك خاصة بيك. بتتحفظ على حسابك بس، وماحدش غيرك يقدر يفتحها.",
   "Sync is on": "المزامنة شغّالة",
+  "Use cloud always": "استخدم السحابة دايمًا",
+  "On: it syncs by itself and asks only when this device and the cloud hold different data. Off: it also asks before the first upload.": "شغّال: بيزامن لوحده ومبيسألش غير لما الجهاز والسحابة فيهم بيانات مختلفة. مقفول: بيسأل كمان قبل أول رفع.",
   "Syncing...": "بيزامن...",
   "No internet. It will sync when you are back online.": "مفيش نت. هيزامن لما النت يرجع.",
   "Paused. Tap Sync now to choose.": "واقفة. دوس زامن دلوقتي عشان تختار.",

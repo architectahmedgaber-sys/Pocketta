@@ -552,3 +552,20 @@ export function loanUnallocate(rows, amount) {
 }
 export const loanNext = (rows) => rows.filter((x) => !instIsPaid(x)).sort((a, b) => a.dueDay - b.dueDay)[0] || null;
 export const instRemaining = instRem;
+
+// ---------- Cloud sync decision (port of core/SyncDecision.kt) ----------
+/** What a sync should do: { action: NOTHING | UPLOAD | APPLY_CLOUD | MARK_SYNCED | ASK_CONFLICT, newest?: 'local' | 'cloud' }.
+ *  Only ASK_CONFLICT asks: both sides differ and nothing is merged. [remembered] ('local' | 'cloud') is an answer already given for exactly these two copies. */
+export function syncDecision(f) {
+  const conflict = () => {
+    if (f.remembered === 'local') return { action: 'UPLOAD' };
+    if (f.remembered === 'cloud') return { action: 'APPLY_CLOUD' };
+    return { action: 'ASK_CONFLICT', newest: (f.localAt || 0) >= (f.cloudAt || 0) ? 'local' : 'cloud' };
+  };
+  if (!f.cloudExists) return { action: f.localEmpty ? 'NOTHING' : 'UPLOAD' };
+  if (!f.syncedBefore) return f.localEmpty ? { action: 'APPLY_CLOUD' } : f.sameContent ? { action: 'MARK_SYNCED' } : conflict();
+  if (f.localChanged && f.cloudChanged) return f.sameContent ? { action: 'MARK_SYNCED' } : conflict();
+  if (f.localChanged) return { action: 'UPLOAD' };
+  if (f.cloudChanged) return { action: 'APPLY_CLOUD' };
+  return { action: 'NOTHING' };
+}
